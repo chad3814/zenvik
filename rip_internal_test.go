@@ -119,3 +119,25 @@ func TestMapTracksLanguageNormalization(t *testing.T) {
 		}
 	}
 }
+
+func TestMapTracksDuplicatePID(t *testing.T) {
+	title := &Title{
+		ID:    "00800",
+		Video: []VideoTrack{{PID: 0x1011}},
+		Audio: []AudioTrack{
+			{PID: 0x1100, Codec: bluray.CodingAC3, Language: "eng"},
+			{PID: 0x1100, Codec: bluray.CodingAC3, Language: "eng"},
+		},
+	}
+	id := &mux.Identification{Tracks: []mux.IdentifiedTrack{
+		{ID: 0, Type: "video", PID: 0x1011},
+		{ID: 1, Type: "audio", PID: 0x1100, Channels: 2},
+	}}
+	tracks, warnings := mapTracks(title, id)
+	if len(tracks) != 2 {
+		t.Errorf("tracks = %+v, want video and one audio", tracks)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "0x1100") || !strings.Contains(warnings[0], "more than once") {
+		t.Errorf("warnings = %q", warnings)
+	}
+}

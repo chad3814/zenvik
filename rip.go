@@ -208,6 +208,10 @@ func mapTracks(t *Title, id *mux.Identification) ([]mux.Track, []string) {
 			warnings = append(warnings, fmt.Sprintf("title %s: %s stream PID 0x%04X not found by mkvmerge; skipped", t.ID, kind, pid))
 			return
 		}
+		if used[it.ID] {
+			warnings = append(warnings, fmt.Sprintf("title %s: %s stream PID 0x%04X appears in the playlist's stream table more than once; skipped the repeat", t.ID, kind, pid))
+			return
+		}
 		used[it.ID] = true
 		if kind != "video" {
 			norm, ok := normalizeLanguage(lang)
