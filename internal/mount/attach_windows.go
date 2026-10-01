@@ -16,9 +16,13 @@ func attach(ctx context.Context, image string) (*Mount, error) {
 	run := func(ctx context.Context, script string) ([]byte, error) {
 		return runner(ctx, ps, "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; "+script)
 	}
-	out, err := run(ctx, fmt.Sprintf("(Mount-DiskImage -ImagePath %s -Access ReadOnly -PassThru | Get-Volume).DriveLetter", psQuote(image)))
+	q := psQuote(image)
+	// If the volume lookup fails after the image attached, dismount inside
+	// PowerShell so a failed Attach never leaves the image mounted.
+	out, err := run(ctx, fmt.Sprintf("$i = Mount-DiskImage -ImagePath %s -Access ReadOnly -PassThru; "+
+		"try { ($i | Get-Volume).DriveLetter } catch { Dismount-DiskImage -ImagePath %s | Out-Null; throw }", q, q))
 	dismount := func(ctx context.Context) ([]byte, error) {
-		return run(ctx, fmt.Sprintf("Dismount-DiskImage -ImagePath %s | Out-Null", psQuote(image)))
+		return run(ctx, fmt.Sprintf("Dismount-DiskImage -ImagePath %s | Out-Null", q))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: Mount-DiskImage %s: %w: %s", ErrUnavailable, image, err, strings.TrimSpace(string(out)))

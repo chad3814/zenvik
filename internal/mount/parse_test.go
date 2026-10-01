@@ -55,4 +55,9 @@ func TestPSQuote(t *testing.T) {
 	if got := psQuote(`C:\Movies\Bob's "Disc".iso`); got != `'C:\Movies\Bob''s "Disc".iso'` {
 		t.Errorf("psQuote = %s", got)
 	}
+	for _, q := range []string{"\u2018", "\u2019", "\u201A", "\u201B"} {
+		if got, want := psQuote("Bob"+q+"s.iso"), "'Bob"+q+q+"s.iso'"; got != want {
+			t.Errorf("psQuote with %U = %s, want %s", []rune(q)[0], got, want)
+		}
+	}
 }

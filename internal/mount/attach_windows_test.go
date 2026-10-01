@@ -5,6 +5,8 @@ package mount
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -25,7 +27,7 @@ func TestAttachWindows(t *testing.T) {
 	if err != nil || m.Dir != `F:\` {
 		t.Fatalf("Attach = %+v, %v", m, err)
 	}
-	if !strings.Contains(calls[0], `Mount-DiskImage -ImagePath 'C:\Movies\Bob''s.iso' -Access ReadOnly -PassThru`) {
+	if !strings.Contains(calls[0], `$i = Mount-DiskImage -ImagePath 'C:\Movies\Bob''s.iso' -Access ReadOnly -PassThru; try { ($i | Get-Volume).DriveLetter } catch { Dismount-DiskImage -ImagePath 'C:\Movies\Bob''s.iso' | Out-Null; throw }`) {
 		t.Errorf("mount call = %s", calls[0])
 	}
 	if err := m.Detach(context.Background()); err != nil {
@@ -33,6 +35,14 @@ func TestAttachWindows(t *testing.T) {
 	}
 	if !strings.Contains(calls[1], `Dismount-DiskImage -ImagePath 'C:\Movies\Bob''s.iso'`) {
 		t.Errorf("dismount call = %s", calls[1])
+	}
+	outputs = []string{"G\r\n"}
+	if _, err := Attach(context.Background(), `rel\x.iso`); err != nil {
+		t.Fatal(err)
+	}
+	re := regexp.MustCompile(`-ImagePath '([^']*)'`)
+	if sub := re.FindStringSubmatch(calls[len(calls)-1]); sub == nil || !filepath.IsAbs(sub[1]) {
+		t.Errorf("relative input not made absolute: %s", calls[len(calls)-1])
 	}
 	lookPath = func(string) (string, error) { return "", errors.New("not found") }
 	if _, err := Attach(context.Background(), `C:\x.iso`); !errors.Is(err, ErrUnavailable) {

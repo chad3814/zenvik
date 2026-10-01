@@ -45,5 +45,11 @@ func parseDriveLetter(out string) (string, error) {
 	return s + `:\`, nil
 }
 
+// psQuoteReplacer doubles every character PowerShell treats as a single
+// quote: the ASCII apostrophe and the Unicode curly/low/reversed quotes.
+var psQuoteReplacer = strings.NewReplacer(
+	"'", "''", "\u2018", "\u2018\u2018", "\u2019", "\u2019\u2019",
+	"\u201A", "\u201A\u201A", "\u201B", "\u201B\u201B")
+
 // psQuote quotes s as a PowerShell single-quoted string.
-func psQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+func psQuote(s string) string { return "'" + psQuoteReplacer.Replace(s) + "'" }

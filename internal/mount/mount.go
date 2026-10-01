@@ -5,7 +5,9 @@ package mount
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
+	"path/filepath"
 	"time"
 )
 
@@ -21,8 +23,16 @@ type Mount struct {
 	detach func(ctx context.Context) error
 }
 
-// Attach mounts image read-only.
-func Attach(ctx context.Context, image string) (*Mount, error) { return attach(ctx, image) }
+// Attach mounts image read-only. A relative image path is resolved against
+// the current directory first, because some mount tools (Windows' CIM
+// provider) do not resolve it themselves.
+func Attach(ctx context.Context, image string) (*Mount, error) {
+	abs, err := filepath.Abs(image)
+	if err != nil {
+		return nil, fmt.Errorf("zenvik: resolving image path %q: %w", image, err)
+	}
+	return attach(ctx, abs)
+}
 
 // Detach unmounts the image. It ignores cancellation of ctx so cleanup
 // still runs after Ctrl-C, gives up after one minute, and is safe to call

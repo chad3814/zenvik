@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -99,5 +100,19 @@ func TestAttachDarwinNoTool(t *testing.T) {
 	lookPath = func(string) (string, error) { return "", errors.New("not found") }
 	if _, err := Attach(context.Background(), "/images/x.iso"); !errors.Is(err, ErrUnavailable) {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestAttachDarwinRelativePath(t *testing.T) {
+	calls := fakeRunner(t)
+	m, err := Attach(context.Background(), "rel/x.iso")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Detach(context.Background()) })
+	args := (*calls)[0].args
+	img := args[len(args)-1]
+	if !filepath.IsAbs(img) || !strings.HasSuffix(img, "/rel/x.iso") {
+		t.Errorf("image arg = %q, want an absolute path ending in /rel/x.iso", img)
 	}
 }
