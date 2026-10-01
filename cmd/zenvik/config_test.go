@@ -123,7 +123,7 @@ func TestInfoMinDurationFromConfig(t *testing.T) {
 	disc := writeDisc(t, testdisc.SampleMovie())
 	writeUserConfig(t, `min_duration = "10s"`)
 	code, out, _ := runCLI("info", disc)
-	if code != 0 || !strings.Contains(out, "00099") || strings.Contains(out, "hidden") {
+	if code != 0 || titleRow(out, "00099") == "" || strings.Contains(out, "hidden") {
 		t.Errorf("exit %d, out:\n%s", code, out)
 	}
 }

@@ -40,6 +40,14 @@ func lineWith(out, s string) string {
 	return ""
 }
 
+// titleRow returns the first title row of info output mentioning playlist. It
+// skips the header line, whose disc path (a random temp dir) may itself
+// contain the digits.
+func titleRow(out, playlist string) string {
+	_, rows, _ := strings.Cut(out, "\n")
+	return lineWith(rows, playlist)
+}
+
 func TestInfoTable(t *testing.T) {
 	code, out, errOut := runCLI("info", writeDisc(t, testdisc.SampleMovie()))
 	if code != 0 || errOut != "" {
@@ -48,7 +56,7 @@ func TestInfoTable(t *testing.T) {
 	if !strings.HasPrefix(out, "Sample Movie  (BDMV folder: ") {
 		t.Errorf("header = %q", strings.SplitN(out, "\n", 2)[0])
 	}
-	main := lineWith(out, "00800")
+	main := titleRow(out, "00800")
 	for _, want := range []string{"★", "1:40:00", "120.0 KiB", "20", "H.264/AVC 1080p", "eng,fra", "eng"} {
 		if !strings.Contains(main, want) {
 			t.Errorf("main line %q lacks %q", main, want)
@@ -57,7 +65,7 @@ func TestInfoTable(t *testing.T) {
 	if !strings.HasPrefix(main, "★") {
 		t.Errorf("main line should start with ★: %q", main)
 	}
-	if dup := lineWith(out, "00801"); !strings.Contains(dup, "duplicate of 00800") || strings.Contains(dup, "★") {
+	if dup := titleRow(out, "00801"); !strings.Contains(dup, "duplicate of 00800") || strings.Contains(dup, "★") {
 		t.Errorf("duplicate line = %q", dup)
 	}
 	if strings.Contains(out, "00099") {
@@ -73,7 +81,7 @@ func TestInfoAll(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code %d", code)
 	}
-	if l := lineWith(out, "00099"); !strings.Contains(l, "shorter than 2m0s") {
+	if l := titleRow(out, "00099"); !strings.Contains(l, "shorter than 2m0s") {
 		t.Errorf("filtered line = %q", l)
 	}
 	if strings.Contains(out, "hidden") {
@@ -126,8 +134,8 @@ func TestInfoAmbiguousWarning(t *testing.T) {
 	if !strings.Contains(errOut, "warning: the main title is a close call (close second: 00802") {
 		t.Errorf("stderr = %q", errOut)
 	}
-	if !strings.Contains(lineWith(out, "00800"), "ambiguous") {
-		t.Errorf("main line = %q", lineWith(out, "00800"))
+	if !strings.Contains(titleRow(out, "00800"), "ambiguous") {
+		t.Errorf("main line = %q", titleRow(out, "00800"))
 	}
 }
 
