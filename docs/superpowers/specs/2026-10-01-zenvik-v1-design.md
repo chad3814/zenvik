@@ -61,7 +61,7 @@ zenvik/
 ## 3. Library API (`package zenvik`)
 
 ```go
-func Open(ctx context.Context, path string) (*Disc, error)
+func Open(ctx context.Context, path string, opts ...OpenOption) (*Disc, error) // e.g. WithMinDuration(d)
 func FormatName(tmpl string, d *Disc, t *Title, vars NameVars) (string, error)
 
 type SourceKind int // ISO, BDMVDir (later: VideoTSDir)
@@ -93,9 +93,11 @@ type Title struct {
 }
 
 type RipOptions struct {
-  OutputPath string          // final path; naming is resolved by the caller (e.g. via FormatName)
-  Overwrite  bool
-  OnProgress func(Progress)  // optional; called from the muxing goroutine
+  OutputPath   string         // final path; naming is resolved by the caller (e.g. via FormatName)
+  MkvmergePath string         // mkvmerge executable; empty searches PATH
+  Overwrite    bool
+  DryRun       bool           // resolve everything and return the command without running it
+  OnProgress   func(Progress) // optional; called from the muxing goroutine
 }
 type Progress struct {
   Phase      Phase   // Mounting, Scanning, Muxing, Finalizing
@@ -103,7 +105,7 @@ type Progress struct {
   BytesDone  int64
   BytesTotal int64
 }
-type RipResult struct { OutputPath string; Duration time.Duration; Warnings []string }
+type RipResult struct { OutputPath string; Duration time.Duration; Warnings []string; Command []string }
 ```
 
 - Ranking runs inside `Open`, so all consumers see the same ordering and reasons.
@@ -165,7 +167,7 @@ The mkvmerge implementation:
 | Linux | `udisksctl loop-setup -r -f <iso>` then `udisksctl mount -b <loopdev>` | `udisksctl unmount -b`, then `udisksctl loop-delete -b` |
 | Windows | PowerShell `Mount-DiskImage -ImagePath <iso> -PassThru \| Get-Volume` (drive letter) | `Dismount-DiskImage -ImagePath <iso>` |
 
-After mounting, zenvik checks that `BDMV/index.bdmv` exists at the mount point. `Close()` unmounts only what zenvik mounted. If mounting isn't possible, `Rip` returns `ErrMountUnavailable`, and the message suggests extracting or mounting manually and passing the directory instead. If the process is killed hard, a mount may be left behind; this is documented, and `zenvik doctor` lists any leftover zenvik mounts along with the command to remove them.
+After mounting, zenvik checks that `BDMV/index.bdmv` exists at the mount point. `Close()` unmounts only what zenvik mounted. If mounting isn't possible, `Rip` returns `ErrMountUnavailable`, and the message suggests extracting or mounting manually and passing the directory instead. If the process is killed hard, a mount may be left behind; this is documented. Mounts are recorded in `$XDG_STATE_HOME/zenvik/mounts` (or the user cache dir; a relative `XDG_STATE_HOME` is ignored, per the XDG spec) until detached, and `zenvik doctor` lists records whose process is gone, with the command to remove each. That command also deletes the record file. Mount tools run with `LC_ALL=C.UTF-8` (not `C`) so output parsing is locale-independent while GLib keeps non-ASCII mount paths intact; glibc falls back to the C locale where `C.UTF-8` is missing. On Windows, a liveness check that gets access-denied treats the process as alive.
 
 ### `udf` package
 
@@ -184,7 +186,7 @@ zenvik rip  <path> [-p|--playlist ID] [-o|--output-dir DIR] [--name NAME] [--yea
 zenvik doctor
 ```
 
-- **`info`:** a ranked table with columns ★ (main), ID, duration, size, chapters, video, audio languages, subtitle languages, and notes (duplicate, ambiguous, encrypted, angles). `--all` includes filtered titles with their reasons. `--json` prints the `Disc` model.
+- **`info`:** a ranked table with columns ★ (main), ID, duration, size, chapters, video, audio languages, subtitle languages, and notes (duplicate, ambiguous, encrypted, angles). `--all` includes filtered titles with their reasons. `--json` prints the `Disc` model, with `"kind": "iso" | "bdmv"`.
 - **`rip`:** rips the main title by default (or `--playlist`). It prints the chosen title and why, then the progress. When the result is ambiguous, it rips the top candidate and warns, naming the alternatives. `--dry-run` prints the resolved output path and the mkvmerge command without running it.
 - **`doctor`:** checks that mkvmerge is found and its version, whether ISO mounting is possible on this OS, the config path and whether it parses, and any leftover zenvik mounts.
 - **Progress:** an in-place progress bar on a TTY; plain periodic lines otherwise.
@@ -193,7 +195,7 @@ zenvik doctor
 
 ## 8. Config and naming
 
-**Config location:** `$XDG_CONFIG_HOME/zenvik/config.toml`, falling back to `~/.config/zenvik/config.toml` on macOS and Linux, and `%AppData%\zenvik\config.toml` on Windows. A missing file means built-in defaults.
+**Config location:** `$XDG_CONFIG_HOME/zenvik/config.toml`, falling back to `~/.config/zenvik/config.toml` on macOS and Linux, and `%AppData%\zenvik\config.toml` on Windows. A missing file means built-in defaults. `XDG_CONFIG_HOME` is honored on every OS, including Windows.
 
 ```toml
 output_dir    = "~/Movies"
@@ -209,7 +211,7 @@ template   = "{name}[ ({year})]/{name}[ ({year})].mkv"
 
 - **Precedence:** CLI flags > selected preset (`--preset`, else `preset`) > top-level config > built-in defaults. Built-in defaults: `output_dir` = current directory, `template` = `{name}[ ({year})].mkv`, `min_duration` = `2m`.
 - Presets may override only `output_dir`, `template`, and `min_duration` in v1.
-- An unknown preset name or an invalid value is an error (exit 2) that names the key.
+- An unknown preset name or an invalid value is an error (exit 2) that names the key. Unknown config keys are errors too, which catches typos. Durations are strings validated by zenvik, and negative durations are invalid.
 
 **Template variables:**
 
@@ -223,6 +225,7 @@ template   = "{name}[ ({year})]/{name}[ ({year})].mkv"
 - `[...]` is an optional group, dropped if any variable inside it is empty. Groups do not nest.
 - An unknown variable is an error.
 - Characters invalid on any of macOS, Linux, or Windows (`<>:"\|?*` and control characters) are replaced with `_`. `/` in the template creates directories; `/` inside a variable's value is replaced.
+- Every rendered path component is cleaned: surrounding spaces and trailing dots are trimmed, Windows reserved base names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`) get a `_` suffix, and each component is cut to 247 bytes at a rune boundary (keeping the extension) so `<name>.partial` fits in 255 bytes. The final component gets `.mkv` if missing (case-insensitive). Empty, `.` or `..` components and absolute results are errors; a `\` in the template is an invalid character, not a separator.
 - Paths are relative to `output_dir`, and `~` is expanded.
 - An existing output file causes `ErrOutputExists` unless `--overwrite` is passed.
 

@@ -17,3 +17,4 @@ Go module `github.com/chad3814/zenvik`. Design: `docs/superpowers/specs/2026-10-
 - Third-party dependencies are limited to `spf13/cobra` and `pelletier/go-toml/v2`.
 - Never commit copyrighted disc data; build fixtures with `internal/testdisc`.
 - Return sentinel errors wrapped with `%w`.
+- Tests must not touch real user config/state: set XDG_CONFIG_HOME and XDG_STATE_HOME to temp dirs (cmd/zenvik has a TestMain for this).
