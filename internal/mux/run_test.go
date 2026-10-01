@@ -78,6 +78,9 @@ func TestMuxFailure(t *testing.T) {
 	if !strings.Contains(err.Error(), `The file 'C:\Users\bob\x.ts' could not be opened for reading`) {
 		t.Errorf("error lines not verbatim: %v", err)
 	}
+	if !strings.Contains(err.Error(), "warnings: the playlist looks truncated") {
+		t.Errorf("warning lines missing from the error: %v", err)
+	}
 	if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("output should be removed on failure: %v", err)
 	}

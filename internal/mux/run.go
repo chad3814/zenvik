@@ -108,6 +108,9 @@ func (m *Mkvmerge) Mux(ctx context.Context, job Job, onProgress func(Phase, floa
 	if detail == "" {
 		detail = strings.TrimSpace(stderr.String())
 	}
+	if len(warnings) > 0 {
+		detail += "; warnings: " + strings.Join(warnings, "; ")
+	}
 	return nil, fmt.Errorf("%w (exit status %d): %s", ErrFailed, code, detail)
 }
 

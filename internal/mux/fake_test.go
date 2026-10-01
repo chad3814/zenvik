@@ -80,6 +80,7 @@ func fakeMkvmerge(mode string, args []string) int {
 			fmt.Println("Warning: the playlist has a gap")
 			fmt.Println(`#GUI#warning A warning: with C:\Users\bob\stuff`)
 		case 2:
+			fmt.Println("Warning: the playlist looks truncated")
 			fmt.Println("Error: cannot open the playlist")
 			fmt.Println(`#GUI#error The file 'C:\Users\bob\x.ts' could not be opened for reading`)
 		}
