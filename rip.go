@@ -104,8 +104,8 @@ func (d *Disc) Rip(ctx context.Context, t *Title, opts RipOptions) (res *RipResu
 		if rerr := release(); rerr != nil {
 			if res != nil {
 				res.Warnings = append(res.Warnings, rerr.Error())
-			} else if err == nil {
-				err = rerr
+			} else {
+				err = errors.Join(err, rerr)
 			}
 		}
 	}()
@@ -172,12 +172,15 @@ func (d *Disc) mountRoot(ctx context.Context, report func(Phase, float64)) (stri
 	report(PhaseMounting, 0)
 	m, err := mount.Attach(ctx, d.src.Path)
 	if err != nil {
-		return "", nil, fmt.Errorf("%w (mount the image yourself, or extract it, and pass the folder instead)", err)
+		if errors.Is(err, mount.ErrUnavailable) {
+			err = fmt.Errorf("%w (mount the image yourself, or extract it, and pass the folder instead)", err)
+		}
+		return "", nil, err
 	}
 	release := func() error { return m.Detach(ctx) }
 	if _, err := os.Stat(filepath.Join(m.Dir, "BDMV", "index.bdmv")); err != nil {
-		_ = release()
-		return "", nil, fmt.Errorf("zenvik: mounted %s at %s but found no BDMV/index.bdmv: %w", d.src.Path, m.Dir, err)
+		err = fmt.Errorf("zenvik: mounted %s at %s but found no BDMV/index.bdmv: %w", d.src.Path, m.Dir, err)
+		return "", nil, errors.Join(err, release())
 	}
 	report(PhaseMounting, 1)
 	return m.Dir, release, nil
@@ -185,8 +188,8 @@ func (d *Disc) mountRoot(ctx context.Context, report func(Phase, float64)) (stri
 
 // mapTracks matches the title's playlist streams to mkvmerge's tracks by
 // PID, in stream-number order (video, audio, subtitles). It sets languages
-// from the playlist, names audio tracks, and makes the first video and
-// first audio track default. Streams one side has and the other doesn't
+// from the playlist, names audio tracks, and makes the first emitted video
+// and audio track default. Streams one side has and the other doesn't
 // are skipped with a warning.
 func mapTracks(t *Title, id *mux.Identification) ([]mux.Track, []string) {
 	byPID := map[uint16]mux.IdentifiedTrack{}
@@ -196,23 +199,31 @@ func mapTracks(t *Title, id *mux.Identification) ([]mux.Track, []string) {
 	var tracks []mux.Track
 	var warnings []string
 	used := map[int]bool{}
-	add := func(pid uint16, kind, lang, name string, def bool) {
+	haveVideo, haveAudio := false, false
+	add := func(pid uint16, kind, lang, name string) {
 		it, ok := byPID[pid]
 		if !ok || it.Type != kind {
 			warnings = append(warnings, fmt.Sprintf("title %s: %s stream PID 0x%04X not found by mkvmerge; skipped", t.ID, kind, pid))
 			return
 		}
 		used[it.ID] = true
+		def := false
+		switch kind {
+		case "video":
+			def, haveVideo = !haveVideo, true
+		case "audio":
+			def, haveAudio = !haveAudio, true
+		}
 		tracks = append(tracks, mux.Track{ID: it.ID, Type: kind, Language: lang, Name: name, Default: def})
 	}
-	for i, v := range t.Video {
-		add(v.PID, "video", "", "", i == 0)
+	for _, v := range t.Video {
+		add(v.PID, "video", "", "")
 	}
-	for i, a := range t.Audio {
-		add(a.PID, "audio", a.Language, audioName(a, byPID[a.PID].Channels), i == 0)
+	for _, a := range t.Audio {
+		add(a.PID, "audio", a.Language, audioName(a, byPID[a.PID].Channels))
 	}
 	for _, s := range t.Subtitles {
-		add(s.PID, "subtitles", s.Language, "", false)
+		add(s.PID, "subtitles", s.Language, "")
 	}
 	for _, it := range id.Tracks {
 		if !used[it.ID] {

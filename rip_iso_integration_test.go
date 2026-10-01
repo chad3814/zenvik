@@ -19,7 +19,7 @@ import (
 
 func realISO(t *testing.T) string {
 	t.Helper()
-	disc, err := testdisc.RealMovieDisc(context.Background(), t.TempDir(), 4)
+	disc, err := testdisc.RealMovieDisc(context.Background(), t.TempDir(), 7)
 	if err != nil {
 		t.Fatal(err)
 	}

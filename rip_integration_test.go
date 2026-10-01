@@ -18,7 +18,7 @@ import (
 func realMovie(t *testing.T) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "REAL_MOVIE")
-	if err := testdisc.RealMovie(context.Background(), dir, 4); err != nil {
+	if err := testdisc.RealMovie(context.Background(), dir, 7); err != nil {
 		t.Fatal(err)
 	}
 	return dir
@@ -49,11 +49,8 @@ func assertRipped(t *testing.T, out string) {
 	if id.Tracks[1].Language != "jpn" {
 		t.Errorf("audio language = %q, want jpn (from the disc, not the stream's eng)", id.Tracks[1].Language)
 	}
-	// The fixture's playlist has three marks, but mkvmerge v102 turns only two
-	// of them into chapters (it drops the mark at the start of the second play
-	// item), so assert that chapters survive rather than an exact count.
-	if id.Chapters < 2 {
-		t.Errorf("chapters = %d, want the playlist's chapters (at least 2)", id.Chapters)
+	if id.Chapters != 3 {
+		t.Errorf("chapters = %d, want 3", id.Chapters)
 	}
 }
 

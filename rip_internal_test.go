@@ -69,3 +69,22 @@ func TestPhaseString(t *testing.T) {
 		t.Error("Phase.String mismatch")
 	}
 }
+
+func TestMapTracksDefaultSkipsMissingFirstAudio(t *testing.T) {
+	title := &Title{
+		ID:    "00800",
+		Video: []VideoTrack{{PID: 0x1011}},
+		Audio: []AudioTrack{
+			{PID: 0x1100, Codec: bluray.CodingAC3, Language: "eng"},
+			{PID: 0x1101, Codec: bluray.CodingAC3, Language: "fra"},
+		},
+	}
+	id := &mux.Identification{Tracks: []mux.IdentifiedTrack{
+		{ID: 0, Type: "video", PID: 0x1011},
+		{ID: 1, Type: "audio", PID: 0x1101, Channels: 2},
+	}}
+	tracks, _ := mapTracks(title, id)
+	if len(tracks) != 2 || !tracks[0].Default || !tracks[1].Default || tracks[1].Language != "fra" {
+		t.Errorf("tracks = %+v", tracks)
+	}
+}
