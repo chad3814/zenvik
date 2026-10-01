@@ -90,7 +90,7 @@ func TestInfoJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("invalid JSON: %v\n%s", err, out)
 	}
-	if got.Main != "00800" || got.Kind != "BDMV folder" || got.Label != "SAMPLE_MOVIE" || got.Title != "Sample Movie" {
+	if got.Main != "00800" || got.Kind != "bdmv" || got.Label != "SAMPLE_MOVIE" || got.Title != "Sample Movie" {
 		t.Errorf("disc = %+v", got)
 	}
 	if len(got.Titles) != 4 {
@@ -198,4 +198,17 @@ func TestNotesFilteredEncryptedOnly(t *testing.T) {
 	if got := notes(ti); got != "encrypted, no video stream" {
 		t.Errorf("notes = %q", got)
 	}
+}
+
+// TestMain keeps tests away from the developer's real config and state.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "zenvik-cli-test-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
+	os.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
 }

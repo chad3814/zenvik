@@ -40,3 +40,21 @@ func TestShellQuote(t *testing.T) {
 		t.Errorf("shellQuote = %s\nwant          %s", got, want)
 	}
 }
+
+func TestShellQuoteAllowList(t *testing.T) {
+	for in, want := range map[string]string{
+		"":         "''",
+		"=x":       "'=x'",
+		"a=b":      "a=b",
+		"--x=1,2":  "--x=1,2",
+		"é":        "'é'",
+		"$HOME":    "'$HOME'",
+		"~":        "'~'",
+		"a\nb":     "'a\nb'",
+		"C:/x_y-z": "C:/x_y-z",
+	} {
+		if got := shellQuote([]string{in}); got != want {
+			t.Errorf("shellQuote(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

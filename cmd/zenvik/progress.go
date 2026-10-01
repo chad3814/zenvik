@@ -55,15 +55,27 @@ func isTerminal(w io.Writer) bool {
 	return err == nil && st.Mode()&os.ModeCharDevice != 0
 }
 
-// shellQuote renders args as a POSIX shell command line.
+// shellQuote renders args as a POSIX shell command line. Arguments made only
+// of letters, digits and _./:,@%+=- (and not starting with "=", which zsh
+// expands) stay bare; anything else is single-quoted.
 func shellQuote(args []string) string {
 	out := make([]string, len(args))
 	for i, a := range args {
-		if a != "" && !strings.ContainsAny(a, " \t\n'\"\\$`!*?[](){}<>|&;#~") {
+		if a != "" && !strings.HasPrefix(a, "=") && strings.IndexFunc(a, unsafeShellRune) < 0 {
 			out[i] = a
 			continue
 		}
 		out[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
 	}
 	return strings.Join(out, " ")
+}
+
+func unsafeShellRune(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		return false
+	case strings.ContainsRune("_./:,@%+=-", r):
+		return false
+	}
+	return true
 }

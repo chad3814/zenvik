@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/chad3814/zenvik"
+	"github.com/chad3814/zenvik/internal/config"
 )
 
 // usageError marks errors caused by how the command was invoked (exit 2).
@@ -57,6 +58,8 @@ func exitCode(err error) int {
 	var ue usageError
 	switch {
 	case errors.As(err, &ue):
+		return 2
+	case errors.Is(err, config.ErrInvalid), errors.Is(err, zenvik.ErrInvalidTemplate):
 		return 2
 	case errors.Is(err, zenvik.ErrUnsupportedSource), errors.Is(err, zenvik.ErrEncrypted), errors.Is(err, zenvik.ErrNoTitles):
 		return 3

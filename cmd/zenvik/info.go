@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/chad3814/zenvik"
+	"github.com/chad3814/zenvik/internal/config"
 )
 
 func newInfoCmd() *cobra.Command {
@@ -28,7 +29,11 @@ unless --all is given.`,
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			d, err := zenvik.Open(cmd.Context(), args[0])
+			s, err := loadSettings(config.Flags{})
+			if err != nil {
+				return err
+			}
+			d, err := zenvik.Open(cmd.Context(), args[0], zenvik.WithMinDuration(s.MinDuration))
 			if err != nil {
 				return err
 			}
@@ -170,8 +175,16 @@ type jsonRank struct {
 	Reasons     []string `json:"reasons"`
 }
 
+// kindName is the machine-readable source kind for JSON output.
+func kindName(k zenvik.SourceKind) string {
+	if k == zenvik.ISO {
+		return "iso"
+	}
+	return "bdmv"
+}
+
 func writeJSON(w io.Writer, d *zenvik.Disc) error {
-	out := jsonDisc{Path: d.Path, Kind: d.Kind.String(), Label: d.Label, Titles: make([]jsonTitle, 0, len(d.Titles))}
+	out := jsonDisc{Path: d.Path, Kind: kindName(d.Kind), Label: d.Label, Titles: make([]jsonTitle, 0, len(d.Titles))}
 	if d.Meta != nil {
 		out.Title, out.Language = d.Meta.Title, d.Meta.Language
 	}
