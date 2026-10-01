@@ -3,6 +3,8 @@ package main
 import (
 	"testing"
 	"time"
+
+	"github.com/chad3814/zenvik"
 )
 
 func TestFormatDuration(t *testing.T) {
@@ -43,5 +45,13 @@ func TestJoinLanguages(t *testing.T) {
 	}
 	if got := joinLanguages(nil); got != "-" {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestKindName(t *testing.T) {
+	for k, want := range map[zenvik.SourceKind]string{zenvik.ISO: "iso", zenvik.BDMVDir: "bdmv", 0: "unknown"} {
+		if got := kindName(k); got != want {
+			t.Errorf("kindName(%v) = %q, want %q", k, got, want)
+		}
 	}
 }

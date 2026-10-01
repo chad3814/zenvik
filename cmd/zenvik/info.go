@@ -177,10 +177,13 @@ type jsonRank struct {
 
 // kindName is the machine-readable source kind for JSON output.
 func kindName(k zenvik.SourceKind) string {
-	if k == zenvik.ISO {
+	switch k {
+	case zenvik.ISO:
 		return "iso"
+	case zenvik.BDMVDir:
+		return "bdmv"
 	}
-	return "bdmv"
+	return "unknown"
 }
 
 func writeJSON(w io.Writer, d *zenvik.Disc) error {

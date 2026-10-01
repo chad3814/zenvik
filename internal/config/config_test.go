@@ -38,6 +38,40 @@ func TestDefaultPath(t *testing.T) {
 	}
 }
 
+func TestDefaultPathIgnoresRelativeXDG(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fallback is %AppData% on Windows")
+	}
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", "relative/config")
+	t.Setenv("HOME", home)
+	if p, err := DefaultPath(); err != nil || p != filepath.Join(home, ".config", "zenvik", "config.toml") {
+		t.Errorf("relative XDG_CONFIG_HOME: %q, %v; want the ~/.config fallback", p, err)
+	}
+}
+
+func TestDefaultPathFailureIsInvalid(t *testing.T) {
+	if runtime.GOOS == "windows" || runtime.GOOS == "plan9" {
+		t.Skip("home lookup differs")
+	}
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+	if _, err := DefaultPath(); !errors.Is(err, ErrInvalid) {
+		t.Errorf("err = %v, want ErrInvalid", err)
+	}
+}
+
+func TestLoadReadErrorIsInvalid(t *testing.T) {
+	dir := t.TempDir() // a directory, not a file
+	_, err := Load(dir)
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("err = %v, want ErrInvalid", err)
+	}
+	if n := strings.Count(err.Error(), dir); n != 1 {
+		t.Errorf("err %q names the path %d times, want once", err, n)
+	}
+}
+
 func TestLoadMissing(t *testing.T) {
 	f, err := Load(filepath.Join(t.TempDir(), "nope.toml"))
 	if err != nil || f.Found || f.OutputDir != nil {
@@ -141,6 +175,14 @@ func TestResolveUnknownPreset(t *testing.T) {
 	}
 	if _, err := Resolve(&File{}, Flags{Template: ptr("  ")}); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "template") {
 		t.Errorf("empty template: err = %v", err)
+	}
+}
+
+func TestResolveErrorsNameThePath(t *testing.T) {
+	f := &File{Path: "/cfg/config.toml", Found: true, Presets: map[string]Preset{"plex": {}}}
+	_, err := Resolve(f, Flags{Preset: ptr("nope")})
+	if !errors.Is(err, ErrInvalid) || strings.Count(err.Error(), "/cfg/config.toml") != 1 {
+		t.Errorf("err = %v, want ErrInvalid naming the path once", err)
 	}
 }
 

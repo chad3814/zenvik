@@ -45,10 +45,34 @@ func TestDoctorMissingMkvmerge(t *testing.T) {
 
 func TestDoctorBadConfig(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	writeUserConfig(t, `outptu_dir = "x"`)
+	path := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "zenvik", "config.toml")
+	for _, tt := range []struct{ name, config, want string }{
+		{"unknown key", `outptu_dir = "x"`, "outptu_dir"},
+		{"bad duration", `min_duration = "soon"`, "min_duration"},
+		{"unknown preset", `preset = "nope"`, `unknown preset "nope"`},
+		{"bad template", `template = "[{name}"`, `template "[{name}"`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			writeUserConfig(t, tt.config)
+			_, out, _ := runCLI("doctor")
+			line := lineWith(out, "config:")
+			if !strings.HasPrefix(line, "✗ config: zenvik: invalid configuration: ") || !strings.Contains(line, tt.want) {
+				t.Errorf("config line = %q, want ✗ config: <err> mentioning %q", line, tt.want)
+			}
+			if n := strings.Count(line, path); n != 1 {
+				t.Errorf("config line names the path %d times: %q", n, line)
+			}
+		})
+	}
+}
+
+func TestDoctorUsesConfiguredMkvmerge(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	stub := stubMkvmerge(t)
+	writeUserConfig(t, "mkvmerge_path = "+tomlPath(stub))
 	_, out, _ := runCLI("doctor")
-	if line := lineWith(out, "config:"); !strings.HasPrefix(line, "✗") || !strings.Contains(line, "outptu_dir") {
-		t.Errorf("config line = %q", line)
+	if line := lineWith(out, "mkvmerge:"); line != "✓ mkvmerge: "+stub+" (v90.0.0)" {
+		t.Errorf("mkvmerge line = %q", line)
 	}
 }
 

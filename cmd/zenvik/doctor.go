@@ -11,7 +11,6 @@ import (
 	"github.com/chad3814/zenvik/internal/config"
 	"github.com/chad3814/zenvik/internal/mount"
 	"github.com/chad3814/zenvik/internal/mux"
-	"github.com/chad3814/zenvik/internal/naming"
 )
 
 func newDoctorCmd() *cobra.Command {
@@ -106,29 +105,17 @@ func removeWith(r mount.Record) string {
 }
 
 // checkConfig describes the config file and returns the configured mkvmerge
-// path; ok is false when the file is invalid.
+// path; ok is false when the file is invalid. Every failure reads
+// "config: <err>", where err names the file once.
 func checkConfig() (msg, mkvmergePath string, ok bool) {
-	path, err := config.DefaultPath()
+	s, f, err := readConfig(config.Flags{})
 	if err != nil {
 		return fmt.Sprintf("config: %v", err), "", false
-	}
-	f, err := config.Load(path)
-	if err != nil {
-		return fmt.Sprintf("config: %v", err), "", false
-	}
-	s, err := config.Resolve(f, config.Flags{})
-	if err == nil {
-		if _, terr := naming.Parse(s.Template); terr != nil {
-			err = fmt.Errorf("template %q: %w", s.Template, terr)
-		}
-	}
-	if err != nil {
-		return fmt.Sprintf("config: %s: %v", path, err), "", false
 	}
 	if !f.Found {
-		return fmt.Sprintf("config: %s (not found; using defaults)", path), s.MkvmergePath, true
+		return fmt.Sprintf("config: %s (not found; using defaults)", f.Path), s.MkvmergePath, true
 	}
-	msg = "config: " + path
+	msg = "config: " + f.Path
 	if s.Preset != "" {
 		msg += fmt.Sprintf(" (default preset %q)", s.Preset)
 	}

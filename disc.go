@@ -28,7 +28,7 @@ type openConfig struct {
 }
 
 // WithMinDuration sets the shortest title that can be the main feature
-// (default 2 minutes).
+// (default 2 minutes). A value <= 0 disables the minimum-duration filter.
 func WithMinDuration(d time.Duration) OpenOption {
 	return func(c *openConfig) { c.minDuration = d }
 }

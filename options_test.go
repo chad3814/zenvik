@@ -3,7 +3,9 @@ package zenvik_test
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -27,6 +29,38 @@ func TestWithMinDuration(t *testing.T) {
 }
 
 func TestRipMkvmergePath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the mkvmerge stub is a shell script")
+	}
+	t.Setenv("PATH", "")
+	stub := filepath.Join(t.TempDir(), "mkvmerge")
+	// The stub answers --version with a supported version and -J with one
+	// video track on the sample movie's video PID (0x1011).
+	script := `#!/bin/sh
+case "$1" in
+--version) echo "mkvmerge v90.0 ('Stub') 64-bit" ;;
+-J) echo '{"tracks":[{"id":0,"type":"video","codec":"AVC","properties":{"number":4113}}]}' ;;
+*) exit 2 ;;
+esac
+`
+	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d := openDisc(t, writeDisc(t, testdisc.SampleMovie()))
+	res, err := d.Rip(context.Background(), d.Main(), zenvik.RipOptions{
+		OutputPath:   filepath.Join(t.TempDir(), "x.mkv"),
+		DryRun:       true,
+		MkvmergePath: stub,
+	})
+	if err != nil {
+		t.Fatalf("dry run with MkvmergePath: %v", err)
+	}
+	if len(res.Command) == 0 || res.Command[0] != stub {
+		t.Errorf("Command = %q, want it to start with %q", res.Command, stub)
+	}
+}
+
+func TestRipMkvmergePathMissing(t *testing.T) {
 	d := openDisc(t, writeDisc(t, testdisc.SampleMovie()))
 	missing := filepath.Join(t.TempDir(), "no-such-mkvmerge")
 	_, err := d.Rip(context.Background(), d.Main(), zenvik.RipOptions{

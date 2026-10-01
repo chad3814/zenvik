@@ -93,7 +93,7 @@ func TestRipConfigErrors(t *testing.T) {
 		{"unknown preset", "[presets.plex]\n", []string{"--preset", "nope", disc}, "available: plex"},
 		{"bad year", "", []string{"--year", "99", disc}, "four digits"},
 		{"bad template flag", "", []string{"--template", "{bogus}", disc}, "bogus"},
-		{"bad template config", `template = "[{name}"`, []string{disc}, "template"},
+		{"bad template config", `template = "[{name}"`, []string{disc}, `template "[{name}"`},
 		{"empty component", "", []string{"--template", "{name}/{year}/{name}", disc}, "empty path component"},
 	}
 	for _, tc := range cases {
@@ -125,5 +125,36 @@ func TestInfoMinDurationFromConfig(t *testing.T) {
 	code, out, _ := runCLI("info", disc)
 	if code != 0 || !strings.Contains(out, "00099") || strings.Contains(out, "hidden") {
 		t.Errorf("exit %d, out:\n%s", code, out)
+	}
+}
+
+func TestTemplateErrorText(t *testing.T) {
+	disc := writeDisc(t, testdisc.SampleMovie())
+	code, _, errOut := runCLI("rip", "-o", t.TempDir(), "--template", "{bogus}", disc)
+	if code != 2 || !strings.HasPrefix(errOut, "zenvik: invalid name template: ") ||
+		strings.Contains(errOut, "configuration") || strings.Count(errOut, "zenvik:") != 1 {
+		t.Errorf("flag: exit %d, stderr %q", code, errOut)
+	}
+
+	writeUserConfig(t, `template = "[{name}"`)
+	code, _, errOut = runCLI("rip", "-o", t.TempDir(), disc)
+	if code != 2 || !strings.HasPrefix(errOut, "zenvik: invalid configuration: ") ||
+		!strings.Contains(errOut, `template "[{name}": invalid name template: `) || strings.Count(errOut, "zenvik:") != 1 {
+		t.Errorf("config: exit %d, stderr %q", code, errOut)
+	}
+	if code, _, errOut := runCLI("info", disc); code != 2 || !strings.Contains(errOut, `template "[{name}"`) {
+		t.Errorf("info with a bad config template: exit %d, stderr %q", code, errOut)
+	}
+}
+
+func TestConfigReadErrorExits2(t *testing.T) {
+	dir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "zenvik", "config.toml")
+	if err := os.MkdirAll(dir, 0o755); err != nil { // a directory where the file should be
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(dir) })
+	disc := writeDisc(t, testdisc.SampleMovie())
+	if code, _, errOut := runCLI("info", disc); code != 2 {
+		t.Errorf("info: exit %d, stderr %q", code, errOut)
 	}
 }

@@ -47,30 +47,31 @@ type File struct {
 }
 
 // DefaultPath returns where the config file lives:
-// $XDG_CONFIG_HOME/zenvik/config.toml when XDG_CONFIG_HOME is set (on any OS),
+// $XDG_CONFIG_HOME/zenvik/config.toml when XDG_CONFIG_HOME is an absolute
+// path (on any OS; a relative value is ignored, as the XDG spec requires),
 // otherwise %AppData%\zenvik\config.toml on Windows and
-// ~/.config/zenvik/config.toml elsewhere.
+// ~/.config/zenvik/config.toml elsewhere. A failure wraps ErrInvalid.
 func DefaultPath() (string, error) {
-	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
+	if x := os.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(x) {
 		return filepath.Join(x, "zenvik", "config.toml"), nil
 	}
 	if runtime.GOOS == "windows" {
 		dir, err := os.UserConfigDir()
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("%w: cannot locate the config file: %w", ErrInvalid, err)
 		}
 		return filepath.Join(dir, "zenvik", "config.toml"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: cannot locate the config file: %w", ErrInvalid, err)
 	}
 	return filepath.Join(home, ".config", "zenvik", "config.toml"), nil
 }
 
 // Load reads the config file at path. A missing file gives an empty File
-// with Found false. Syntax errors, unknown keys and invalid values wrap
-// ErrInvalid and name the key or line.
+// with Found false. Read errors, syntax errors, unknown keys and invalid
+// values wrap ErrInvalid, name the path once, and name the key or line.
 func Load(path string) (*File, error) {
 	f := &File{Path: path}
 	b, err := os.ReadFile(path)
@@ -78,7 +79,11 @@ func Load(path string) (*File, error) {
 		return f, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("zenvik: reading config %s: %w", path, err)
+		var pe *fs.PathError
+		if errors.As(err, &pe) {
+			err = pe.Err // the path is already in the message
+		}
+		return nil, fmt.Errorf("%w: %s: cannot read: %w", ErrInvalid, path, err)
 	}
 	f.Found = true
 	if err := toml.NewDecoder(bytes.NewReader(b)).DisallowUnknownFields().Decode(f); err != nil {
@@ -153,9 +158,20 @@ type Flags struct {
 	Template  *string
 }
 
+// Invalid returns an error wrapping ErrInvalid that names f's path (when
+// set) before the detail.
+func (f *File) Invalid(format string, args ...any) error {
+	detail := fmt.Errorf(format, args...)
+	if f.Path == "" {
+		return fmt.Errorf("%w: %w", ErrInvalid, detail)
+	}
+	return fmt.Errorf("%w: %s: %w", ErrInvalid, f.Path, detail)
+}
+
 // Resolve applies built-in defaults, then the file's top-level values, then
 // the selected preset (flags.Preset if given, else the file's preset; an
-// empty name selects none), then flags. "~" is expanded in paths.
+// empty name selects none), then flags. "~" is expanded in paths. Errors
+// wrap ErrInvalid and name f.Path.
 func Resolve(f *File, flags Flags) (Settings, error) {
 	s := Settings{OutputDir: ".", Template: DefaultTemplate, MinDuration: DefaultMinDuration}
 	apply := func(prefix string, out, tmpl, minDur *string) error {
@@ -168,7 +184,7 @@ func Resolve(f *File, flags Flags) (Settings, error) {
 		if minDur != nil {
 			d, err := parseDuration(*minDur)
 			if err != nil {
-				return fmt.Errorf("%w: %smin_duration: %w", ErrInvalid, prefix, err)
+				return f.Invalid("%smin_duration: %w", prefix, err)
 			}
 			s.MinDuration = d
 		}
@@ -190,7 +206,7 @@ func Resolve(f *File, flags Flags) (Settings, error) {
 	if name != "" {
 		p, ok := f.Presets[name]
 		if !ok {
-			return Settings{}, fmt.Errorf("%w: unknown preset %q%s", ErrInvalid, name, presetList(f))
+			return Settings{}, f.Invalid("unknown preset %q%s", name, presetList(f))
 		}
 		if err := apply("presets."+name+".", p.OutputDir, p.Template, p.MinDuration); err != nil {
 			return Settings{}, err
@@ -204,7 +220,7 @@ func Resolve(f *File, flags Flags) (Settings, error) {
 		s.Template = *flags.Template
 	}
 	if strings.TrimSpace(s.Template) == "" {
-		return Settings{}, fmt.Errorf("%w: template is empty", ErrInvalid)
+		return Settings{}, f.Invalid("template is empty")
 	}
 	var err error
 	if s.OutputDir, err = ExpandHome(s.OutputDir); err != nil {
