@@ -29,7 +29,8 @@ func attach(ctx context.Context, image string) (*Mount, error) {
 			out, err = runner(ctx, "hdiutil", "detach", "-force", dir)
 		}
 		if err != nil {
-			return fmt.Errorf("zenvik: hdiutil detach %s: %w: %s (run `hdiutil detach -force %s`)", dir, err, strings.TrimSpace(string(out)), dir)
+			return fmt.Errorf("zenvik: hdiutil detach %s: %w: %s (run `hdiutil detach -force %s`, then run `zenvik doctor` to clear its record)",
+				dir, err, strings.TrimSpace(string(out)), shQuote(dir))
 		}
 		return os.Remove(dir)
 	}}, nil

@@ -36,7 +36,8 @@ type doctorError struct{ code int }
 func (e doctorError) Error() string { return "doctor found problems (see above)" }
 
 // doctorCode picks the exit code: 4 for mkvmerge problems, else 2 for an
-// invalid config, else 1 for leftover mounts, else 0.
+// invalid config, else 1 for live leftover mounts, else 0. Stale records
+// (whose mount is already gone) are only warnings.
 func doctorCode(mkvmergeOK, configOK bool, leftovers int) int {
 	switch {
 	case !mkvmergeOK:
@@ -72,22 +73,36 @@ func runDoctor(ctx context.Context, out io.Writer) error {
 	}
 
 	recs, err := mount.Leftovers()
-	switch {
-	case err != nil:
+	live := 0
+	if err != nil {
 		fmt.Fprintf(out, "! leftover mounts: could not check: %v\n", err)
-	case len(recs) == 0:
-		fmt.Fprintln(out, "✓ no leftover mounts")
-	default:
-		for _, r := range recs {
-			fmt.Fprintf(out, "✗ leftover mount: %s at %s (since %s); remove with: %s\n",
-				r.Image, r.Dir, r.Created.Format(time.RFC3339), r.Cleanup())
+	}
+	for _, r := range recs {
+		if r.Stale {
+			fmt.Fprintf(out, "! stale mount record: %s (mount is gone)%s\n", r.Image, removeWith(r))
+			continue
 		}
+		live++
+		fmt.Fprintf(out, "✗ leftover mount: %s at %s (since %s)%s\n",
+			r.Image, r.Dir, r.Created.Format(time.RFC3339), removeWith(r))
+	}
+	if err == nil && live == 0 {
+		fmt.Fprintln(out, "✓ no leftover mounts")
 	}
 
-	if code := doctorCode(mkOK, cfgOK, len(recs)); code != 0 {
+	if code := doctorCode(mkOK, cfgOK, live); code != 0 {
 		return doctorError{code: code}
 	}
 	return nil
+}
+
+// removeWith returns "; remove with: <command>" for r, or "" when there is
+// no command for this OS.
+func removeWith(r mount.Record) string {
+	if c := r.Cleanup(); c != "" {
+		return "; remove with: " + c
+	}
+	return ""
 }
 
 // checkConfig describes the config file and returns the configured mkvmerge

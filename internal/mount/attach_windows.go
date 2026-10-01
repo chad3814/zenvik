@@ -34,7 +34,8 @@ func attach(ctx context.Context, image string) (*Mount, error) {
 	}
 	return &Mount{Dir: dir, detach: func(ctx context.Context) error {
 		if out, err := dismount(ctx); err != nil {
-			return fmt.Errorf("zenvik: Dismount-DiskImage %s: %w: %s", image, err, strings.TrimSpace(string(out)))
+			return fmt.Errorf("zenvik: Dismount-DiskImage %s: %w: %s (run `Dismount-DiskImage -ImagePath %s`, then run `zenvik doctor` to clear its record)",
+				image, err, strings.TrimSpace(string(out)), q)
 		}
 		return nil
 	}}, nil
@@ -54,3 +55,7 @@ func cleanupCommand(r Record) string {
 	}
 	return cmd
 }
+
+// removeRecordCommand returns the PowerShell command that deletes a record
+// file.
+func removeRecordCommand(path string) string { return "Remove-Item -LiteralPath " + psQuote(path) }

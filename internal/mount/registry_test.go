@@ -43,12 +43,16 @@ func TestLeftovers(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("hi"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	fakeLive(t, true)
 	got, err := Leftovers()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || got[0].Image != dead.Image || got[0].Dir != dead.Dir || got[0].Device != dead.Device || !got[0].Created.Equal(dead.Created) {
 		t.Fatalf("Leftovers = %+v, want only %+v", got, dead)
+	}
+	if got[0].Stale {
+		t.Errorf("record with a live mount is Stale")
 	}
 	cleanup := got[0].Cleanup()
 	if got[0].Path == "" || !strings.Contains(cleanup, got[0].Path) {
@@ -60,7 +64,8 @@ func TestLeftovers(t *testing.T) {
 			t.Errorf("cleanup = %q", cleanup)
 		}
 	case "linux":
-		if !strings.Contains(cleanup, "udisksctl unmount -b /dev/loop9") {
+		if !strings.Contains(cleanup, "udisksctl unmount --no-user-interaction -b /dev/loop9") ||
+			!strings.Contains(cleanup, "udisksctl loop-delete --no-user-interaction -b /dev/loop9") {
 			t.Errorf("cleanup = %q", cleanup)
 		}
 	case "windows":
@@ -114,5 +119,61 @@ func TestStateDirIgnoresRelativeXDG(t *testing.T) {
 	}
 	if !filepath.IsAbs(got) || strings.Contains(got, "relative") {
 		t.Errorf("stateDir = %q", got)
+	}
+}
+
+// writeDeadRecord registers a record for dir owned by an exited process.
+func writeDeadRecord(t *testing.T, dir string) {
+	t.Helper()
+	if _, err := register(Record{Image: "/i/x.iso", Dir: dir, Device: "/dev/loop9", PID: deadPID(t), Created: time.Unix(1, 0)}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func onlyLeftover(t *testing.T) Record {
+	t.Helper()
+	got, err := Leftovers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("Leftovers = %+v, want one record", got)
+	}
+	return got[0]
+}
+
+func TestLeftoversStaleWhenDirMissing(t *testing.T) {
+	isolateState(t)
+	writeDeadRecord(t, filepath.Join(t.TempDir(), "gone"))
+	if r := onlyLeftover(t); !r.Stale {
+		t.Errorf("record for a missing Dir is not Stale: %+v", r)
+	}
+}
+
+func TestLeftoversStaleWhenDirNotMountPoint(t *testing.T) {
+	if runtime.GOOS == "windows" || runtime.GOOS == "plan9" || runtime.GOOS == "js" || runtime.GOOS == "wasip1" {
+		t.Skip("mount points are detected by device number on unix only")
+	}
+	isolateState(t)
+	writeDeadRecord(t, t.TempDir()) // exists, but nothing is mounted on it
+	if r := onlyLeftover(t); !r.Stale {
+		t.Errorf("record for a plain directory is not Stale: %+v", r)
+	}
+}
+
+func TestStaleCleanupRemovesOnlyRecord(t *testing.T) {
+	isolateState(t)
+	writeDeadRecord(t, filepath.Join(t.TempDir(), "gone"))
+	r := onlyLeftover(t)
+	got := r.Cleanup()
+	var want string
+	switch runtime.GOOS {
+	case "windows":
+		want = "Remove-Item -LiteralPath " + psQuote(r.Path)
+	default:
+		want = "rm -f '" + r.Path + "'"
+	}
+	if got != want {
+		t.Errorf("Cleanup() = %q, want %q", got, want)
 	}
 }

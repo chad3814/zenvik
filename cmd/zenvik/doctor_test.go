@@ -52,33 +52,78 @@ func TestDoctorBadConfig(t *testing.T) {
 	}
 }
 
-func TestDoctorReportsLeftovers(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-	dir := filepath.Join(os.Getenv("XDG_STATE_HOME"), "zenvik", "mounts")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+// stubMkvmerge writes a shell script that reports a supported mkvmerge
+// version and returns its path.
+func stubMkvmerge(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the mkvmerge stub is a shell script")
+	}
+	p := filepath.Join(t.TempDir(), "mkvmerge")
+	script := "#!/bin/sh\necho \"mkvmerge v90.0 ('Stub') 64-bit\"\n"
+	if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// writeDeadRecord writes a mount record for dir owned by an exited process
+// and returns the record's path.
+func writeDeadRecord(t *testing.T, dir string) string {
+	t.Helper()
+	recDir := filepath.Join(os.Getenv("XDG_STATE_HOME"), "zenvik", "mounts")
+	if err := os.MkdirAll(recDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	dead := exec.Command(os.Args[0], "-test.run=^$")
 	if err := dead.Run(); err != nil {
 		t.Fatal(err)
 	}
-	rec := map[string]any{"image": "/i/x.iso", "dir": "/tmp/zenvik-mount-x", "device": "/dev/loop9",
+	rec := map[string]any{"image": "/i/x.iso", "dir": dir, "device": "/dev/loop9",
 		"pid": dead.Process.Pid, "created": time.Unix(1700000000, 0).UTC()}
 	b, _ := json.Marshal(rec)
-	p := filepath.Join(dir, "leftover.json")
+	p := filepath.Join(recDir, "leftover.json")
 	if err := os.WriteFile(p, b, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Remove(p) })
-	_, out, _ := runCLI("doctor")
-	line := lineWith(out, "leftover mount:")
-	if !strings.HasPrefix(line, "✗") || !strings.Contains(line, "/i/x.iso at /tmp/zenvik-mount-x") {
-		t.Errorf("leftover line = %q\n%s", line, out)
+	return p
+}
+
+func TestDoctorReportsStaleRecord(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	stub := stubMkvmerge(t)
+	writeUserConfig(t, "mkvmerge_path = "+tomlPath(stub))
+	p := writeDeadRecord(t, filepath.Join(t.TempDir(), "zenvik-mount-gone"))
+	code, out, errOut := runCLI("doctor")
+	if code != 0 {
+		t.Errorf("exit %d, want 0 (a stale record is only a warning); stderr %q\n%s", code, errOut, out)
 	}
-	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" || runtime.GOOS == "windows" {
-		if !strings.Contains(line, "remove with: ") {
-			t.Errorf("no cleanup command in %q", line)
-		}
+	line := lineWith(out, "stale mount record:")
+	want := "! stale mount record: /i/x.iso (mount is gone); remove with: rm -f '" + p + "'"
+	if line != want {
+		t.Errorf("stale line = %q\nwant         %q", line, want)
+	}
+	if l := lineWith(out, "leftover mount:"); l != "" {
+		t.Errorf("stale record reported as a live leftover: %q", l)
+	}
+	if _, err := os.Stat(p); err != nil {
+		t.Errorf("doctor must not delete the record: %v", err)
+	}
+}
+
+func TestDoctorStaleRecordWithProblems(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	p := writeDeadRecord(t, "/nonexistent/zenvik-mount-x")
+	code, out, _ := runCLI("doctor")
+	if code != 4 {
+		t.Errorf("exit %d, want 4 for missing mkvmerge", code)
+	}
+	if line := lineWith(out, "stale mount record:"); !strings.HasPrefix(line, "! ") || !strings.Contains(line, "/i/x.iso") {
+		t.Errorf("stale line = %q\n%s", line, out)
+	}
+	if _, err := os.Stat(p); err != nil {
+		t.Errorf("doctor must not delete the record: %v", err)
 	}
 }
 

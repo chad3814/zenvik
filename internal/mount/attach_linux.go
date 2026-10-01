@@ -30,7 +30,7 @@ func attach(ctx context.Context, image string) (*Mount, error) {
 	}
 	return &Mount{Dir: dir, device: dev, detach: func(ctx context.Context) error {
 		if out, err := runner(ctx, "udisksctl", "unmount", "--no-user-interaction", "-b", dev); err != nil {
-			return fmt.Errorf("zenvik: udisksctl unmount %s: %w: %s (run `udisksctl unmount -b %s && udisksctl loop-delete -b %s`)",
+			return fmt.Errorf("zenvik: udisksctl unmount %s: %w: %s (run `udisksctl unmount -b %s && udisksctl loop-delete -b %s`, then run `zenvik doctor` to clear its record)",
 				dev, err, strings.TrimSpace(string(out)), dev, dev)
 		}
 		if out, err := runner(ctx, "udisksctl", "loop-delete", "--no-user-interaction", "-b", dev); err != nil {
@@ -69,12 +69,10 @@ func available() (string, error) {
 }
 
 func cleanupCommand(r Record) string {
-	cmd := fmt.Sprintf("udisksctl unmount -b %s && udisksctl loop-delete -b %s", r.Device, r.Device)
+	cmd := fmt.Sprintf("udisksctl unmount --no-user-interaction -b %s && udisksctl loop-delete --no-user-interaction -b %s",
+		r.Device, r.Device)
 	if r.Path != "" {
 		cmd += " && rm -f " + shQuote(r.Path)
 	}
 	return cmd
 }
-
-// shQuote single-quotes s for a POSIX shell.
-func shQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

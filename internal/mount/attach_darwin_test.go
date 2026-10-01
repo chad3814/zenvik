@@ -160,8 +160,12 @@ func TestFailedDetachKeepsRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := m.Detach(context.Background()); err == nil {
+	err = m.Detach(context.Background())
+	if err == nil {
 		t.Fatal("expected detach error")
+	}
+	if !strings.Contains(err.Error(), "zenvik doctor") {
+		t.Errorf("detach error should point to zenvik doctor: %v", err)
 	}
 	if files := recordFiles(t); len(files) != 1 {
 		t.Errorf("record should be kept after a failed detach: %v", files)

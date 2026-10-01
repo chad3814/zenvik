@@ -21,11 +21,35 @@ type Record struct {
 	PID     int       `json:"pid"`
 	Created time.Time `json:"created"`
 	Path    string    `json:"-"` // record file; set by Leftovers
+	// Stale is set by Leftovers when the mount itself is already gone (for
+	// example after a reboot), so only the record file is left to remove.
+	Stale bool `json:"-"`
 }
 
-// Cleanup returns the command that removes this mount by hand, or "" when
-// mounting is not supported on this OS.
-func (r Record) Cleanup() string { return cleanupCommand(r) }
+// Cleanup returns the command that removes this mount and its record by
+// hand, or "" when mounting is not supported on this OS. For a Stale record
+// it only removes the record file.
+func (r Record) Cleanup() string {
+	if r.Stale {
+		if r.Path == "" {
+			return ""
+		}
+		return removeRecordCommand(r.Path)
+	}
+	return cleanupCommand(r)
+}
+
+// dirMounted reports whether something is mounted on dir, and
+// deviceMatches whether r's device still holds r's image; tests replace them.
+var (
+	dirMounted    = isMountPoint
+	deviceMatches = deviceLive
+)
+
+// mountLive reports whether r's mount still exists: something is mounted on
+// its directory and, where it can be checked, its device still holds r's
+// image.
+func mountLive(r Record) bool { return dirMounted(r.Dir) && deviceMatches(r) }
 
 // stateDir is where mount records live: $XDG_STATE_HOME/zenvik/mounts, or
 // the user cache directory's zenvik/mounts.
@@ -72,7 +96,8 @@ func register(r Record) (string, error) {
 }
 
 // Leftovers returns recorded mounts whose zenvik process is no longer
-// running, oldest first. Unreadable record files are skipped.
+// running, oldest first, marking those whose mount is already gone as
+// Stale. Unreadable record files are skipped.
 func Leftovers() ([]Record, error) {
 	dir, err := stateDir()
 	if err != nil {
@@ -99,6 +124,7 @@ func Leftovers() ([]Record, error) {
 			continue
 		}
 		r.Path = filepath.Join(dir, e.Name())
+		r.Stale = !mountLive(r)
 		out = append(out, r)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Created.Before(out[j].Created) })
