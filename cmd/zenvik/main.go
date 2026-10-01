@@ -25,6 +25,10 @@ func (e usageError) Unwrap() error { return e.err }
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-ctx.Done()
+		stop() // restore default handling: a second Ctrl-C exits at once
+	}()
 	code := run(ctx, os.Args[1:], os.Stdout, os.Stderr)
 	stop()
 	os.Exit(code)
@@ -56,6 +60,8 @@ func exitCode(err error) int {
 		return 2
 	case errors.Is(err, zenvik.ErrUnsupportedSource), errors.Is(err, zenvik.ErrEncrypted), errors.Is(err, zenvik.ErrNoTitles):
 		return 3
+	case errors.Is(err, zenvik.ErrMkvmergeNotFound), errors.Is(err, zenvik.ErrMkvmergeTooOld):
+		return 4
 	}
 	return 1
 }
@@ -80,5 +86,6 @@ func newRootCmd() *cobra.Command {
 	}
 	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error { return usageError{err} })
 	root.AddCommand(newInfoCmd())
+	root.AddCommand(newRipCmd())
 	return root
 }
