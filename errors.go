@@ -5,6 +5,7 @@ import (
 
 	"github.com/chad3814/zenvik/internal/mount"
 	"github.com/chad3814/zenvik/internal/mux"
+	"github.com/chad3814/zenvik/internal/naming"
 	"github.com/chad3814/zenvik/internal/source"
 )
 
@@ -26,4 +27,6 @@ var (
 	ErrMountUnavailable = mount.ErrUnavailable
 	// ErrOutputExists: the output file exists and RipOptions.Overwrite is false.
 	ErrOutputExists = errors.New("zenvik: output file already exists")
+	// ErrInvalidTemplate: a name template is malformed or renders an unsafe path.
+	ErrInvalidTemplate = naming.ErrTemplate
 )

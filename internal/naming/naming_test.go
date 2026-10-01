@@ -1,6 +1,9 @@
 package naming
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCleanLabel(t *testing.T) {
 	tests := map[string]string{
@@ -34,5 +37,23 @@ func TestSafeFileName(t *testing.T) {
 		if got := SafeFileName(in); got != want {
 			t.Errorf("SafeFileName(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestSafeFileNameReservedAndLong(t *testing.T) {
+	for in, want := range map[string]string{
+		"CON":     "CON_",
+		"nul.txt": "nul_.txt",
+		"Com1":    "Com1_",
+		"COM10":   "COM10",
+		"console": "console",
+	} {
+		if got := SafeFileName(in); got != want {
+			t.Errorf("SafeFileName(%q) = %q, want %q", in, got, want)
+		}
+	}
+	long := strings.Repeat("ab", 300)
+	if got := SafeFileName(long); len(got) > maxComponentBytes {
+		t.Errorf("SafeFileName(long) = %d bytes", len(got))
 	}
 }
