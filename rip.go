@@ -50,10 +50,11 @@ type Progress struct {
 
 // RipOptions control Rip.
 type RipOptions struct {
-	OutputPath string         // final MKV path; parent directories are created
-	Overwrite  bool           // replace an existing output file
-	DryRun     bool           // resolve everything and return the mkvmerge command without running it
-	OnProgress func(Progress) // optional; called on Rip's goroutine
+	OutputPath   string         // final MKV path; parent directories are created
+	MkvmergePath string         // mkvmerge executable; empty searches PATH
+	Overwrite    bool           // replace an existing output file
+	DryRun       bool           // resolve everything and return the mkvmerge command without running it
+	OnProgress   func(Progress) // optional; called on Rip's goroutine
 }
 
 // RipResult describes a finished (or dry-run) Rip.
@@ -90,7 +91,7 @@ func (d *Disc) Rip(ctx context.Context, t *Title, opts RipOptions) (res *RipResu
 	if fi, err := os.Stat(opts.OutputPath); err == nil && fi.IsDir() && !opts.DryRun {
 		return nil, fmt.Errorf("zenvik: output path %s is a directory", opts.OutputPath)
 	}
-	mk, err := mux.Find(ctx, "")
+	mk, err := mux.Find(ctx, opts.MkvmergePath)
 	if err != nil {
 		return nil, err
 	}

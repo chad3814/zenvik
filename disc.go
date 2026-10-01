@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"time"
 
 	"github.com/chad3814/zenvik/bluray"
 	"github.com/chad3814/zenvik/internal/rank"
@@ -19,6 +20,19 @@ const (
 	BDMVDir = source.BDMVDir
 )
 
+// OpenOption customizes Open.
+type OpenOption func(*openConfig)
+
+type openConfig struct {
+	minDuration time.Duration
+}
+
+// WithMinDuration sets the shortest title that can be the main feature
+// (default 2 minutes).
+func WithMinDuration(d time.Duration) OpenOption {
+	return func(c *openConfig) { c.minDuration = d }
+}
+
 // Disc is an opened Blu-ray disc image or BDMV folder.
 type Disc struct {
 	Path   string           // the path passed to Open
@@ -30,13 +44,18 @@ type Disc struct {
 }
 
 // Open reads the disc at path (an ISO image, a folder containing BDMV, or a
-// BDMV folder), ranks its titles and detects encryption.
-func Open(ctx context.Context, path string) (*Disc, error) {
+// BDMV folder), ranks its titles and detects encryption. Options customize the
+// scanning and ranking behavior; the default minimum duration is 2 minutes.
+func Open(ctx context.Context, path string, opts ...OpenOption) (*Disc, error) {
+	cfg := openConfig{minDuration: defaultMinDuration}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	src, err := source.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	titles, meta, err := scanTitles(ctx, src.FS, defaultMinDuration, rank.DefaultWeights)
+	titles, meta, err := scanTitles(ctx, src.FS, cfg.minDuration, rank.DefaultWeights)
 	if err != nil {
 		src.Close()
 		return nil, err
