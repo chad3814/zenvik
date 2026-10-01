@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -27,11 +28,6 @@ type Result struct {
 	Warnings []string
 	Args     []string // the arguments mkvmerge received
 }
-
-var guiUnescaper = strings.NewReplacer(`\s`, " ", `\2`, `"`, `\c`, ":", `\h`, "#", `\b`, "[", `\B`, "]", `\\`, `\`)
-
-// unescapeGUI decodes the escaping mkvmerge applies to --gui-mode messages.
-func unescapeGUI(s string) string { return guiUnescaper.Replace(s) }
 
 // Mux runs mkvmerge for job. onProgress, if non-nil, receives each progress
 // update. Exit status 1 (warnings) succeeds with the warnings in the
@@ -78,15 +74,17 @@ func (m *Mkvmerge) Mux(ctx context.Context, job Job, onProgress func(Phase, floa
 				report(float64(n) / 100)
 			}
 		case strings.HasPrefix(line, "#GUI#warning "):
-			warnings = append(warnings, unescapeGUI(strings.TrimPrefix(line, "#GUI#warning ")))
+			warnings = append(warnings, strings.TrimPrefix(line, "#GUI#warning "))
 		case strings.HasPrefix(line, "Warning: "):
 			warnings = append(warnings, strings.TrimPrefix(line, "Warning: "))
 		case strings.HasPrefix(line, "#GUI#error "):
-			errs = append(errs, unescapeGUI(strings.TrimPrefix(line, "#GUI#error ")))
+			errs = append(errs, strings.TrimPrefix(line, "#GUI#error "))
 		case strings.HasPrefix(line, "Error: "):
 			errs = append(errs, strings.TrimPrefix(line, "Error: "))
 		}
 	}
+	// If the scan stopped early, drain the pipe so mkvmerge can't block on it.
+	_, _ = io.Copy(io.Discard, stdout)
 	waitErr := cmd.Wait()
 
 	if ctx.Err() != nil {

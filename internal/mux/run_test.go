@@ -61,7 +61,7 @@ func TestMuxWarnings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("exit 1 should succeed: %v", err)
 	}
-	if want := []string{"the playlist has a gap", "A warning:with escape"}; !reflect.DeepEqual(res.Warnings, want) {
+	if want := []string{"the playlist has a gap", `A warning: with C:\Users\bob\stuff`}; !reflect.DeepEqual(res.Warnings, want) {
 		t.Errorf("warnings = %q, want %q", res.Warnings, want)
 	}
 	if _, err := os.Stat(out); err != nil {
@@ -74,6 +74,9 @@ func TestMuxFailure(t *testing.T) {
 	_, err := fake("mux=2").Mux(context.Background(), job(t, out), nil)
 	if !errors.Is(err, ErrFailed) || !strings.Contains(err.Error(), "cannot open the playlist") || !strings.Contains(err.Error(), "exit status 2") {
 		t.Errorf("err = %v", err)
+	}
+	if !strings.Contains(err.Error(), `The file 'C:\Users\bob\x.ts' could not be opened for reading`) {
+		t.Errorf("error lines not verbatim: %v", err)
 	}
 	if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("output should be removed on failure: %v", err)
@@ -135,11 +138,5 @@ func TestMuxRemovesOptionsFile(t *testing.T) {
 	}
 	if ents, _ := os.ReadDir(tmp); len(ents) != 0 {
 		t.Errorf("temp dir not cleaned: %v", ents)
-	}
-}
-
-func TestUnescapeGUI(t *testing.T) {
-	if got := unescapeGUI(`a\sb\2c\2\cd\he\bf\Bg\\s`); got != `a b"c":d#e[f]g\s` {
-		t.Errorf("unescapeGUI = %q", got)
 	}
 }
