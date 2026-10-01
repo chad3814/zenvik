@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -80,6 +81,43 @@ func TestIdentify(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Identify =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+func TestIdentifyWarningsExit1(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "id.json")
+	body := `{"chapters":[],"errors":[],"tracks":[{"codec":"AVC/H.264/MPEG-4p10","id":0,"properties":{"number":4113},"type":"video"}],"warnings":["The playlist has a gap"]}`
+	if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := fake("identify1="+file).Identify(context.Background(), "x.mpls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Tracks) != 1 || !reflect.DeepEqual(got.Warnings, []string{"The playlist has a gap"}) {
+		t.Errorf("Identify = %+v", got)
+	}
+}
+
+func TestIdentifyExit2ReportsJSONErrors(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "id.json")
+	if err := os.WriteFile(file, []byte(`{"errors":["The file 'x.mpls' could not be opened"],"tracks":[],"warnings":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := fake("identify2="+file).Identify(context.Background(), "x.mpls")
+	if !errors.Is(err, ErrFailed) || !strings.Contains(err.Error(), "could not be opened") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestIdentifyExit2FallsBackToStderr(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "id.json")
+	if err := os.WriteFile(file, []byte("not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := fake("identify2="+file).Identify(context.Background(), "x.mpls")
+	if !errors.Is(err, ErrFailed) || !strings.Contains(err.Error(), "exit status 2") {
+		t.Errorf("err = %v", err)
 	}
 }
 

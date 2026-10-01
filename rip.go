@@ -119,6 +119,7 @@ func (d *Disc) Rip(ctx context.Context, t *Title, opts RipOptions) (res *RipResu
 		return nil, err
 	}
 	tracks, warnings := mapTracks(t, ident)
+	warnings = append(warnings, ident.Warnings...)
 	if len(tracks) == 0 {
 		return nil, fmt.Errorf("%w: mkvmerge found none of title %s's streams", ErrMuxFailed, t.ID)
 	}

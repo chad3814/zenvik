@@ -49,13 +49,13 @@ func fakeMkvmerge(mode string, args []string) int {
 	case "version":
 		fmt.Println(value)
 		return 0
-	case "identify":
+	case "identify", "identify1", "identify2":
 		b, err := os.ReadFile(value)
 		if err != nil {
 			return 2
 		}
 		_, _ = os.Stdout.Write(b)
-		return 0
+		return map[string]int{"identify": 0, "identify1": 1, "identify2": 2}[kind]
 	case "mux", "hang":
 		out := ""
 		for i := 0; i+1 < len(args); i++ {
