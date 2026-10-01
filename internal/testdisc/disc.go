@@ -114,3 +114,31 @@ func (d *Disc) WriteDir(dir string) error {
 	}
 	return nil
 }
+
+// ScrambledM2TS returns units aligned units that look AACS-encrypted: each
+// unit keeps the 16 clear bytes a CleanM2TS unit starts with, and the rest
+// is deterministic pseudo-random data with no 0x47 sync byte at any source
+// packet's sync offset.
+func ScrambledM2TS(units int) []byte {
+	b := CleanM2TS(units)
+	x := uint32(2463534242)
+	for u := 0; u < units; u++ {
+		base := u * 6144
+		for i := 16; i < 6144; i++ {
+			x ^= x << 13
+			x ^= x >> 17
+			x ^= x << 5
+			v := byte(x)
+			if i%192 == 4 && v == 0x47 {
+				v = 0x48
+			}
+			b[base+i] = v
+		}
+	}
+	return b
+}
+
+// StubClip returns minimal clip information for a one-unit M2TS clip.
+func StubClip() *bluray.Clip {
+	return &bluray.Clip{Version: "0200", StreamType: 1, ApplicationType: 1, TSRecordingRate: 48_000_000, SourcePackets: 32}
+}
