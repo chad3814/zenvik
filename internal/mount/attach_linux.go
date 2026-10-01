@@ -28,7 +28,7 @@ func attach(ctx context.Context, image string) (*Mount, error) {
 		cleanup()
 		return nil, err
 	}
-	return &Mount{Dir: dir, detach: func(ctx context.Context) error {
+	return &Mount{Dir: dir, device: dev, detach: func(ctx context.Context) error {
 		if out, err := runner(ctx, "udisksctl", "unmount", "--no-user-interaction", "-b", dev); err != nil {
 			return fmt.Errorf("zenvik: udisksctl unmount %s: %w: %s (run `udisksctl unmount -b %s && udisksctl loop-delete -b %s`)",
 				dev, err, strings.TrimSpace(string(out)), dev, dev)
@@ -59,4 +59,15 @@ func mountLoop(ctx context.Context, dev string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("%w: udisksctl mount %s: %w: %s", ErrUnavailable, dev, err, strings.TrimSpace(string(out)))
+}
+
+func available() (string, error) {
+	if _, err := lookPath("udisksctl"); err != nil {
+		return "", fmt.Errorf("%w: udisksctl not found (install udisks2)", ErrUnavailable)
+	}
+	return "udisksctl", nil
+}
+
+func cleanupCommand(r Record) string {
+	return fmt.Sprintf("udisksctl unmount -b %s && udisksctl loop-delete -b %s", r.Device, r.Device)
 }

@@ -34,3 +34,12 @@ func attach(ctx context.Context, image string) (*Mount, error) {
 		return os.Remove(dir)
 	}}, nil
 }
+
+func available() (string, error) {
+	if _, err := lookPath("hdiutil"); err != nil {
+		return "", fmt.Errorf("%w: hdiutil not found", ErrUnavailable)
+	}
+	return "hdiutil", nil
+}
+
+func cleanupCommand(r Record) string { return fmt.Sprintf("hdiutil detach -force %q", r.Dir) }

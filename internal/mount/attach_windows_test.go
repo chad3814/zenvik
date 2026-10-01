@@ -12,6 +12,7 @@ import (
 )
 
 func TestAttachWindows(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	var calls []string
 	oldRun, oldLook := runner, lookPath
 	t.Cleanup(func() { runner, lookPath = oldRun, oldLook })
@@ -47,5 +48,8 @@ func TestAttachWindows(t *testing.T) {
 	lookPath = func(string) (string, error) { return "", errors.New("not found") }
 	if _, err := Attach(context.Background(), `C:\x.iso`); !errors.Is(err, ErrUnavailable) {
 		t.Errorf("no powershell: err = %v", err)
+	}
+	if _, err := Available(); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("Available without powershell: err = %v", err)
 	}
 }

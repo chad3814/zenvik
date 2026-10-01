@@ -39,3 +39,12 @@ func attach(ctx context.Context, image string) (*Mount, error) {
 		return nil
 	}}, nil
 }
+
+func available() (string, error) {
+	if _, err := lookPath("powershell.exe"); err != nil {
+		return "", fmt.Errorf("%w: powershell.exe not found", ErrUnavailable)
+	}
+	return "PowerShell Mount-DiskImage", nil
+}
+
+func cleanupCommand(r Record) string { return "Dismount-DiskImage -ImagePath " + psQuote(r.Image) }

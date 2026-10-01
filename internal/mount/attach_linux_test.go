@@ -16,6 +16,7 @@ type step struct {
 
 func fakeRunner(t *testing.T, steps ...step) *[]string {
 	t.Helper()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	var calls []string
 	oldRun, oldLook := runner, lookPath
 	t.Cleanup(func() { runner, lookPath = oldRun, oldLook })
@@ -84,5 +85,21 @@ func TestAttachLinuxFailures(t *testing.T) {
 	lookPath = func(string) (string, error) { return "", errors.New("not found") }
 	if _, err := Attach(context.Background(), "/i/x.iso"); !errors.Is(err, ErrUnavailable) {
 		t.Errorf("no udisksctl: err = %v", err)
+	}
+}
+
+func TestAttachLinuxRecordsDevice(t *testing.T) {
+	fakeRunner(t,
+		step{out: "Mapped file /i/x.iso as /dev/loop9.\n"},
+		step{out: "Mounted /dev/loop9 at /media/u/DISC\n"})
+	m, err := Attach(context.Background(), "/i/x.iso")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.device != "/dev/loop9" {
+		t.Errorf("device = %q", m.device)
+	}
+	if tool, err := Available(); err != nil || tool != "udisksctl" {
+		t.Errorf("Available = %q, %v", tool, err)
 	}
 }

@@ -19,6 +19,7 @@ import (
 
 func realISO(t *testing.T) string {
 	t.Helper()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	disc, err := testdisc.RealMovieDisc(context.Background(), t.TempDir(), 7)
 	if err != nil {
 		t.Fatal(err)

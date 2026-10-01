@@ -15,6 +15,7 @@ import (
 )
 
 func TestAttachRealImage(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	img, err := testdisc.SampleMovie().ISO(udfimage.Options{Revision: 0x0250, Label: "SAMPLE_MOVIE"})
 	if err != nil {
 		t.Fatal(err)

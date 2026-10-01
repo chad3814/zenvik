@@ -18,6 +18,7 @@ type call struct {
 
 func fakeRunner(t *testing.T, results ...error) *[]call {
 	t.Helper()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	var calls []call
 	oldRun, oldLook := runner, lookPath
 	t.Cleanup(func() { runner, lookPath = oldRun, oldLook })
@@ -114,5 +115,67 @@ func TestAttachDarwinRelativePath(t *testing.T) {
 	img := args[len(args)-1]
 	if !filepath.IsAbs(img) || !strings.HasSuffix(img, "/rel/x.iso") {
 		t.Errorf("image arg = %q, want an absolute path ending in /rel/x.iso", img)
+	}
+}
+
+func recordFiles(t *testing.T) []string {
+	t.Helper()
+	dir, err := stateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ents, _ := os.ReadDir(dir)
+	var names []string
+	for _, e := range ents {
+		names = append(names, filepath.Join(dir, e.Name()))
+	}
+	return names
+}
+
+func TestAttachRegistersAndDetachUnregisters(t *testing.T) {
+	fakeRunner(t)
+	m, err := Attach(context.Background(), "/images/x.iso")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := recordFiles(t)
+	if len(files) != 1 {
+		t.Fatalf("records = %v", files)
+	}
+	b, _ := os.ReadFile(files[0])
+	if !strings.Contains(string(b), m.Dir) || !strings.Contains(string(b), "/images/x.iso") {
+		t.Errorf("record = %s", b)
+	}
+	if err := m.Detach(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if files := recordFiles(t); len(files) != 0 {
+		t.Errorf("record not removed: %v", files)
+	}
+}
+
+func TestFailedDetachKeepsRecord(t *testing.T) {
+	fakeRunner(t, nil, errors.New("busy"), errors.New("still busy"))
+	m, err := Attach(context.Background(), "/images/x.iso")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Detach(context.Background()); err == nil {
+		t.Fatal("expected detach error")
+	}
+	if files := recordFiles(t); len(files) != 1 {
+		t.Errorf("record should be kept after a failed detach: %v", files)
+	}
+	_ = os.RemoveAll(m.Dir)
+}
+
+func TestAvailableDarwin(t *testing.T) {
+	fakeRunner(t)
+	if tool, err := Available(); err != nil || tool != "hdiutil" {
+		t.Errorf("Available = %q, %v", tool, err)
+	}
+	lookPath = func(string) (string, error) { return "", errors.New("not found") }
+	if _, err := Available(); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("err = %v", err)
 	}
 }
