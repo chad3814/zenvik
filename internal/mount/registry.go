@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -19,6 +20,7 @@ type Record struct {
 	Device  string    `json:"device,omitempty"`
 	PID     int       `json:"pid"`
 	Created time.Time `json:"created"`
+	Path    string    `json:"-"` // record file; set by Leftovers
 }
 
 // Cleanup returns the command that removes this mount by hand, or "" when
@@ -28,7 +30,7 @@ func (r Record) Cleanup() string { return cleanupCommand(r) }
 // stateDir is where mount records live: $XDG_STATE_HOME/zenvik/mounts, or
 // the user cache directory's zenvik/mounts.
 func stateDir() (string, error) {
-	if x := os.Getenv("XDG_STATE_HOME"); x != "" {
+	if x := os.Getenv("XDG_STATE_HOME"); filepath.IsAbs(x) {
 		return filepath.Join(x, "zenvik", "mounts"), nil
 	}
 	d, err := os.UserCacheDir()
@@ -51,8 +53,22 @@ func register(r Record) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	p := filepath.Join(dir, fmt.Sprintf("%d-%d.json", r.PID, r.Created.UnixNano()))
-	return p, os.WriteFile(p, b, 0o644)
+	tmp, err := os.CreateTemp(dir, fmt.Sprintf("%d-*.tmp", os.Getpid()))
+	if err != nil {
+		return "", err
+	}
+	_, werr := tmp.Write(b)
+	cerr := tmp.Close()
+	if err := errors.Join(werr, cerr); err != nil {
+		_ = os.Remove(tmp.Name())
+		return "", err
+	}
+	p := strings.TrimSuffix(tmp.Name(), ".tmp") + ".json"
+	if err := os.Rename(tmp.Name(), p); err != nil {
+		_ = os.Remove(tmp.Name())
+		return "", err
+	}
+	return p, nil
 }
 
 // Leftovers returns recorded mounts whose zenvik process is no longer
@@ -82,6 +98,7 @@ func Leftovers() ([]Record, error) {
 		if json.Unmarshal(b, &r) != nil || r.Dir == "" || processAlive(r.PID) {
 			continue
 		}
+		r.Path = filepath.Join(dir, e.Name())
 		out = append(out, r)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Created.Before(out[j].Created) })

@@ -42,4 +42,10 @@ func available() (string, error) {
 	return "hdiutil", nil
 }
 
-func cleanupCommand(r Record) string { return fmt.Sprintf("hdiutil detach -force %q", r.Dir) }
+func cleanupCommand(r Record) string {
+	cmd := fmt.Sprintf("hdiutil detach -force %q", r.Dir)
+	if r.Path != "" {
+		cmd += fmt.Sprintf(" && rm -f %q", r.Path)
+	}
+	return cmd
+}

@@ -69,5 +69,12 @@ func available() (string, error) {
 }
 
 func cleanupCommand(r Record) string {
-	return fmt.Sprintf("udisksctl unmount -b %s && udisksctl loop-delete -b %s", r.Device, r.Device)
+	cmd := fmt.Sprintf("udisksctl unmount -b %s && udisksctl loop-delete -b %s", r.Device, r.Device)
+	if r.Path != "" {
+		cmd += " && rm -f " + shQuote(r.Path)
+	}
+	return cmd
 }
+
+// shQuote single-quotes s for a POSIX shell.
+func shQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

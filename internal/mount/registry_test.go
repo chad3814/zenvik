@@ -51,6 +51,9 @@ func TestLeftovers(t *testing.T) {
 		t.Fatalf("Leftovers = %+v, want only %+v", got, dead)
 	}
 	cleanup := got[0].Cleanup()
+	if got[0].Path == "" || !strings.Contains(cleanup, got[0].Path) {
+		t.Errorf("cleanup %q should remove record %q", cleanup, got[0].Path)
+	}
 	switch runtime.GOOS {
 	case "darwin":
 		if !strings.Contains(cleanup, "hdiutil detach -force") || !strings.Contains(cleanup, dead.Dir) {
@@ -71,5 +74,45 @@ func TestLeftoversNoDirectory(t *testing.T) {
 	isolateState(t)
 	if got, err := Leftovers(); err != nil || got != nil {
 		t.Errorf("Leftovers = %v, %v", got, err)
+	}
+}
+
+func TestLeftoversIgnoresTempFiles(t *testing.T) {
+	dir := isolateState(t)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	partial := `{"image":"/i/x.iso","dir":"/m/x","pid":0,"created":"2020-01-01T00:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(dir, "1-abc.tmp"), []byte(partial), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Leftovers(); err != nil || len(got) != 0 {
+		t.Errorf("Leftovers = %v, %v", got, err)
+	}
+}
+
+func TestRegisterLeavesNoTempFiles(t *testing.T) {
+	dir := isolateState(t)
+	p, err := register(Record{Image: "/i/x.iso", Dir: "/m/x", PID: os.Getpid(), Created: time.Unix(1, 0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Ext(p) != ".json" {
+		t.Errorf("path = %q", p)
+	}
+	ents, _ := os.ReadDir(dir)
+	if len(ents) != 1 || filepath.Join(dir, ents[0].Name()) != p {
+		t.Errorf("entries = %v", ents)
+	}
+}
+
+func TestStateDirIgnoresRelativeXDG(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "relative/state")
+	got, err := stateDir()
+	if err != nil {
+		t.Skip("no user cache dir")
+	}
+	if !filepath.IsAbs(got) || strings.Contains(got, "relative") {
+		t.Errorf("stateDir = %q", got)
 	}
 }

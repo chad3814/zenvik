@@ -47,4 +47,10 @@ func available() (string, error) {
 	return "PowerShell Mount-DiskImage", nil
 }
 
-func cleanupCommand(r Record) string { return "Dismount-DiskImage -ImagePath " + psQuote(r.Image) }
+func cleanupCommand(r Record) string {
+	cmd := "Dismount-DiskImage -ImagePath " + psQuote(r.Image)
+	if r.Path != "" {
+		cmd += "; Remove-Item -LiteralPath " + psQuote(r.Path)
+	}
+	return cmd
+}

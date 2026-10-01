@@ -71,7 +71,7 @@ func (m *Mount) Detach(ctx context.Context) error {
 // runner runs a command and returns its combined output; tests replace it.
 var runner = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = append(os.Environ(), "LC_ALL=C") // stable, parseable English output
+	cmd.Env = append(os.Environ(), "LC_ALL=C.UTF-8") // stable English output; UTF-8 so paths survive GLib
 	return cmd.CombinedOutput()
 }
 
