@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -39,7 +40,11 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if err == nil {
 		return 0
 	}
-	fmt.Fprintf(stderr, "zenvik: %v\n", err)
+	msg := err.Error()
+	if !strings.HasPrefix(msg, "zenvik:") { // library errors already carry the prefix
+		msg = "zenvik: " + msg
+	}
+	fmt.Fprintln(stderr, msg)
 	return exitCode(err)
 }
 

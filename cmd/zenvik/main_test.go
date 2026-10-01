@@ -159,8 +159,15 @@ func TestExitCodes(t *testing.T) {
 		if code != tt.want {
 			t.Errorf("zenvik %v: exit %d, want %d (stderr %q)", tt.args, code, tt.want, errOut)
 		}
-		if tt.want != 0 && !strings.Contains(errOut, "zenvik: ") {
-			t.Errorf("zenvik %v: stderr lacks error message: %q", tt.args, errOut)
+		if tt.want != 0 {
+			if strings.Contains(errOut, "zenvik: zenvik:") {
+				t.Errorf("zenvik %v: doubled prefix in stderr: %q", tt.args, errOut)
+			}
+			// The error line is the last line; usage help may precede it.
+			lines := strings.Split(strings.TrimSpace(errOut), "\n")
+			if last := lines[len(lines)-1]; !strings.HasPrefix(last, "zenvik: ") {
+				t.Errorf("zenvik %v: error line lacks prefix: %q", tt.args, last)
+			}
 		}
 	}
 }
