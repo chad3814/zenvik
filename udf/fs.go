@@ -2,6 +2,7 @@ package udf
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"path"
@@ -24,11 +25,15 @@ func (f *FS) Open(name string) (fs.File, error) {
 	return &file{fs: f, e: e, name: path.Base(name)}, nil
 }
 
+// lookup resolves a valid path. It tracks the entries resolved along the
+// path so a directory cycle is reported as corruption rather than walked
+// forever.
 func (f *FS) lookup(name string) (*entry, error) {
 	e := f.root
 	if name == "." {
 		return e, nil
 	}
+	seen := map[entryAddr]bool{e.addr: true}
 	for _, part := range strings.Split(name, "/") {
 		if e.fileType != fileTypeDirectory {
 			return nil, fs.ErrNotExist
@@ -49,6 +54,10 @@ func (f *FS) lookup(name string) (*entry, error) {
 		if next == nil {
 			return nil, fs.ErrNotExist
 		}
+		if seen[next.addr] {
+			return nil, fmt.Errorf("%w: directory cycle at %q", ErrCorrupt, part)
+		}
+		seen[next.addr] = true
 		e = next
 	}
 	return e, nil

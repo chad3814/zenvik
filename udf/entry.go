@@ -13,6 +13,13 @@ const (
 	fileTypeMetadataMirror = 251
 )
 
+// entryAddr is the location of a file entry or extended file entry, after
+// following any indirect entries.
+type entryAddr struct {
+	ref   uint16
+	block uint32
+}
+
 type extent struct {
 	length uint32
 	typ    uint8 // 0 recorded, 1 allocated but not recorded, 2 not allocated
@@ -23,6 +30,7 @@ type extent struct {
 // entry is a decoded file entry or extended file entry.
 type entry struct {
 	fs       *FS
+	addr     entryAddr
 	fileType uint8
 	size     int64
 	modTime  time.Time
@@ -55,20 +63,20 @@ func (f *FS) readEntry(ref uint16, block uint32) (*entry, error) {
 			ad := parseLongAD(d[36:52])
 			ref, block = ad.ref, ad.block
 		case tagFE:
-			return f.decodeEntry(d, ref, feLayout)
+			return f.decodeEntry(d, ref, block, feLayout)
 		default:
-			return f.decodeEntry(d, ref, efeLayout)
+			return f.decodeEntry(d, ref, block, efeLayout)
 		}
 	}
 	return nil, fmt.Errorf("%w: too many indirect entries", ErrCorrupt)
 }
 
-func (f *FS) decodeEntry(d []byte, ref uint16, l entryLayout) (*entry, error) {
+func (f *FS) decodeEntry(d []byte, ref uint16, block uint32, l entryLayout) (*entry, error) {
 	size := le64(d[l.size:])
 	if size > math.MaxInt64 {
 		return nil, fmt.Errorf("%w: file size %d", ErrCorrupt, size)
 	}
-	e := &entry{fs: f, fileType: d[16+11], size: int64(size), modTime: decodeTimestamp(d[l.modTime:])}
+	e := &entry{fs: f, addr: entryAddr{ref, block}, fileType: d[16+11], size: int64(size), modTime: decodeTimestamp(d[l.modTime:])}
 	start := int64(l.header) + int64(le32(d[l.lenEA:]))
 	end := start + int64(le32(d[l.lenAD:]))
 	if end > int64(len(d)) {
