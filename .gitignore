@@ -1,0 +1,4 @@
+/zenvik
+/dist/
+*.partial
+.DS_Store
