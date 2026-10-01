@@ -60,8 +60,9 @@ func TestLeftovers(t *testing.T) {
 	}
 	switch runtime.GOOS {
 	case "darwin":
-		if !strings.Contains(cleanup, "hdiutil detach -force") || !strings.Contains(cleanup, dead.Dir) {
-			t.Errorf("cleanup = %q", cleanup)
+		want := "hdiutil detach -force '/m/dead' && { rmdir '/m/dead'; rm -f '" + got[0].Path + "'; }"
+		if cleanup != want {
+			t.Errorf("cleanup = %q, want %q", cleanup, want)
 		}
 	case "linux":
 		if !strings.Contains(cleanup, "udisksctl unmount --no-user-interaction -b /dev/loop9") ||
@@ -69,9 +70,21 @@ func TestLeftovers(t *testing.T) {
 			t.Errorf("cleanup = %q", cleanup)
 		}
 	case "windows":
-		if !strings.Contains(cleanup, "Dismount-DiskImage -ImagePath '/i/dead.iso'") {
-			t.Errorf("cleanup = %q", cleanup)
+		want := "Dismount-DiskImage -ImagePath '/i/dead.iso'; if ($?) { Remove-Item -LiteralPath " + psQuote(got[0].Path) + " }"
+		if cleanup != want {
+			t.Errorf("cleanup = %q, want %q", cleanup, want)
 		}
+	}
+}
+
+func TestCleanupQuotesForShell(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("darwin cleanup command")
+	}
+	r := Record{Dir: "/tmp/it's $HOME", Path: "/s/a`b`.json"}
+	want := `hdiutil detach -force '/tmp/it'\''s $HOME' && { rmdir '/tmp/it'\''s $HOME'; rm -f '/s/a` + "`b`" + `.json'; }`
+	if got := r.Cleanup(); got != want {
+		t.Errorf("Cleanup() = %q, want %q", got, want)
 	}
 }
 

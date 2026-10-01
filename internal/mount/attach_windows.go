@@ -51,7 +51,7 @@ func available() (string, error) {
 func cleanupCommand(r Record) string {
 	cmd := "Dismount-DiskImage -ImagePath " + psQuote(r.Image)
 	if r.Path != "" {
-		cmd += "; Remove-Item -LiteralPath " + psQuote(r.Path)
+		cmd += "; if ($?) { " + removeRecordCommand(r.Path) + " }"
 	}
 	return cmd
 }

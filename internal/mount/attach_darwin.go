@@ -43,10 +43,13 @@ func available() (string, error) {
 	return "hdiutil", nil
 }
 
+// cleanupCommand detaches the image, then removes the mount folder and the
+// record. The record is removed even if rmdir fails, so the leftover is not
+// reported again once the image is detached.
 func cleanupCommand(r Record) string {
-	cmd := fmt.Sprintf("hdiutil detach -force %q", r.Dir)
-	if r.Path != "" {
-		cmd += fmt.Sprintf(" && rm -f %q", r.Path)
+	dir := shQuote(r.Dir)
+	if r.Path == "" {
+		return "hdiutil detach -force " + dir + " && rmdir " + dir
 	}
-	return cmd
+	return "hdiutil detach -force " + dir + " && { rmdir " + dir + "; " + removeRecordCommand(r.Path) + "; }"
 }
