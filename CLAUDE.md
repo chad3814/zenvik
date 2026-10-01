@@ -8,7 +8,7 @@ Go module `github.com/chad3814/zenvik`. Design: `docs/superpowers/specs/2026-10-
 - Vet: `go vet ./...`
 - Lint: `golangci-lint run`
 - Unit tests: `go test -race ./...`
-- Integration tests (macOS, needs `hdiutil`): `go test -tags integration ./...`
+- Integration tests (need `mkvmerge` and `ffmpeg`; macOS also exercises `hdiutil`): `go test -tags integration ./...`
 - Regenerate the hdiutil UDF fixture (macOS only): `scripts/gen-udf-fixtures.sh`
 
 ## Rules

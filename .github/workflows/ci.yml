@@ -40,4 +40,17 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      - run: brew install mkvtoolnix ffmpeg
+      - run: mkvmerge --version && ffmpeg -version | head -1
+      - run: go test -tags integration ./...
+
+  integration-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: sudo apt-get update && sudo apt-get install -y mkvtoolnix ffmpeg
+      - run: mkvmerge --version && ffmpeg -version | head -1
       - run: go test -tags integration ./...
