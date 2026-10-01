@@ -2,6 +2,7 @@ package zenvik
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -86,5 +87,35 @@ func TestMapTracksDefaultSkipsMissingFirstAudio(t *testing.T) {
 	tracks, _ := mapTracks(title, id)
 	if len(tracks) != 2 || !tracks[0].Default || !tracks[1].Default || tracks[1].Language != "fra" {
 		t.Errorf("tracks = %+v", tracks)
+	}
+}
+
+func TestMapTracksLanguageNormalization(t *testing.T) {
+	tests := []struct {
+		lang     string
+		want     string
+		wantWarn bool
+	}{
+		{"ENG", "eng", false},
+		{"  ", "", true},
+		{"", "", true},
+		{"\x00\x00\x00", "", true},
+		{"eng\x00", "eng", false},
+		{"x1z", "", true},
+		{"und", "", true},
+	}
+	for _, tt := range tests {
+		title := &Title{ID: "00800", Audio: []AudioTrack{{PID: 0x1100, Codec: bluray.CodingAC3, Language: tt.lang}}}
+		id := &mux.Identification{Tracks: []mux.IdentifiedTrack{{ID: 1, Type: "audio", PID: 0x1100, Channels: 2}}}
+		tracks, warnings := mapTracks(title, id)
+		if len(tracks) != 1 || tracks[0].Language != tt.want {
+			t.Errorf("lang %q: tracks = %+v, want language %q", tt.lang, tracks, tt.want)
+		}
+		if gotWarn := len(warnings) > 0; gotWarn != tt.wantWarn {
+			t.Errorf("lang %q: warnings = %q, want warning %v", tt.lang, warnings, tt.wantWarn)
+		}
+		if tt.wantWarn && (len(warnings) != 1 || !strings.Contains(warnings[0], "0x1100") || !strings.Contains(warnings[0], "invalid language code "+strconv.Quote(tt.lang))) {
+			t.Errorf("lang %q: warning text = %q", tt.lang, warnings)
+		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/chad3814/zenvik/internal/mount"
@@ -208,6 +209,13 @@ func mapTracks(t *Title, id *mux.Identification) ([]mux.Track, []string) {
 			return
 		}
 		used[it.ID] = true
+		if kind != "video" {
+			norm, ok := normalizeLanguage(lang)
+			if !ok {
+				warnings = append(warnings, fmt.Sprintf("title %s: %s stream PID 0x%04X has invalid language code %q; keeping mkvmerge's value", t.ID, kind, pid, lang))
+			}
+			lang = norm
+		}
 		def := false
 		switch kind {
 		case "video":
@@ -232,6 +240,22 @@ func mapTracks(t *Title, id *mux.Identification) ([]mux.Track, []string) {
 		}
 	}
 	return tracks, warnings
+}
+
+// normalizeLanguage trims spaces and NULs and lower-cases a playlist language
+// code. It reports false unless the result is three ASCII letters other than
+// "und": mkvmerge rejects anything else with exit status 2.
+func normalizeLanguage(s string) (string, bool) {
+	s = strings.ToLower(strings.Trim(s, " \x00"))
+	if len(s) != 3 || s == "und" {
+		return "", false
+	}
+	for _, c := range s {
+		if c < 'a' || c > 'z' {
+			return "", false
+		}
+	}
+	return s, true
 }
 
 // audioName names an audio track "<codec> <layout>", e.g. "TrueHD 7.1",
