@@ -55,6 +55,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 // exitCode maps an error to the exit codes in the design spec.
 func exitCode(err error) int {
+	var de doctorError
+	if errors.As(err, &de) {
+		return de.code
+	}
 	var ue usageError
 	switch {
 	case errors.As(err, &ue):
@@ -90,5 +94,6 @@ func newRootCmd() *cobra.Command {
 	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error { return usageError{err} })
 	root.AddCommand(newInfoCmd())
 	root.AddCommand(newRipCmd())
+	root.AddCommand(newDoctorCmd())
 	return root
 }
