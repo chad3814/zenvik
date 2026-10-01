@@ -171,3 +171,45 @@ func TestKindString(t *testing.T) {
 		t.Error("Kind.String mismatch")
 	}
 }
+
+// TestExplainBeforeClose is a regression test for the use-after-close bug where
+// explain was called after img.Close(), preventing DVD detection. This test
+// demonstrates the hazard: when explain is called on a closed image, it returns
+// the generic message instead of detecting DVD.
+func TestExplainBeforeClose(t *testing.T) {
+	// Create a DVD UDF image
+	img, err := udfimage.Build(map[string]udfimage.File{"VIDEO_TS/VIDEO_TS.IFO": {Data: []byte("DVDVIDEO-VMG")}},
+		udfimage.Options{Revision: 0x0102, Label: "SOME_DVD"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(t.TempDir(), "dvd.iso")
+	if err := os.WriteFile(p, img, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Call openImage directly to test the fix: explain should be called before Close.
+	// With the bug (explain after Close), the error message would be generic.
+	// With the fix (explain before Close), the message should contain "DVD".
+	_, err = openImage(p)
+	if err == nil {
+		t.Fatal("expected error for DVD image")
+	}
+	if !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "DVD") {
+		t.Errorf("err = %v, want ErrUnsupported with 'DVD' in message", err)
+	}
+
+	// Demonstrate the hazard: explain on a closed image returns the generic message.
+	closedImg, err := udf.OpenImage(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closedImg.Close()
+	genericErr := explain(closedImg, p)
+	if !strings.Contains(genericErr.Error(), "no BDMV/index.bdmv") {
+		t.Errorf("explain on closed image: %v", genericErr)
+	}
+	if strings.Contains(genericErr.Error(), "DVD") {
+		t.Errorf("explain on closed image should not detect DVD: %v", genericErr)
+	}
+}

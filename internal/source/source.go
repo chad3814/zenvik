@@ -93,10 +93,10 @@ func openImage(name string) (*Source, error) {
 		return nil, err
 	}
 	if _, err := fs.Stat(img, "BDMV/index.bdmv"); err != nil {
-		img.Close()
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, explain(img, name)
+			err = explain(img, name)
 		}
+		img.Close()
 		return nil, err
 	}
 	return &Source{Kind: ISO, Path: name, Label: img.Label(), FS: img, close: img.Close}, nil
