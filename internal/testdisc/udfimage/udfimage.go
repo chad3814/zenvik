@@ -37,7 +37,12 @@ type File struct {
 // Options control the image layout.
 type Options struct {
 	Revision uint16 // 0x0102 or 0x0250
-	Label    string
+	// Label is written to the logical volume descriptor and, unless
+	// PVDLabel is set, to the primary volume descriptor.
+	Label string
+	// PVDLabel, when non-empty, is written to the primary volume
+	// descriptor instead of Label, so the two identifiers can differ.
+	PVDLabel string
 	// Embed stores each file small enough to fit inside its file entry.
 	Embed bool
 	// MaxInlineADs, when at least 2, limits a file entry to that many
@@ -415,7 +420,11 @@ func (b *builder) fsd(root *node) []byte {
 func (b *builder) vds(start, partLen uint32) [][]byte {
 	pvd := make([]byte, 512)
 	le32(pvd[16:], 1)
-	dstring(pvd[24:56], b.opt.Label)
+	pvdLabel := b.opt.PVDLabel
+	if pvdLabel == "" {
+		pvdLabel = b.opt.Label
+	}
+	dstring(pvd[24:56], pvdLabel)
 	le16(pvd[56:], 1)
 	le16(pvd[58:], 1)
 	le16(pvd[60:], 2)

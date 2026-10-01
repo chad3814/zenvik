@@ -3,6 +3,7 @@ package udf_test
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"testing"
 
 	"github.com/chad3814/zenvik/internal/testdisc/udfimage"
@@ -102,5 +103,37 @@ func TestOpenRejectsBadPartitionMapTable(t *testing.T) {
 	}
 	if _, err := udf.Open(bytes.NewReader(img), int64(len(img))); !errors.Is(err, udf.ErrCorrupt) {
 		t.Errorf("err = %v, want ErrCorrupt", err)
+	}
+}
+
+func TestOpenLabelPrefersLVD(t *testing.T) {
+	for _, rev := range []uint16{0x0102, 0x0250} {
+		img := buildImage(t, sample, udfimage.Options{Revision: rev, Label: "LVD_LABEL", PVDLabel: "PVD_LABEL"})
+		if got := openImage(t, img).Label(); got != "LVD_LABEL" {
+			t.Errorf("rev %#x: Label = %q, want the LVD identifier", rev, got)
+		}
+	}
+}
+
+func TestOpenLabelFallsBackToPVD(t *testing.T) {
+	img := buildImage(t, sample, udfimage.Options{Revision: 0x0250, PVDLabel: "PVD_LABEL"})
+	if got := openImage(t, img).Label(); got != "PVD_LABEL" {
+		t.Errorf("Label = %q, want the PVD identifier", got)
+	}
+}
+
+func TestOpenCorruptLabelStillOpens(t *testing.T) {
+	img := buildImage(t, sample, layouts[2].opt)
+	for _, lvd := range []int{35, 48 + 3} { // main and reserve LVD
+		d := img[lvd*2048 : (lvd+1)*2048]
+		d[84] = 99 // invalid character compression ID
+		fixTag(d)
+	}
+	fsys := openImage(t, img)
+	if fsys.Label() != "" {
+		t.Errorf("Label = %q, want empty", fsys.Label())
+	}
+	if _, err := fs.ReadFile(fsys, "BDMV/index.bdmv"); err != nil {
+		t.Errorf("ReadFile: %v", err)
 	}
 }

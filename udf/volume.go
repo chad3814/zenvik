@@ -60,7 +60,8 @@ func Open(r io.ReaderAt, size int64) (*FS, error) {
 	return f, nil
 }
 
-// Label returns the volume identifier.
+// Label returns the logical volume identifier, or the primary volume
+// identifier if that is empty. It is "" if neither can be decoded.
 func (f *FS) Label() string { return f.label }
 
 func readFull(r io.ReaderAt, p []byte, off int64) error {
@@ -163,14 +164,7 @@ func (f *FS) mount(pvd, lvd []byte, pds map[uint16][]byte) error {
 	if bs := le32(lvd[212:]); bs != sectorSize {
 		return fmt.Errorf("%w: logical block size %d", ErrUnsupported, bs)
 	}
-	field := lvd[84:212]
-	if pvd != nil {
-		field = pvd[24:56]
-	}
-	label, err := decodeDstring(field)
-	if err != nil {
-		return err
-	}
+	label := volumeLabel(pvd, lvd)
 	parts, err := parsePartitionMaps(lvd, pds)
 	if err != nil {
 		return err
@@ -200,6 +194,22 @@ func (f *FS) mount(pvd, lvd []byte, pds map[uint16][]byte) error {
 	}
 	f.root, f.label = root, label
 	return nil
+}
+
+// volumeLabel returns the logical volume identifier, falling back to the
+// primary volume identifier when it is empty. An undecodable identifier
+// yields "": the label is informational and must not prevent opening.
+func volumeLabel(pvd, lvd []byte) string {
+	label, err := decodeDstring(lvd[84:212])
+	if err != nil {
+		return ""
+	}
+	if label == "" && pvd != nil {
+		if label, err = decodeDstring(pvd[24:56]); err != nil {
+			return ""
+		}
+	}
+	return label
 }
 
 func parsePartitionMaps(lvd []byte, pds map[uint16][]byte) ([]partition, error) {
