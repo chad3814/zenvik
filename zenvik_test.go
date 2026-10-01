@@ -173,6 +173,9 @@ func TestOpenFiltersUnreadablePlaylist(t *testing.T) {
 	if !bad.Rank.Filtered || len(bad.Rank.Reasons) == 0 || !strings.HasPrefix(bad.Rank.Reasons[0], "unreadable playlist") {
 		t.Errorf("00500 rank = %+v", bad.Rank)
 	}
+	if bad.Angles != 1 {
+		t.Errorf("00500 Angles = %d, want 1", bad.Angles)
+	}
 	if m := d.Main(); m == nil || m.ID != "00800" {
 		t.Errorf("Main = %+v", m)
 	}

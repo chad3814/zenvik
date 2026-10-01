@@ -109,7 +109,7 @@ func isPlaylistName(name string) bool {
 }
 
 func loadTitle(fsys fs.FS, f playlistFile, clips *clipCache, playedByTitle1 bool) (*Title, rank.Candidate) {
-	t := &Title{ID: f.id}
+	t := &Title{ID: f.id, Angles: 1}
 	c := rank.Candidate{ID: f.id, PlayedByTitle1: playedByTitle1}
 	b, err := fs.ReadFile(fsys, "BDMV/PLAYLIST/"+f.name)
 	if err == nil {
@@ -154,7 +154,6 @@ func fillFromPlaylist(t *Title, p *bluray.Playlist) {
 	for i, start := range p.Chapters() {
 		t.Chapters = append(t.Chapters, Chapter{Number: i + 1, Start: start})
 	}
-	t.Angles = 1
 	for _, it := range p.Items {
 		t.Clips = append(t.Clips, Clip{ID: it.ClipID, In: it.In.Duration(), Out: it.Out.Duration()})
 		t.Angles = max(t.Angles, len(it.Angles)+1)
