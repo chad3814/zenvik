@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"reflect"
 	"testing"
 )
 
@@ -80,5 +81,44 @@ func TestShortReadMatchesCorruptAndUnexpectedEOF(t *testing.T) {
 	err := readFull(bytes.NewReader(make([]byte, 10)), make([]byte, 20), 0)
 	if !errors.Is(err, ErrCorrupt) || !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Errorf("err = %v, want ErrCorrupt and io.ErrUnexpectedEOF", err)
+	}
+}
+
+// fid builds a file identifier descriptor named name (one byte per
+// character; an empty name has no d-characters) whose ICB is at block.
+func fid(name string, block uint32) []byte {
+	var nameBytes []byte
+	if name != "" {
+		nameBytes = append([]byte{8}, name...)
+	}
+	d := make([]byte, (38+len(nameBytes)+3)&^3)
+	d[19] = byte(len(nameBytes))
+	binary.LittleEndian.PutUint32(d[24:], block)
+	copy(d[38:], nameBytes)
+	return makeTag(tagFID, 0, d)
+}
+
+func TestReadDirSkipsUnusableNames(t *testing.T) {
+	var data []byte
+	for i, name := range []string{"", ".", "..", "a/b", "nul\x00name", "dup", "good", "dup"} {
+		data = append(data, fid(name, uint32(i+1))...)
+	}
+	e := &entry{fs: hostileFS(make([]byte, sectorSize)), fileType: fileTypeDirectory,
+		size: int64(len(data)), inline: true, embedded: data}
+	got, err := e.readDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	type nb struct {
+		name  string
+		block uint32
+	}
+	var have []nb
+	for _, de := range got {
+		have = append(have, nb{de.name, de.icb.block})
+	}
+	want := []nb{{"dup", 6}, {"good", 7}} // the first of the duplicates wins
+	if !reflect.DeepEqual(have, want) {
+		t.Errorf("readDir = %v, want %v", have, want)
 	}
 }

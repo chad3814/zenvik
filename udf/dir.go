@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // maxDirSize bounds how much directory data is read into memory.
@@ -25,7 +26,8 @@ type dirent struct {
 }
 
 // readDir parses the file identifier descriptors of a directory, skipping
-// the parent entry and deleted entries.
+// the parent entry, deleted entries, entries whose names cannot be used as
+// a path element, and all but the first of any duplicate names.
 func (e *entry) readDir() ([]dirent, error) {
 	if e.fileType != fileTypeDirectory {
 		return nil, errNotDir
@@ -38,6 +40,7 @@ func (e *entry) readDir() ([]dirent, error) {
 		return nil, err
 	}
 	var out []dirent
+	seen := map[string]bool{}
 	for len(data) > 0 && !allZero(data) {
 		if len(data) < 38 {
 			return nil, fmt.Errorf("%w: truncated file identifier", ErrCorrupt)
@@ -62,6 +65,10 @@ func (e *entry) readDir() ([]dirent, error) {
 		if err != nil {
 			return nil, err
 		}
+		if !usableName(name) || seen[name] {
+			continue
+		}
+		seen[name] = true
 		out = append(out, dirent{name: name, dir: chars&fidDirectory != 0, icb: icb})
 	}
 	return out, nil
@@ -74,4 +81,9 @@ func allZero(b []byte) bool {
 		}
 	}
 	return true
+}
+
+// usableName reports whether name can be a single io/fs path element.
+func usableName(name string) bool {
+	return name != "" && name != "." && name != ".." && !strings.ContainsAny(name, "/\x00")
 }
