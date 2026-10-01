@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"path"
 	"sort"
 	"strings"
 	"time"
@@ -84,14 +83,29 @@ func playlistFiles(fsys fs.FS) ([]playlistFile, error) {
 	var out []playlistFile
 	for _, e := range ents {
 		name := e.Name()
-		ext := path.Ext(name)
-		if e.IsDir() || !strings.EqualFold(ext, ".mpls") {
+		if e.IsDir() || !isPlaylistName(name) {
 			continue
 		}
-		out = append(out, playlistFile{id: strings.TrimSuffix(name, ext), name: name})
+		out = append(out, playlistFile{id: strings.TrimSuffix(name, ".mpls"), name: name})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].id < out[j].id })
 	return out, nil
+}
+
+// isPlaylistName reports whether name is five ASCII digits followed by
+// ".mpls". The strict form skips stray files (such as macOS "._" metadata)
+// and keeps playlist IDs unique on case-sensitive filesystems.
+func isPlaylistName(name string) bool {
+	id, ok := strings.CutSuffix(name, ".mpls")
+	if !ok || len(id) != 5 {
+		return false
+	}
+	for _, r := range id {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func loadTitle(fsys fs.FS, f playlistFile, clips *clipCache, playedByTitle1 bool) (*Title, rank.Candidate) {

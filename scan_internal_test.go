@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"slices"
+	"sort"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/chad3814/zenvik/bluray"
@@ -49,5 +52,27 @@ func TestScanProbesEachClipOnce(t *testing.T) {
 		if n := cfs.opens["BDMV/STREAM/"+s.Clip+".m2ts"]; n != 1 {
 			t.Errorf("%s opened %d times, want 1", s.Clip, n)
 		}
+	}
+}
+
+func TestPlaylistFilesIgnoresStrayNames(t *testing.T) {
+	d := testdisc.SampleMovie()
+	fsys := d.MapFS()
+	good := fsys["BDMV/PLAYLIST/00800.mpls"].Data
+	fsys["BDMV/PLAYLIST/._00800.mpls"] = &fstest.MapFile{Data: []byte("\x00\x05AppleDouble garbage")}
+	fsys["BDMV/PLAYLIST/README.mpls"] = &fstest.MapFile{Data: []byte("not a playlist")}
+	fsys["BDMV/PLAYLIST/00800.MPLS"] = &fstest.MapFile{Data: good}
+	fsys["BDMV/PLAYLIST/1234.mpls"] = &fstest.MapFile{Data: good}
+	titles, _, err := scanTitles(context.Background(), fsys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, ti := range titles {
+		got = append(got, ti.ID)
+	}
+	sort.Strings(got)
+	if want := []string{"00010", "00099", "00800", "00801"}; !slices.Equal(got, want) {
+		t.Errorf("titles = %v, want %v", got, want)
 	}
 }
