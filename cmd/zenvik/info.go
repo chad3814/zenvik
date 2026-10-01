@@ -100,7 +100,9 @@ func notes(t *zenvik.Title) string {
 				why = append(why, r)
 			}
 		}
-		n = append(n, strings.Join(why, "; "))
+		if len(why) > 0 {
+			n = append(n, strings.Join(why, "; "))
+		}
 	}
 	return strings.Join(n, ", ")
 }

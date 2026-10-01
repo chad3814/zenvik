@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chad3814/zenvik"
 	"github.com/chad3814/zenvik/bluray"
 	"github.com/chad3814/zenvik/internal/testdisc"
 )
@@ -185,5 +186,16 @@ func TestInfoNoMainTitle(t *testing.T) {
 	}
 	if !strings.Contains(out, "No title qualifies as the main feature.") {
 		t.Errorf("stdout = %q", out)
+	}
+}
+
+func TestNotesFilteredEncryptedOnly(t *testing.T) {
+	ti := &zenvik.Title{Encrypted: true, Rank: zenvik.RankInfo{Filtered: true, Reasons: []string{"encrypted"}}}
+	if got := notes(ti); got != "encrypted" {
+		t.Errorf("notes = %q, want %q", got, "encrypted")
+	}
+	ti.Rank.Reasons = []string{"encrypted", "no video stream"}
+	if got := notes(ti); got != "encrypted, no video stream" {
+		t.Errorf("notes = %q", got)
 	}
 }
