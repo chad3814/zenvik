@@ -53,29 +53,57 @@ output_dir = "/Volumes/Media/Movies"
 template   = "{name}[ ({year})]/{name}[ ({year})].mkv"
 ```
 
+A relative `XDG_CONFIG_HOME` is ignored, as the XDG spec requires.
+
+On Windows, write paths as TOML single-quoted literal strings, where a backslash is just a
+backslash:
+
+```toml
+output_dir    = 'D:\Rips'
+mkvmerge_path = 'C:\Program Files\MKVToolNix\mkvmerge.exe'
+```
+
+In double quotes a backslash starts an escape, so `"D:\Rips"` would contain a carriage return
+(`\r`), and `\t` would become a tab.
+
 Precedence: command-line flags, then the selected preset, then top-level values, then the
 defaults. Presets may set `output_dir`, `template` and `min_duration`. Unknown keys, bad
-durations and unknown presets are errors (exit 2), so typos don't go unnoticed.
+durations, unknown presets and invalid templates are errors (exit 2), so typos don't go
+unnoticed. Both `rip` and `info` read the config: `info` also validates the template and the
+default preset, and exits 2 if either is invalid.
 
 ### Name templates
 
 | Variable | Value |
 |---|---|
-| `{name}` | `--name`, else the disc's title, else its volume label tidied up (`THE_MATRIX` → `The Matrix`) |
+| `{name}` | `--name`, else the disc's title, else its volume label tidied up (`THE_MATRIX` → `The Matrix`), else `untitled` |
 | `{year}` | `--year` |
 | `{label}` | the raw volume label |
 | `{playlist}` | the playlist number, e.g. `00800` |
 
 `[...]` is dropped when a variable inside it is empty, so `{name}[ ({year})]` gives `Movie.mkv`
-without a year. `/` in the template makes folders. Characters that are invalid on any OS are
-replaced with `_`, names reserved on Windows (like `CON`) get a `_` suffix, and `.mkv` is added
-if missing.
+without a year. Outside `[...]` an empty `{year}` is simply left out, and it's an error if that
+leaves a folder or file name empty (for example `{year}/{name}` or `[{year}].mkv` without
+`--year`).
+
+Only `/` in the template makes folders; a `\` becomes `_`, as does a `/` inside a variable's
+value. Characters that are invalid on any OS are replaced with `_`, names reserved on Windows
+(like `CON` or `COM1`) get a `_` suffix, and `.mkv` is added if missing.
 
 ## Cleaning up after a crash
 
 Run `zenvik doctor` to list mounts a crashed rip left behind, with the command to remove each.
 That command also deletes the mount's record file from zenvik's state directory
-(`$XDG_STATE_HOME/zenvik/mounts`, else your OS user cache directory).
+(`$XDG_STATE_HOME/zenvik/mounts`, else your OS user cache directory). On Windows the printed
+command is a PowerShell command; elsewhere it is a POSIX shell command. `doctor` itself never
+deletes anything.
+
+If a record's mount is already gone (after a reboot, or after you detached it by hand), doctor
+prints it as a `!` warning, `stale mount record`, with a command that only deletes the record.
+
+`doctor` exits with 4 if mkvmerge is missing or too old, else 2 if the config is invalid, else
+1 if there are live leftover mounts, else 0. Stale records and unavailable ISO mounting are
+warnings and don't change the exit code.
 
 Press Ctrl-C once to stop a rip cleanly. A second Ctrl-C exits immediately and may leave
 the image mounted or a `.partial` file behind. To remove a leftover mount:
@@ -84,3 +112,5 @@ the image mounted or a `.partial` file behind. To remove a leftover mount:
   temporary directory named `zenvik-mount-*`).
 - Linux: `udisksctl unmount -b /dev/loopN && udisksctl loop-delete -b /dev/loopN`.
 - Windows: `Dismount-DiskImage -ImagePath <image>`.
+
+Then run `zenvik doctor`, which shows how to remove the mount's record.

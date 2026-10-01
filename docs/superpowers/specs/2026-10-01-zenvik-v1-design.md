@@ -111,7 +111,7 @@ type RipResult struct { OutputPath string; Duration time.Duration; Warnings []st
 - Ranking runs inside `Open`, so all consumers see the same ordering and reasons.
 - Cancellation uses `ctx`: mkvmerge is killed and the partial file deleted.
 - Progress is a callback, not a channel, so there is nothing to drain or leak.
-- Sentinel errors (checked with `errors.Is`): `ErrUnsupportedSource`, `ErrEncrypted`, `ErrNoTitles`, `ErrMkvmergeNotFound`, `ErrMkvmergeTooOld`, `ErrMountUnavailable`, `ErrOutputExists`.
+- Sentinel errors (checked with `errors.Is`): `ErrUnsupportedSource`, `ErrEncrypted`, `ErrNoTitles`, `ErrMkvmergeNotFound`, `ErrMkvmergeTooOld`, `ErrMountUnavailable`, `ErrOutputExists`, `ErrMuxFailed`, `ErrInvalidTemplate`.
 
 ### Encryption detection
 
@@ -167,7 +167,7 @@ The mkvmerge implementation:
 | Linux | `udisksctl loop-setup -r -f <iso>` then `udisksctl mount -b <loopdev>` | `udisksctl unmount -b`, then `udisksctl loop-delete -b` |
 | Windows | PowerShell `Mount-DiskImage -ImagePath <iso> -PassThru \| Get-Volume` (drive letter) | `Dismount-DiskImage -ImagePath <iso>` |
 
-After mounting, zenvik checks that `BDMV/index.bdmv` exists at the mount point. `Close()` unmounts only what zenvik mounted. If mounting isn't possible, `Rip` returns `ErrMountUnavailable`, and the message suggests extracting or mounting manually and passing the directory instead. If the process is killed hard, a mount may be left behind; this is documented. Mounts are recorded in `$XDG_STATE_HOME/zenvik/mounts` (or the user cache dir; a relative `XDG_STATE_HOME` is ignored, per the XDG spec) until detached, and `zenvik doctor` lists records whose process is gone, with the command to remove each. That command also deletes the record file. Mount tools run with `LC_ALL=C.UTF-8` (not `C`) so output parsing is locale-independent while GLib keeps non-ASCII mount paths intact; glibc falls back to the C locale where `C.UTF-8` is missing. On Windows, a liveness check that gets access-denied treats the process as alive.
+After mounting, zenvik checks that `BDMV/index.bdmv` exists at the mount point. `Close()` unmounts only what zenvik mounted. If mounting isn't possible, `Rip` returns `ErrMountUnavailable`, and the message suggests extracting or mounting manually and passing the directory instead. If the process is killed hard, a mount may be left behind; this is documented. Mounts are recorded in `$XDG_STATE_HOME/zenvik/mounts` (or the user cache dir; a relative `XDG_STATE_HOME` is ignored, per the XDG spec) until detached, and `zenvik doctor` lists records whose process is gone, with the command to remove each. That command also deletes the record file. A record whose mount is already gone is *stale*: on Unix the mount directory is missing or is on the same device as its parent, and on Linux the loop device's `/sys/block/loopN/loop/backing_file` must also still name the recorded image; on Windows the drive must still exist. Doctor reports a stale record as a warning whose command only deletes the record, and never deletes anything itself. The printed commands are POSIX shell commands, or PowerShell on Windows. Mount tools run with `LC_ALL=C.UTF-8` (not `C`) so output parsing is locale-independent while GLib keeps non-ASCII mount paths intact; glibc falls back to the C locale where `C.UTF-8` is missing. On Windows, a liveness check that gets access-denied treats the process as alive.
 
 ### `udf` package
 
@@ -188,7 +188,7 @@ zenvik doctor
 
 - **`info`:** a ranked table with columns ★ (main), ID, duration, size, chapters, video, audio languages, subtitle languages, and notes (duplicate, ambiguous, encrypted, angles). `--all` includes filtered titles with their reasons. `--json` prints the `Disc` model, with `"kind": "iso" | "bdmv"`.
 - **`rip`:** rips the main title by default (or `--playlist`). It prints the chosen title and why, then the progress. When the result is ambiguous, it rips the top candidate and warns, naming the alternatives. `--dry-run` prints the resolved output path and the mkvmerge command without running it.
-- **`doctor`:** checks that mkvmerge is found and its version, whether ISO mounting is possible on this OS, the config path and whether it parses, and any leftover zenvik mounts.
+- **`doctor`:** checks that mkvmerge is found and its version, whether ISO mounting is possible on this OS, the config path and whether it parses, and any leftover zenvik mounts. It prints `✓`, `!` (warning) or `✗` per check. A leftover whose mount is still live is `✗ leftover mount: …`; a stale record (mount already gone) is `! stale mount record: <image> (mount is gone); remove with: <command>`. Exit `4` if mkvmerge is missing or too old, else `2` if the config is invalid, else `1` if there are live leftover mounts, else `0`. Stale records and unavailable ISO mounting are only warnings.
 - **Progress:** an in-place progress bar on a TTY; plain periodic lines otherwise.
 - **Signals:** SIGINT/SIGTERM cancel the context, so cleanup (partial-file removal, unmount) runs.
 - **Exit codes:** `0` success, `1` failure, `2` usage error, `3` unsupported or encrypted source, `4` missing or too-old dependency.
@@ -225,7 +225,7 @@ template   = "{name}[ ({year})]/{name}[ ({year})].mkv"
 - `[...]` is an optional group, dropped if any variable inside it is empty. Groups do not nest.
 - An unknown variable is an error.
 - Characters invalid on any of macOS, Linux, or Windows (`<>:"\|?*` and control characters) are replaced with `_`. `/` in the template creates directories; `/` inside a variable's value is replaced.
-- Every rendered path component is cleaned: surrounding spaces and trailing dots are trimmed, Windows reserved base names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`) get a `_` suffix, and each component is cut to 247 bytes at a rune boundary (keeping the extension) so `<name>.partial` fits in 255 bytes. The final component gets `.mkv` if missing (case-insensitive). Empty, `.` or `..` components and absolute results are errors; a `\` in the template is an invalid character, not a separator.
+- Every rendered path component is cleaned: surrounding spaces and trailing dots are trimmed, Windows reserved base names (`CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0`–`COM9`, `LPT0`–`LPT9`, and `COM`/`LPT` followed by `¹`, `²` or `³`, case-insensitive, matched on the part before the first `.` with trailing spaces ignored) get a `_` suffix, and each component is cut to 247 bytes at a rune boundary (keeping the extension) so `<name>.partial` fits in 255 bytes. The final component gets `.mkv` if missing (case-insensitive). Empty, `.` or `..` components, an empty file name before `.mkv`, and absolute results are errors; a `\` in the template is an invalid character, not a separator.
 - Paths are relative to `output_dir`, and `~` is expanded.
 - An existing output file causes `ErrOutputExists` unless `--overwrite` is passed.
 
