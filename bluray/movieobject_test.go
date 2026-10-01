@@ -97,6 +97,17 @@ func TestPlaylistsUnknownRegisterIsSkipped(t *testing.T) {
 	}
 }
 
+func TestPlaylistsSwapInvalidatesBothRegisters(t *testing.T) {
+	m := &MovieObjects{Objects: []MovieObject{{Commands: []NavCommand{
+		{Opcode: 0x50400001, Dst: 1, Src: 800}, // MOVE r1, 800
+		{Opcode: 0x50000002, Dst: 2, Src: 1},   // SWAP r2, r1 (register source)
+		{Opcode: 0x22000000, Dst: 1},           // PLAY_PL r1
+	}}}}
+	if got := m.Playlists(0); got != nil {
+		t.Errorf("Playlists(0) = %v, want nil", got)
+	}
+}
+
 func TestParseMovieObjectsErrors(t *testing.T) {
 	b := movieObjectBytes()
 	for name, in := range map[string][]byte{

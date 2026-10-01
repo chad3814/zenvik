@@ -15,6 +15,7 @@ const (
 
 	setSet  = 0
 	setMove = 1
+	setSwap = 2
 )
 
 // NavCommand is one 12-byte HDMV navigation command.
@@ -89,7 +90,7 @@ func ParseMovieObjects(b []byte) (*MovieObjects, error) {
 // CallObject branches with immediate targets. A register operand is
 // resolved only when an earlier Move in the same object loaded that
 // register with a known value; anything else is skipped. Commands are
-// scanned in order, ignoring conditional branches.
+// scanned in order, treating conditional (CMP-guarded) commands as unconditional.
 func (m *MovieObjects) Playlists(objectID int) []int {
 	var out []int
 	seen := map[int]bool{}
@@ -112,6 +113,9 @@ func (m *MovieObjects) Playlists(objectID int) []int {
 					regs[c.Dst] = v
 				} else {
 					delete(regs, c.Dst)
+					if c.SetOpt() == setSwap && !c.ImmSrc() {
+						delete(regs, c.Src)
+					}
 				}
 			case c.Group() == groupBranch && c.SubGroup() == branchPlay && c.BranchOpt() <= playPLPM:
 				pl, ok := c.Dst, c.ImmDst()
