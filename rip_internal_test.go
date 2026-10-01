@@ -1,12 +1,16 @@
 package zenvik
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/chad3814/zenvik/bluray"
+	"github.com/chad3814/zenvik/internal/mount"
 	"github.com/chad3814/zenvik/internal/mux"
 )
 
@@ -139,5 +143,22 @@ func TestMapTracksDuplicatePID(t *testing.T) {
 	}
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "0x1100") || !strings.Contains(warnings[0], "more than once") {
 		t.Errorf("warnings = %q", warnings)
+	}
+}
+
+func TestMountHint(t *testing.T) {
+	unavailable := fmt.Errorf("%w: no hdiutil", mount.ErrUnavailable)
+	if err := mountHint(context.Background(), unavailable); !errors.Is(err, mount.ErrUnavailable) || !strings.Contains(err.Error(), "mount the image yourself") {
+		t.Errorf("unavailable: err = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := mountHint(ctx, unavailable)
+	if !errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "mount the image yourself") {
+		t.Errorf("canceled: err = %v", err)
+	}
+	other := errors.New("boom")
+	if err := mountHint(context.Background(), other); !errors.Is(err, other) || strings.Contains(err.Error(), "mount the image") {
+		t.Errorf("other: err = %v", err)
 	}
 }

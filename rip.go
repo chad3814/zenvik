@@ -173,10 +173,7 @@ func (d *Disc) mountRoot(ctx context.Context, report func(Phase, float64)) (stri
 	report(PhaseMounting, 0)
 	m, err := mount.Attach(ctx, d.src.Path)
 	if err != nil {
-		if errors.Is(err, mount.ErrUnavailable) {
-			err = fmt.Errorf("%w (mount the image yourself, or extract it, and pass the folder instead)", err)
-		}
-		return "", nil, err
+		return "", nil, mountHint(ctx, err)
 	}
 	release := func() error { return m.Detach(ctx) }
 	if _, err := os.Stat(filepath.Join(m.Dir, "BDMV", "index.bdmv")); err != nil {
@@ -185,6 +182,19 @@ func (d *Disc) mountRoot(ctx context.Context, report func(Phase, float64)) (stri
 	}
 	report(PhaseMounting, 1)
 	return m.Dir, release, nil
+}
+
+// mountHint decorates an Attach failure. After cancellation it returns the
+// context's error joined with err, without the hint; ErrUnavailable gets a
+// suggestion to mount or extract the image.
+func mountHint(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return errors.Join(ctx.Err(), err)
+	}
+	if errors.Is(err, mount.ErrUnavailable) {
+		return fmt.Errorf("%w (mount the image yourself, or extract it, and pass the folder instead)", err)
+	}
+	return err
 }
 
 // mapTracks matches the title's playlist streams to mkvmerge's tracks by
