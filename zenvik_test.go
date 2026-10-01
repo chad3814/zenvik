@@ -256,3 +256,35 @@ func TestTitleFieldsForMultiAngle(t *testing.T) {
 		t.Errorf("Angles = %d, want 3 (%s)", m.Angles, fmt.Sprint(m.Rank.Reasons))
 	}
 }
+
+func TestOpenEncryptedFeatureWithCleanMenu(t *testing.T) {
+	disc := testdisc.SampleMovie()
+	for id := range disc.Clips {
+		if id != "00031" { // the 00099 menu clip stays clean
+			disc.ClipData[id] = testdisc.ScrambledM2TS(1)
+		}
+	}
+	_, err := zenvik.Open(context.Background(), writeDisc(t, disc))
+	if !errors.Is(err, zenvik.ErrEncrypted) {
+		t.Errorf("err = %v, want ErrEncrypted", err)
+	}
+}
+
+func TestOpenOnlyShortTitles(t *testing.T) {
+	d := openDisc(t, writeDisc(t, shortOnlyDisc()))
+	if m := d.Main(); m != nil {
+		t.Errorf("Main = %+v, want nil", m)
+	}
+	if len(d.Titles) != 2 {
+		t.Errorf("titles = %v", ids(d.Titles))
+	}
+}
+
+func shortOnlyDisc() *testdisc.Disc {
+	d := &testdisc.Disc{Playlists: map[string]*bluray.Playlist{
+		"00001": testdisc.SimplePlaylist(testdisc.Segment{Clip: "00001", Length: 90 * time.Second}),
+		"00002": testdisc.SimplePlaylist(testdisc.Segment{Clip: "00002", Length: 30 * time.Second}),
+	}, ClipData: map[string][]byte{}}
+	d.AddClipsFor()
+	return d
+}

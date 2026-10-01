@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chad3814/zenvik/bluray"
 	"github.com/chad3814/zenvik/internal/testdisc"
 )
 
@@ -169,5 +170,20 @@ func TestExitCodes(t *testing.T) {
 				t.Errorf("zenvik %v: error line lacks prefix: %q", tt.args, last)
 			}
 		}
+	}
+}
+
+func TestInfoNoMainTitle(t *testing.T) {
+	d := &testdisc.Disc{Playlists: map[string]*bluray.Playlist{
+		"00001": testdisc.SimplePlaylist(testdisc.Segment{Clip: "00001", Length: 90 * time.Second}),
+		"00002": testdisc.SimplePlaylist(testdisc.Segment{Clip: "00002", Length: 30 * time.Second}),
+	}, ClipData: map[string][]byte{}}
+	d.AddClipsFor()
+	code, out, errOut := runCLI("info", writeDisc(t, d))
+	if code != 0 || errOut != "" {
+		t.Fatalf("code %d, stderr %q", code, errOut)
+	}
+	if !strings.Contains(out, "No title qualifies as the main feature.") {
+		t.Errorf("stdout = %q", out)
 	}
 }
