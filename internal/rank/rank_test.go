@@ -46,12 +46,32 @@ func TestRankScenarios(t *testing.T) {
 	title1 := movie("00801", seq(101, 20, 5*time.Minute))
 	title1.PlayedByTitle1 = true
 
+	withChapters := func(c Candidate, n int) Candidate { c.Chapters = n; return c }
+	encryptedRunnerUp := movie("00801", seq(101, 20, 5*time.Minute))
+	encryptedRunnerUp.Encrypted = true
+
 	tests := []struct {
 		name      string
 		cands     []Candidate
 		wantMain  string
 		ambiguous bool
 	}{
+		{"runner-up 9 points behind is not ambiguous", []Candidate{
+			movie("00800", seq(1, 20, 330*time.Second)),   // about 112.7
+			movie("00801", seq(101, 20, 300*time.Second)), // about 103.6
+		}, "00800", false},
+		{"runner-up exactly at the margin is ambiguous", []Candidate{
+			withChapters(movie("00800", seq(1, 20, 5*time.Minute)), 30),   // 116
+			withChapters(movie("00801", seq(101, 20, 5*time.Minute)), 15), // 111
+		}, "00800", true},
+		{"runner-up just past the margin is not ambiguous", []Candidate{
+			withChapters(movie("00800", seq(1, 20, 5*time.Minute)), 30),
+			withChapters(movie("00801", seq(101, 20, 5*time.Minute)), 14), // 5.33 behind
+		}, "00800", false},
+		{"encrypted runner-up does not make the main ambiguous", []Candidate{
+			withChapters(movie("00800", seq(1, 20, 5*time.Minute)), 21), // 2 points above the encrypted runner-up
+			withChapters(encryptedRunnerUp, 15),
+		}, "00800", false},
 		{"simple movie", []Candidate{
 			movie("00800", seq(1, 20, 330*time.Second)),
 			movie("00001", seq(100, 1, 150*time.Second)),
