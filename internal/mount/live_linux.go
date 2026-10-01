@@ -28,7 +28,9 @@ func loopLive(r Record) bool {
 	if err != nil {
 		return false
 	}
-	backing := filepath.Clean(strings.TrimSpace(string(b)))
+	// The kernel appends " (deleted)" when the image file was removed while
+	// the device is still attached; the mount is still live then.
+	backing := filepath.Clean(strings.TrimSuffix(strings.TrimSpace(string(b)), " (deleted)"))
 	if backing == filepath.Clean(r.Image) {
 		return true
 	}

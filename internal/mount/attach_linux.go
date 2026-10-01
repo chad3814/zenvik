@@ -70,7 +70,7 @@ func available() (string, error) {
 
 func cleanupCommand(r Record) string {
 	cmd := fmt.Sprintf("udisksctl unmount --no-user-interaction -b %s && udisksctl loop-delete --no-user-interaction -b %s",
-		r.Device, r.Device)
+		shQuote(r.Device), shQuote(r.Device))
 	if r.Path != "" {
 		cmd += " && rm -f " + shQuote(r.Path)
 	}

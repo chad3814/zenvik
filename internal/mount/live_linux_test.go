@@ -31,6 +31,7 @@ func TestLeftoversLoopBackingFile(t *testing.T) {
 	}{
 		{"matches", map[string]string{backing: "/i/x.iso\n"}, false},
 		{"unclean match", map[string]string{backing: "/i/./x.iso\n"}, false},
+		{"deleted image", map[string]string{backing: "/i/x.iso (deleted)\n"}, false},
 		{"other image", map[string]string{backing: "/i/other.iso\n"}, true},
 		{"loop device gone", map[string]string{}, true},
 	}

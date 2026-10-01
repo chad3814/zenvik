@@ -65,8 +65,8 @@ func TestLeftovers(t *testing.T) {
 			t.Errorf("cleanup = %q, want %q", cleanup, want)
 		}
 	case "linux":
-		if !strings.Contains(cleanup, "udisksctl unmount --no-user-interaction -b /dev/loop9") ||
-			!strings.Contains(cleanup, "udisksctl loop-delete --no-user-interaction -b /dev/loop9") {
+		if !strings.Contains(cleanup, "udisksctl unmount --no-user-interaction -b '/dev/loop9'") ||
+			!strings.Contains(cleanup, "udisksctl loop-delete --no-user-interaction -b '/dev/loop9'") {
 			t.Errorf("cleanup = %q", cleanup)
 		}
 	case "windows":
@@ -183,8 +183,10 @@ func TestStaleCleanupRemovesOnlyRecord(t *testing.T) {
 	switch runtime.GOOS {
 	case "windows":
 		want = "Remove-Item -LiteralPath " + psQuote(r.Path)
-	default:
+	case "darwin", "linux", "freebsd", "openbsd", "netbsd", "dragonfly", "solaris", "illumos", "aix":
 		want = "rm -f '" + r.Path + "'"
+	default:
+		want = ""
 	}
 	if got != want {
 		t.Errorf("Cleanup() = %q, want %q", got, want)
