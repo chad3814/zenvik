@@ -137,3 +137,25 @@ func TestOpenCorruptLabelStillOpens(t *testing.T) {
 		t.Errorf("ReadFile: %v", err)
 	}
 }
+
+func TestOpenFallsBackToMetadataMirror(t *testing.T) {
+	img := buildImage(t, sample, layouts[2].opt)
+	clear(img[257*2048 : 258*2048]) // main metadata file entry: physical partition block 0
+	fsys := openImage(t, img)
+	for name, f := range sample {
+		got, err := fs.ReadFile(fsys, name)
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+		} else if !bytes.Equal(got, f.Data) {
+			t.Errorf("%s: contents differ", name)
+		}
+	}
+}
+
+func TestOpenFailsWithoutMetadataFileOrMirror(t *testing.T) {
+	img := buildImage(t, sample, layouts[2].opt)
+	clear(img[257*2048 : 259*2048]) // metadata file entry and its mirror
+	if _, err := udf.Open(bytes.NewReader(img), int64(len(img))); !errors.Is(err, udf.ErrCorrupt) {
+		t.Errorf("err = %v, want ErrCorrupt", err)
+	}
+}
