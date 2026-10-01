@@ -6,6 +6,7 @@ import (
 	"io/fs"
 
 	"github.com/chad3814/zenvik/bluray"
+	"github.com/chad3814/zenvik/internal/rank"
 	"github.com/chad3814/zenvik/internal/source"
 )
 
@@ -35,7 +36,7 @@ func Open(ctx context.Context, path string) (*Disc, error) {
 	if err != nil {
 		return nil, err
 	}
-	titles, meta, err := scanTitles(ctx, src.FS)
+	titles, meta, err := scanTitles(ctx, src.FS, defaultMinDuration, rank.DefaultWeights)
 	if err != nil {
 		src.Close()
 		return nil, err

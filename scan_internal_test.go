@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/chad3814/zenvik/bluray"
+	"github.com/chad3814/zenvik/internal/rank"
 	"github.com/chad3814/zenvik/internal/testdisc"
 )
 
@@ -41,7 +42,7 @@ func TestScanProbesEachClipOnce(t *testing.T) {
 	}
 	d.AddClipsFor()
 	cfs := &countingFS{FS: d.MapFS(), opens: map[string]int{}}
-	titles, _, err := scanTitles(context.Background(), cfs)
+	titles, _, err := scanTitles(context.Background(), cfs, defaultMinDuration, rank.DefaultWeights)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +64,7 @@ func TestPlaylistFilesIgnoresStrayNames(t *testing.T) {
 	fsys["BDMV/PLAYLIST/README.mpls"] = &fstest.MapFile{Data: []byte("not a playlist")}
 	fsys["BDMV/PLAYLIST/00800.MPLS"] = &fstest.MapFile{Data: good}
 	fsys["BDMV/PLAYLIST/1234.mpls"] = &fstest.MapFile{Data: good}
-	titles, _, err := scanTitles(context.Background(), fsys)
+	titles, _, err := scanTitles(context.Background(), fsys, defaultMinDuration, rank.DefaultWeights)
 	if err != nil {
 		t.Fatal(err)
 	}

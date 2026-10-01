@@ -20,7 +20,7 @@ type playlistFile struct{ id, name string }
 
 // scanTitles reads the BDMV tree in fsys and returns its titles ranked
 // best-first, plus the disc metadata (nil when absent).
-func scanTitles(ctx context.Context, fsys fs.FS) ([]*Title, *bluray.DiscMeta, error) {
+func scanTitles(ctx context.Context, fsys fs.FS, minDuration time.Duration, w rank.Weights) ([]*Title, *bluray.DiscMeta, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -44,7 +44,7 @@ func scanTitles(ctx context.Context, fsys fs.FS) ([]*Title, *bluray.DiscMeta, er
 		titles = append(titles, t)
 		cands = append(cands, c)
 	}
-	order, infos := rank.Rank(cands, defaultMinDuration, rank.DefaultWeights)
+	order, infos := rank.Rank(cands, minDuration, w)
 	ranked := make([]*Title, len(order))
 	for k, i := range order {
 		titles[i].Rank = RankInfo(infos[i])
