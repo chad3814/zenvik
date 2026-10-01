@@ -70,7 +70,9 @@ func readFull(r io.ReaderAt, p []byte, off int64) error {
 		return nil
 	}
 	if err == nil || errors.Is(err, io.EOF) {
-		err = io.ErrUnexpectedEOF
+		// A short read means the image is truncated: report it as both
+		// corruption and an unexpected EOF.
+		return fmt.Errorf("%w: read %d bytes at offset %d: %w", ErrCorrupt, len(p), off, io.ErrUnexpectedEOF)
 	}
 	return fmt.Errorf("udf: read %d bytes at offset %d: %w", len(p), off, err)
 }
@@ -126,7 +128,7 @@ func (f *FS) readVDS(e extentAD) error {
 	for hops := 0; uint64(loc) < end; loc++ {
 		d, err := f.sector(loc)
 		if err != nil {
-			return err
+			break // an unreadable sector ends the sequence, like an invalid one
 		}
 		id, err := parseTag(d, loc)
 		if err != nil || id == tagTD {

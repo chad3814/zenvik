@@ -157,6 +157,8 @@ func TestTruncatedImageNeverReturnsWrongData(t *testing.T) {
 	fsys := openImage(t, cut)
 	if _, err := fs.ReadFile(fsys, "BDMV/index.bdmv"); !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Errorf("truncated data read err = %v, want io.ErrUnexpectedEOF", err)
+	} else if !errors.Is(err, udf.ErrCorrupt) {
+		t.Errorf("truncated data read err = %v, want it to match udf.ErrCorrupt too", err)
 	}
 }
 

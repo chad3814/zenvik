@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"io"
 	"testing"
 )
 
@@ -57,5 +58,27 @@ func TestReadOutsidePartitionIsCorrupt(t *testing.T) {
 	}
 	if err := f.readAt(3, 0, 0, make([]byte, 16)); !errors.Is(err, ErrCorrupt) {
 		t.Errorf("bad reference err = %v, want ErrCorrupt", err)
+	}
+}
+
+func TestReadVDSEndsAtUnreadableSector(t *testing.T) {
+	// The extent claims three sectors but the image holds two. The
+	// descriptors that were read are used; the unreadable third sector
+	// only ends the sequence. The zero logical block size then makes
+	// mounting fail with ErrUnsupported, not with the read error.
+	f := hostileFS(makeTag(tagLVD, 0, make([]byte, 512)), makeTag(tagPD, 1, make([]byte, 512)))
+	err := f.readVDS(extentAD{loc: 0, length: 3 * sectorSize})
+	if !errors.Is(err, ErrUnsupported) {
+		t.Errorf("err = %v, want ErrUnsupported from mounting", err)
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Errorf("err = %v must not be the sector read error", err)
+	}
+}
+
+func TestShortReadMatchesCorruptAndUnexpectedEOF(t *testing.T) {
+	err := readFull(bytes.NewReader(make([]byte, 10)), make([]byte, 20), 0)
+	if !errors.Is(err, ErrCorrupt) || !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Errorf("err = %v, want ErrCorrupt and io.ErrUnexpectedEOF", err)
 	}
 }

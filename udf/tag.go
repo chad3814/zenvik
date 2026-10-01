@@ -3,6 +3,10 @@
 // supports physical and metadata partitions, short, long and embedded
 // allocation descriptors, and allocation extent chains. Sparable and
 // virtual partitions are not supported.
+//
+// Damaged input yields errors matching ErrCorrupt. In particular, a
+// truncated image yields errors matching both ErrCorrupt and
+// io.ErrUnexpectedEOF.
 package udf
 
 import (
