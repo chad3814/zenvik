@@ -98,7 +98,7 @@ type RipOptions struct {
   OnProgress func(Progress)  // optional; called from the muxing goroutine
 }
 type Progress struct {
-  Phase      Phase   // Mounting, Muxing, Finalizing
+  Phase      Phase   // Mounting, Scanning, Muxing, Finalizing
   Fraction   float64 // 0..1 within the current phase
   BytesDone  int64
   BytesTotal int64
@@ -149,7 +149,7 @@ type Muxer interface {
 The mkvmerge implementation:
 
 1. **Locate:** use `mkvmerge_path` from config, else `PATH`. Parse `mkvmerge --version`. The minimum is **MKVToolNix 80.0**. Milestone 3 starts by verifying MPLS identification and track-ID mapping on 80.0; if that fails, the minimum is raised to the oldest passing version and this spec is updated.
-2. **Identify:** `mkvmerge -J <root>/BDMV/PLAYLIST/<id>.mpls` (mkvmerge reads MPLS natively, joins clips, and imports chapters). Map mkvmerge track IDs to `bluray` STN streams by PID.
+2. **Identify:** `mkvmerge -J <root>/BDMV/PLAYLIST/<id>.mpls` (mkvmerge reads MPLS natively, joins clips, and imports chapters). Map mkvmerge track IDs to `bluray` STN streams by PID. Like muxing, identification accepts exit code 1 (warnings).
 3. **Build an options file** (`mkvmerge @opts.json`, a JSON array of arguments) with the output path, explicit `--language` per track from STN data, `--track-name` (e.g. "TrueHD 7.1", "DTS-HD MA 5.1"), and default flags: first video, first audio, no subtitles.
 4. **Run** with `--gui-mode` and parse `#GUI#progress N%` lines into `Progress`. Write to `<output>.partial` and rename on success. On failure or cancel, delete the partial file. A non-zero exit returns an error containing mkvmerge's warning and error lines. mkvmerge exit code 1 (warnings) counts as success, and the warnings go into `RipResult.Warnings`.
 
@@ -161,7 +161,7 @@ The mkvmerge implementation:
 
 | OS | Mount | Unmount |
 |---|---|---|
-| macOS | `hdiutil attach -readonly -nobrowse -plist <iso>` (parse mount point from the plist) | `hdiutil detach <dev>` |
+| macOS | `hdiutil attach -readonly -nobrowse -noautoopen -noverify -imagekey diskimage-class=CRawDiskImage -mountpoint <temp dir zenvik-mount-*> <iso>` | `hdiutil detach <dir>` (then `-force`) |
 | Linux | `udisksctl loop-setup -r -f <iso>` then `udisksctl mount -b <loopdev>` | `udisksctl unmount -b`, then `udisksctl loop-delete -b` |
 | Windows | PowerShell `Mount-DiskImage -ImagePath <iso> -PassThru \| Get-Volume` (drive letter) | `Dismount-DiskImage -ImagePath <iso>` |
 
