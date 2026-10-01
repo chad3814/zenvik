@@ -42,11 +42,25 @@ func TestSafeFileName(t *testing.T) {
 
 func TestSafeFileNameReservedAndLong(t *testing.T) {
 	for in, want := range map[string]string{
-		"CON":     "CON_",
-		"nul.txt": "nul_.txt",
-		"Com1":    "Com1_",
-		"COM10":   "COM10",
-		"console": "console",
+		"CON":       "CON_",
+		"nul.txt":   "nul_.txt",
+		"Com1":      "Com1_",
+		"COM10":     "COM10",
+		"console":   "console",
+		"COM0":      "COM0_",
+		"lpt0":      "lpt0_",
+		"COM¹":      "COM¹_",
+		"com²":      "com²_",
+		"COM³":      "COM³_",
+		"LPT¹":      "LPT¹_",
+		"LPT²":      "LPT²_",
+		"lpt³.x":    "lpt³_.x",
+		"CONIN$":    "CONIN$_",
+		"conout$":   "conout$_",
+		"CON .txt":  "CON_ .txt",
+		"aux  .a.b": "aux_  .a.b",
+		"CONIN":     "CONIN",
+		"LPT⁴":      "LPT⁴",
 	} {
 		if got := SafeFileName(in); got != want {
 			t.Errorf("SafeFileName(%q) = %q, want %q", in, got, want)

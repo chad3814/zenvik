@@ -23,8 +23,12 @@ func CleanLabel(label string) string {
 // file name limit.
 const maxComponentBytes = 255 - len(".partial")
 
+// reservedNames are Windows device names, compared in upper case. Windows
+// also treats the superscript digits ¹ ² ³ as digits here.
 var reservedNames = map[string]bool{
-	"CON": true, "PRN": true, "AUX": true, "NUL": true,
+	"CON": true, "PRN": true, "AUX": true, "NUL": true, "CONIN$": true, "CONOUT$": true,
+	"COM0": true, "COM¹": true, "COM²": true, "COM³": true,
+	"LPT0": true, "LPT¹": true, "LPT²": true, "LPT³": true,
 	"COM1": true, "COM2": true, "COM3": true, "COM4": true, "COM5": true, "COM6": true, "COM7": true, "COM8": true, "COM9": true,
 	"LPT1": true, "LPT2": true, "LPT3": true, "LPT4": true, "LPT5": true, "LPT6": true, "LPT7": true, "LPT8": true, "LPT9": true,
 }
@@ -43,12 +47,12 @@ func cleanComponent(s string) string {
 		b.WriteRune(r)
 	}
 	out := strings.TrimRight(strings.TrimSpace(b.String()), ". ")
-	base, ext, _ := strings.Cut(out, ".")
+	// Windows ignores everything from the first dot, and spaces before it,
+	// when matching device names ("CON .txt" is CON).
+	base, _, _ := strings.Cut(out, ".")
+	base = strings.TrimRight(base, " ")
 	if reservedNames[strings.ToUpper(base)] {
-		out = base + "_"
-		if ext != "" {
-			out += "." + ext
-		}
+		out = base + "_" + out[len(base):]
 	}
 	return out
 }

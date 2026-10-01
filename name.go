@@ -1,6 +1,7 @@
 package zenvik
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 
@@ -33,6 +34,9 @@ type NameVars struct {
 // Variables: {name} (vars.Name, else d.Name()), {year} (vars.Year),
 // {label} (the volume label) and {playlist} (t.ID).
 func FormatName(tmpl string, d *Disc, t *Title, vars NameVars) (string, error) {
+	if d == nil {
+		return "", errors.New("zenvik: FormatName: disc is nil")
+	}
 	tp, err := naming.Parse(tmpl)
 	if err != nil {
 		return "", err

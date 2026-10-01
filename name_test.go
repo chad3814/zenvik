@@ -57,4 +57,13 @@ func TestFormatName(t *testing.T) {
 	if _, err := zenvik.FormatName("{bogus}", d, main, zenvik.NameVars{}); !errors.Is(err, zenvik.ErrInvalidTemplate) {
 		t.Errorf("bad template err = %v", err)
 	}
+	if got, err := zenvik.FormatName("{name}.mkv", d, nil, zenvik.NameVars{}); err != nil || got != "Sample Movie.mkv" {
+		t.Errorf("nil title: %q, %v", got, err)
+	}
+}
+
+func TestFormatNameNilDisc(t *testing.T) {
+	if _, err := zenvik.FormatName("{name}.mkv", nil, nil, zenvik.NameVars{}); err == nil {
+		t.Error("FormatName with a nil disc should return an error")
+	}
 }

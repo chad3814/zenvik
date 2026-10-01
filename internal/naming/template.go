@@ -100,11 +100,16 @@ func Parse(src string) (*Template, error) {
 // component gets ".mkv" unless it already ends with it.
 func (t *Template) Render(vars map[string]string) (string, error) {
 	var b strings.Builder
-	for _, p := range t.parts {
+	absolute := false // the template's text itself starts with "/"
+	for pi, p := range t.parts {
 		var pb strings.Builder
 		keep := true
-		for _, s := range p.segs {
+		partAbsolute := false
+		for i, s := range p.segs {
 			if s.variable == "" {
+				if pi == 0 && i == 0 {
+					partAbsolute = strings.HasPrefix(s.lit, "/")
+				}
 				pb.WriteString(s.lit)
 				continue
 			}
@@ -120,14 +125,18 @@ func (t *Template) Render(vars map[string]string) (string, error) {
 			pb.WriteString(v)
 		}
 		if keep {
+			absolute = absolute || partAbsolute
 			b.WriteString(pb.String())
 		}
 	}
-	return finish(b.String())
+	return finish(b.String(), absolute)
 }
 
-func finish(p string) (string, error) {
-	if strings.HasPrefix(p, "/") {
+// finish cleans each component of the rendered path p. absolute reports
+// that p's leading "/" came from template text rather than from an empty
+// variable.
+func finish(p string, absolute bool) (string, error) {
+	if absolute {
 		return "", errf("template must produce a relative path, got %q", p)
 	}
 	comps := strings.Split(p, "/")
@@ -137,12 +146,16 @@ func finish(p string) (string, error) {
 		}
 		clean := cleanComponent(c)
 		if clean == "" {
-			return "", errf("template produced an empty path component in %q (is a variable outside [...] empty?)", p)
+			return "", errf("template produced an empty path component in %q (a folder or file name rendered empty)", p)
 		}
 		comps[i] = limitLength(clean, maxComponentBytes)
 	}
 	last := len(comps) - 1
-	if !strings.EqualFold(path.Ext(comps[last]), ".mkv") {
+	if strings.EqualFold(path.Ext(comps[last]), ".mkv") {
+		if base := comps[last][:len(comps[last])-len(".mkv")]; strings.Trim(base, ". ") == "" {
+			return "", errf("template produced an empty file name in %q (the file name is empty before .mkv)", p)
+		}
+	} else {
 		comps[last] = limitLength(comps[last]+".mkv", maxComponentBytes)
 	}
 	return strings.Join(comps, "/"), nil

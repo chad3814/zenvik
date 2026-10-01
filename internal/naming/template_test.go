@@ -85,6 +85,25 @@ func TestRenderSafety(t *testing.T) {
 		t.Errorf("long name: %d bytes %q, %v", len(got), got, err)
 	}
 
+	for _, tt := range []struct{ name, tmpl, want string }{
+		{"empty file name", "[{year}].mkv", "file name is empty"},
+		{"dots-only file name", "{name}/[{year}]...mkv", "file name is empty"},
+		{"spaces-only file name", "{name}/ [{year}] .mkv", "file name is empty"},
+		{"dropped group folder", "a/[{year}]/b", "empty path component"},
+		{"empty variable folder", "{year}/{name}", "empty path component"},
+		{"dropped leading group", "[{year}]/{name}", "empty path component"},
+		{"absolute", "/movies/{name}", "relative path"},
+		{"absolute group", "[/{name}]x", "relative path"},
+	} {
+		_, err := render(t, tt.tmpl, map[string]string{"name": "x"})
+		if !errors.Is(err, ErrTemplate) || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("%s (%q): err = %v, want ErrTemplate mentioning %q", tt.name, tt.tmpl, err, tt.want)
+		}
+		if err != nil && strings.Contains(err.Error(), "outside [...]") {
+			t.Errorf("%s: misleading hint in %v", tt.name, err)
+		}
+	}
+
 	for name, tmpl := range map[string]string{
 		"absolute":        "/movies/{name}",
 		"parent dir":      "../{name}",
