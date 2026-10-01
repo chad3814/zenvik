@@ -87,6 +87,9 @@ func (d *Disc) Rip(ctx context.Context, t *Title, opts RipOptions) (res *RipResu
 			return nil, fmt.Errorf("%w: %s", ErrOutputExists, opts.OutputPath)
 		}
 	}
+	if fi, err := os.Stat(opts.OutputPath); err == nil && fi.IsDir() && !opts.DryRun {
+		return nil, fmt.Errorf("zenvik: output path %s is a directory", opts.OutputPath)
+	}
 	mk, err := mux.Find(ctx, "")
 	if err != nil {
 		return nil, err
@@ -146,12 +149,8 @@ func (d *Disc) Rip(ctx context.Context, t *Title, opts RipOptions) (res *RipResu
 		return nil, err
 	}
 	report(PhaseFinalizing, 0)
-	if opts.Overwrite {
-		if err := os.Remove(opts.OutputPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			os.Remove(partial)
-			return nil, err
-		}
-	}
+	// os.Rename replaces an existing file atomically (MOVEFILE_REPLACE_EXISTING
+	// on Windows), so Overwrite never leaves a window with neither file.
 	if err := os.Rename(partial, opts.OutputPath); err != nil {
 		os.Remove(partial)
 		return nil, err

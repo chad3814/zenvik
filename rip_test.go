@@ -56,3 +56,16 @@ func TestRipMissingMkvmerge(t *testing.T) {
 		t.Errorf("err = %v, want ErrMkvmergeNotFound", err)
 	}
 }
+
+func TestRipRefusesDirectoryOutput(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // the check must come before mkvmerge is needed
+	d := openDisc(t, writeDisc(t, testdisc.SampleMovie()))
+	out := filepath.Join(t.TempDir(), "movie.mkv")
+	if err := os.Mkdir(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := d.Rip(context.Background(), d.Main(), zenvik.RipOptions{OutputPath: out, Overwrite: true})
+	if err == nil || !strings.Contains(err.Error(), "is a directory") || errors.Is(err, zenvik.ErrMkvmergeNotFound) {
+		t.Errorf("err = %v, want a directory refusal", err)
+	}
+}
