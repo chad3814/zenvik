@@ -1,6 +1,12 @@
 # M5: mkvmerge DVD behavior (verified 2026-10-01)
 
-**Gate result: BLOCKED. Both gated assumptions, (a) and (b), are false on this setup.**
+**Gate result: both original assumptions were false; the controller ruled on them (below).**
+
+## Conclusions (ruled)
+
+- Subtitles: mkvmerge ignores DVD subpictures in VOBs -> zenvik extracts VobSub (Task 10).
+- Multiple VOBs: use `( a b )`, never `+`; mkvmerge auto-chains sibling VOBs.
+- Each title VOB starts with a NAV pack; the extractor's timestamps rely on NAV packs at VOBU starts. `TestAuthorDVDAndMkvmerge` pins all of this.
 
 - Tools: mkvmerge v102.0 ('Little Houses') 64-bit, ffmpeg 9.0.2, dvdauthor/spumux 0.7.2 (Homebrew 0.7.2_4), macOS (Darwin, arm64).
 - Fixture: `AuthorDVD(ctx, dir, 15)`; VTS_01_1.VOB is 562 sectors in total before the split (split at the NAV pack nearest the middle: VTS_01_1.VOB = 1,150,976 bytes, VTS_01_2.VOB = 1,136,640 bytes). `ffprobe` sees all five streams in the spumux output (video, 2x ac3, `dvd_subtitle`). A raw scan of the VOB finds the private-stream-1 sub-stream 0x20 packet (the subtitle SPU) at sector 188 of VTS_01_1.VOB. Sub-streams 0x80 and 0x81 appear 86 times each.

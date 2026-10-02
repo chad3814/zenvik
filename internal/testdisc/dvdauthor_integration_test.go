@@ -3,8 +3,8 @@
 package testdisc
 
 import (
+	"bytes"
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"math"
@@ -62,14 +62,38 @@ func TestAuthorDVDAndMkvmerge(t *testing.T) {
 		}
 	}
 
-	// (a) stream IDs as mkvmerge reports them for a VOB.
+	// Every title VOB must start with a NAV pack (VOBU start), and the
+	// authored VOBs must really carry a subpicture stream, which a later
+	// extractor relies on.
+	subpackets := 0
+	for _, n := range []string{"VTS_01_1.VOB", "VTS_01_2.VOB"} {
+		b, err := os.ReadFile(filepath.Join(vts, n))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !isNavPack(b) {
+			t.Errorf("%s: first pack is not a NAV pack", n)
+		}
+		subpackets += countSubpicturePackets(b)
+	}
+	if subpackets == 0 {
+		t.Error("no private stream 1 pack with sub-stream 0x20 (subpicture) in the VOBs")
+	}
+	t.Logf("subpicture packs in VOBs: %d", subpackets)
+
+	// (a) stream IDs as mkvmerge reports them for a VOB. mkvmerge ignores
+	// DVD subpictures, so none are expected.
 	in := mkvmergeJSON(t, filepath.Join(vts, "VTS_01_1.VOB"))
 	var got []string
 	for _, tr := range in.Tracks {
+		if tr.Type == "subtitles" {
+			t.Logf("mkvmerge reported a subtitle track: stream %d sub-stream %d", tr.Properties.StreamID, tr.Properties.SubStreamID)
+			continue
+		}
 		got = append(got, tr.Type+" "+itoa(tr.Properties.StreamID)+" "+itoa(tr.Properties.SubStreamID))
 	}
 	sort.Strings(got)
-	want := []string{"audio 189 128", "audio 189 129", "subtitles 189 32", "video 224 0"}
+	want := []string{"audio 189 128", "audio 189 129", "video 224 0"}
 	t.Logf("tracks: %q", got)
 	if len(got) != len(want) {
 		t.Fatalf("tracks = %q, want %q", got, want)
@@ -81,9 +105,10 @@ func TestAuthorDVDAndMkvmerge(t *testing.T) {
 		}
 	}
 
-	// (b) appending the split VOBs keeps the full duration and every track.
+	// (b) mkvmerge chains sibling VOBs itself; the parenthesized group
+	// gives the full duration (a "+" append would duplicate the tail).
 	out := filepath.Join(t.TempDir(), "out.mkv")
-	cmd := exec.Command("mkvmerge", "-o", out, filepath.Join(vts, "VTS_01_1.VOB"), "+", filepath.Join(vts, "VTS_01_2.VOB"))
+	cmd := exec.Command("mkvmerge", "-o", out, "(", filepath.Join(vts, "VTS_01_1.VOB"), filepath.Join(vts, "VTS_01_2.VOB"), ")")
 	if b, err := cmd.CombinedOutput(); err != nil {
 		var ee *exec.ExitError
 		if !errors.As(err, &ee) || ee.ExitCode() != 1 {
@@ -96,17 +121,30 @@ func TestAuthorDVDAndMkvmerge(t *testing.T) {
 	if math.Abs(secs-15) > 0.25 {
 		t.Errorf("duration = %.3f s, want 15 ± 0.25", secs)
 	}
-	if len(res.Tracks) != 4 {
-		t.Errorf("muxed %d tracks, want 4", len(res.Tracks))
+	if len(res.Tracks) != 3 {
+		t.Errorf("muxed %d tracks, want 3", len(res.Tracks))
 	}
+}
 
-	// (c) record what mkvmerge writes as the VobSub codec private data.
-	for _, tr := range res.Tracks {
-		if tr.Type == "subtitles" {
-			b, _ := hex.DecodeString(tr.Properties.CodecPrivateData)
-			t.Logf("VobSub codec private (%s): %q", tr.Codec, b)
+// countSubpicturePackets counts 2048-byte packs holding a private stream 1
+// PES whose sub-stream byte is 0x20 (subpicture stream 0).
+func countSubpicturePackets(b []byte) int {
+	n := 0
+	for s := 0; (s+1)*2048 <= len(b); s++ {
+		p := b[s*2048 : (s+1)*2048]
+		i := bytes.Index(p[14:], []byte{0, 0, 1, 0xBD})
+		if i < 0 {
+			continue
+		}
+		pes := p[14+i:]
+		if len(pes) < 10 {
+			continue
+		}
+		if off := 9 + int(pes[8]); off < len(pes) && pes[off] == 0x20 {
+			n++
 		}
 	}
+	return n
 }
 
 func itoa(n int) string {
