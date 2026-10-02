@@ -5,9 +5,12 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/chad3814/zenvik/internal/testdisc/udfimage"
 )
 
 // AuthorDVD builds a real, playable DVD-Video folder at dir (dir/VIDEO_TS)
@@ -151,4 +154,29 @@ func runTool(ctx context.Context, dir string, stdin *os.File, stdout *os.File, n
 		return fmt.Errorf("testdisc: %s: %w: %s", name, err, stderr.Bytes())
 	}
 	return nil
+}
+
+// ISOFromDir builds a UDF image of the files under dir, keeping their
+// relative paths (use Revision 0x0102 for a DVD).
+func ISOFromDir(dir string, opt udfimage.Options) ([]byte, error) {
+	files := map[string]udfimage.File{}
+	err := filepath.WalkDir(dir, func(p string, e fs.DirEntry, err error) error {
+		if err != nil || e.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(dir, p)
+		if err != nil {
+			return err
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		files[filepath.ToSlash(rel)] = udfimage.File{Data: b}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return udfimage.Build(files, opt)
 }

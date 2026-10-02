@@ -40,7 +40,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - run: brew install mkvtoolnix ffmpeg
+      - run: brew install mkvtoolnix ffmpeg dvdauthor
       - run: mkvmerge --version && ffmpeg -version | sed -n 1p
       - run: go test -tags integration ./...
 
@@ -51,6 +51,6 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - run: sudo apt-get update && sudo apt-get install -y mkvtoolnix ffmpeg
+      - run: sudo apt-get update && sudo apt-get install -y mkvtoolnix ffmpeg dvdauthor
       - run: mkvmerge --version && ffmpeg -version | sed -n 1p
       - run: go test -tags integration ./...
