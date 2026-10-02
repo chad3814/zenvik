@@ -31,4 +31,6 @@ var (
 	ErrInvalidTemplate = naming.ErrTemplate
 	// ErrUnsupportedTitle: the title can't be ripped yet; Title.Unsupported says why.
 	ErrUnsupportedTitle = errors.New("zenvik: title is not supported")
+	// ErrNoSpace: the output drive lacks the free space a DVD title's temporary copy needs.
+	ErrNoSpace = errors.New("zenvik: not enough free space")
 )

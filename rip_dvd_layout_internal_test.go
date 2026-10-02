@@ -168,7 +168,7 @@ func TestCopyCleanup(t *testing.T) {
 	old := freeSpace
 	t.Cleanup(func() { freeSpace = old })
 	freeSpace = func(string) (uint64, bool) { return 1000, true }
-	if _, err := copyTitle(context.Background(), ti, paths, filepath.Join(dir, "x.mkv.partial"), func(Phase, float64) {}); err == nil ||
+	if _, err := copyTitle(context.Background(), ti, paths, filepath.Join(dir, "x.mkv.partial"), func(Phase, float64) {}); !errors.Is(err, ErrNoSpace) ||
 		!strings.Contains(err.Error(), "copying title 02 needs") || !strings.Contains(err.Error(), "only 1000 B free") {
 		t.Errorf("no space: err = %v", err)
 	}

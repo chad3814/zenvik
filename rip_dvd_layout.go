@@ -289,6 +289,12 @@ func vobuLeadIn(read func(sec int64) ([]byte, error), sec, next int64, nav dvd.N
 	return 0, nil
 }
 
+// noSpaceError keeps the free-space message as it is while matching ErrNoSpace.
+type noSpaceError struct{ msg string }
+
+func (e noSpaceError) Error() string { return e.msg }
+func (e noSpaceError) Unwrap() error { return ErrNoSpace }
+
 // copyTitle copies title t's kept cells, in play order, into a temporary
 // VOB beside output and returns its path. It checks the free space first,
 // reports PhaseCopying, honours ctx, and removes the file on any failure.
@@ -299,7 +305,7 @@ func copyTitle(ctx context.Context, t *Title, paths []string, output string, rep
 	}
 	need := t.Size + 64<<20
 	if free, ok := freeSpace(dir); ok && free < uint64(need) {
-		return "", fmt.Errorf("zenvik: copying title %s needs %s in %s, only %s free", t.ID, byteSize(need), dir, byteSize(int64(free)))
+		return "", noSpaceError{fmt.Sprintf("zenvik: copying title %s needs %s in %s, only %s free", t.ID, byteSize(need), dir, byteSize(int64(free)))}
 	}
 	tmp := filepath.Join(dir, "."+strings.TrimSuffix(filepath.Base(output), ".partial")+".title.vob")
 	dst, err := os.Create(tmp)
