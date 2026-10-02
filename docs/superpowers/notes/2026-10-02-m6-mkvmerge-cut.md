@@ -1,96 +1,137 @@
 # M6: mkvmerge cutting and copying DVD titles (verified 2026-10-02)
 
-**Gate result: BLOCKED.** Checks (1), (2) and (3) fail as written. Checks (4) and (5) pass. The cause is one finding: mkvmerge snaps `--split parts:` ranges to keyframes, and cut times taken from summed VOBU durations run a few milliseconds later than mkvmerge's own timeline. Each boundary therefore snaps one GOP late.
+**Gate result: still BLOCKED, on one assertion.** Under the controller's margin ruling, every cut check passes except one: blue's container duration is 6.042 s against the IFO's 6 s, outside the ±34 ms tolerance. Blue's video track is exact (180 frames, 6.005 s). The extra length is audio that mkvmerge lays down back to back across the VOB ID boundaries (see "Remaining failure").
 
 - Tools: mkvmerge v102.0 ('Little Houses') 64-bit, ffmpeg 9.0.2, dvdauthor/spumux 0.7.2, OS macOS 27.0 (26A428).
-- Fixture: `testdisc.AuthorEpisodesDVD`. Test: `TestEpisodeCutting` in `internal/testdisc/episodes_integration_test.go` (`-tags integration`). The results below are the same on every run.
+- Fixture: `testdisc.AuthorEpisodesDVD`.
+- Test: `TestEpisodeCutting` in `internal/testdisc/episodes_integration_test.go`, run with `-tags integration`. Every value below is the same on every run.
 
 ## What the test asserts and what was only observed
 
 The test asserts:
-- (1) The muxed duration of each episode cut is within 34 ms of the IFO PGC time. The first frame and the frame 0.5 s before the end have that episode's colour.
-- (3) After cutting green with a group-timeline chapter file and a VobSub `.idx`, there are 2 chapters, at 0 and at cell 1's IFO time, each within 34 ms. The first subtitle is at 1.0 s ± 100 ms.
-- (4) The output exists under the exact name given to `-o`.
-- (5) The out-of-order temp VOB (blue then red) has a duration within 68 ms of the sum of the two IFO times. Its first frame is blue and its last frame is red.
+- **(1)** For each episode cut:
+  - The container duration (`mkvmerge -J` `container.properties.duration`) is within 34 ms of the IFO PGC time.
+  - The first frame has that episode's colour, and so does the frame 0.5 s before the end.
+  - The drift guard is not tripped.
+- **(3)** After the green cut with a group-timeline chapter file and a VobSub `.idx`:
+  - There are 2 chapters, at 0 and at cell 1's IFO time, each within 34 ms.
+  - The first subtitle is at 1.0 s ± 100 ms.
+  - The drift guard is not tripped.
+- **(4)** The output exists under the exact `-o` name.
+- **(5)** The out-of-order temp VOB (blue then red) is within 68 ms of the summed IFO times, with blue first and red last.
 
-The test does not assert (2). It only logs the VOB IDs. Everything in the "Investigation" section was observed by hand with mkvmerge, ffprobe and ffmpeg on the same fixture. None of it is asserted.
+The test does not assert (2); it only logs the VOB IDs. Everything in the "Observed by hand" sections was measured with mkvmerge, mkvextract, ffprobe and ffmpeg on the same fixture, and none of it is asserted.
 
 ## Fixture layout (observed)
 
-- One title set, `VTS_01_1.VOB` only, 442 sectors, 31 NAV packs, VOB IDs 1, 2, 3, 4 in that order.
-- PGC 1 (black): 1 cell, sectors 0–12, VOB ID 1, IFO 0.5005 s (15 frames). It has 1 VOBU of 45600 ticks (0.5067 s).
+- One title set, `VTS_01_1.VOB` only: 442 sectors, 31 NAV packs, VOB IDs 1, 2, 3, 4 in that order.
+- PGC 1 (black): 1 cell, sectors 0–12, VOB ID 1, IFO 0.5005 s (15 frames). It has a single VOBU of 45600 ticks (0.5067 s).
 - PGCs 2–4 (red, green, blue): 2 cells each, IFO 3 s + 3 s = 6 s.
   - red: sectors 13–77 and 78–155
   - green: sectors 156–220 and 221–298
   - blue: sectors 299–363 and 364–441
-- Each episode has 10 VOBUs. Nine last 54054 ticks (0.6006 s, 18 frames) and the last one lasts 54474 ticks, which is 420 ticks (4.67 ms) more. The VOBU sum per episode is 540960 ticks (6.0107 s), but the video is 180 frames = 540540 ticks (6.006 s).
+- Each episode has 10 VOBUs:
+  - Nine are 54054 ticks (0.6006 s, 18 frames).
+  - The last is 54474 ticks, which is **420 ticks (4.67 ms) of padding**.
+  - The VOBU sum is 540960 ticks (6.0107 s), but the video is 180 frames = 540540 ticks (6.006 s).
 - Every VOB ID starts at PTS 48003, so the PTS resets at each VOB ID.
-- DSI `VOB_V_S_PTM`/`VOB_V_E_PTM` are 48003/588963 for every episode VOB. They carry the same padded end, so they don't give the unpadded video end either.
+- DSI `VOB_V_S_PTM` and `VOB_V_E_PTM` are 48003 and 588963 for every episode VOB. They carry the same padded end.
+- Each episode's AC-3 is 188 frames = 6.016 s. ffmpeg rounds 6 s up to whole 32 ms frames, so the audio is 10 ms longer than the 6.006 s of video.
 
-## (1) Cut accuracy: FAIL
+## Original run: cut at the summed VOBU times (BLOCKED)
 
-| episode | sectors | cut (summed VOBU) | muxed duration | IFO | first / last frame |
+The first version of the test cut at start = start₀ and end = end₀, the summed VOBU durations, with no margin.
+
+| episode | sectors | cut | duration | IFO | first / last frame |
 |---|---|---|---|---|---|
-| red | 13–155 | 0.506666666 s – 6.517333333 s | 6.630 s | 6 s | red / **green** [1 128 1] |
-| green | 156–298 | 6.517333333 s – 12.528 s | 6.008 s | 6 s | green / **blue** [0 0 255] |
-| blue | 299–441 | 12.528 s – 18.538666666 s | **5.442 s** | 6 s | blue / blue |
+| red | 13–155 | 0.506666666 – 6.517333333 s | 6.630 s | 6 s | red / **green** [1 128 1] |
+| green | 156–298 | 6.517333333 – 12.528 s | 6.008 s | 6 s | green / **blue** [0 0 255] |
+| blue | 299–441 | 12.528 – 18.538666666 s | **5.442 s** | 6 s | blue / blue |
 
-Frame-by-frame content of each cut (observed):
-- red: 180 red frames plus 18 green frames (one GOP of green).
-- green: 162 green frames plus 18 blue frames. The first GOP of green is missing and the first GOP of blue is included. The duration is still "correct" at 6.008 s, so a duration check alone does not catch this.
-- blue: 162 blue frames. The first GOP is missing.
+What the cuts contained:
+- red: 180 red frames plus 18 green frames.
+- green: 162 green frames plus 18 blue frames. Its duration looks right even though the content is wrong.
+- blue: 162 blue frames.
 
-## (2) PTS resets: VOB IDs 1, 2, 3, 4 seen in order. Offsets stayed correct: no, by a few ms per VOB ID
+Chapter and subtitle results for green:
+- The chapters came out at [0, 2.405 s] and the first subtitle at 0.404 s.
+- Both are exactly one GOP (0.6 s) early, because the start snapped one GOP late.
+- mkvmerge shifts chapters and subtitles by the real start, the keyframe it snapped to, and not by the requested start.
 
-mkvmerge muxes the `( VTS_01_1.VOB )` group into one continuous 18.56 s timeline with no gaps across the PTS resets. Its video keyframes at the VOB ID boundaries, from ffprobe on a full mux, are:
+### Observed by hand: mkvmerge's timeline and keyframe snapping
+
+**(2) PTS resets.** mkvmerge muxes the `( VTS_01_1.VOB )` group into one continuous 18.56 s timeline. Its video keyframes at the boundaries are:
 - black: 0.005 s
 - red: 0.506 s
 - green: 6.512 s
 - blue: 12.518 s
 
-The summed-VOBU group times for the same points are 0, 0.5067, 6.5173 and 12.5280 s. So the summed-VOBU timeline runs ahead of mkvmerge's:
-- about +0.7 ms at red
-- +5.3 ms at green
-- +10 ms at blue
+The summed-VOBU times for the same points are 0, 0.5067, 6.5173 and 12.528 s. So summed-VOBU time runs ahead of mkvmerge's by about **+0.7 ms, +5.3 ms and +10 ms** at the red, green and blue boundaries. The lead grows by about 4.67 ms per VOB ID, which is the last-VOBU padding: mkvmerge joins segments at the end of the last video frame, not at `VOBU_E_PTM`.
 
-The lead grows by about 4.67 ms per episode, which is the padding on the last VOBU of each VOB ID. mkvmerge appears to join segments at the end of the last video frame, not at the NAV `VOBU_E_PTM`.
+**Snapping.** With a single `parts:` range:
+- **Start:** the output begins at the first keyframe at or after the start time. Starts from 6.400 to 6.512 s begin at green's keyframe; 6.513 s begins one GOP later.
+- **End:** the output stops before the first keyframe at or after the end time. Ends up to 6.512 s exclude green; 6.513 s includes a green GOP.
 
-## (3) Chapters and VobSub on the group timeline: FAIL, as a result of (1)
+Any cut time that lands even 1 ms after its boundary keyframe therefore loses or gains a whole GOP.
 
-- The chapter file gave 6.517 and 9.517 s on the group timeline. After the cut the chapters are at 0 and 2.405 s (want 0 and 3 s).
-- The `.idx` timestamps were 1.505, 7.516 and 13.527 s. The first subtitle after the cut is at 0.404 s (want 1.0 s).
-- Both are exactly 0.6 s (one GOP) early. mkvmerge shifts chapters and subtitles by the cut's real start (the keyframe it snapped to, 7.112 s), not by the requested start. So chapters and VobSub do follow the video correctly. The only error is the snapped start.
+## The ruling (controller, 2026-10-02)
 
-## (4) Output naming: PASS
+For a run of sectors R0..R1 on the group timeline:
 
-A single `parts:` range writes exactly the name given to `-o`, with no `-001` suffix.
+- **Cut times:**
+  - start₀ = the summed VOBU durations (`VOBU_E_PTM − VOBU_S_PTM`) of every NAV before R0.
+  - end₀ = start₀ + the summed durations of the run's VOBUs.
+  - start = start₀ − m_s and end = end₀ − m_e.
+- **Start margin:** m_s = half the shorter of the last VOBU before R0 and the first VOBU of the run. If there is no VOBU before R0 (start₀ = 0), then m_s = 0 and start = 0.
+- **End margin:** m_e = half the duration of the run's last VOBU.
+- **Drift guard:** count the VOB ID changes among the NAV packs from the group start up to R1. If changes × 10 ms ≥ min of the margins that apply (m_s only when start₀ > 0, and always m_e), the cut can't be trusted and the rip fails with an error.
 
-## (5) Copy: PASS
+In the test these are `planCut` and `cutPlan.driftTripped`.
 
-- The out-of-order temp VOB (blue sectors 299–441, then red sectors 13–155) muxes to 12.032 s. The expected value is 12 s (IFO 6 s + 6 s).
-- The first frame is blue and the last frame is red.
+## Results under the ruling
 
-## Investigation (observed only, not asserted)
+| episode | start₀ | end₀ | m_s | m_e | cut | VOB ID changes | guard | duration (IFO 6 s) | first / last |
+|---|---|---|---|---|---|---|---|---|---|
+| red | 0.506666666 s | 6.517333333 s | 253.333333 ms | 302.633333 ms | 0.253333333 – 6.2147 s | 1 | not tripped | 6.022 s ✓ | [254 0 0] / [254 0 0] ✓ |
+| green | 6.517333333 s | 12.528 s | 300.3 ms | 302.633333 ms | 6.217033333 – 12.225366667 s | 2 | not tripped | 6.032 s ✓ | [1 128 1] / [1 128 1] ✓ |
+| blue | 12.528 s | 18.538666666 s | 300.3 ms | 302.633333 ms | 12.2277 – 18.236033333 s | 3 | not tripped | **6.042 s ✗** (+42 ms, tolerance 34 ms) | [0 0 255] / [0 0 255] ✓ |
 
-These are probes of the snapping rule with single `parts:` ranges, counting frames and checking colours:
-- **Start:** output begins at the first keyframe at or after the start time.
-  - Starts of 6.400–6.512 s begin at green's keyframe (6.512 s).
-  - Starts of 6.513 s or later begin one GOP later (7.112 s).
-  - Red's keyframe is between 0.506 s and 0.507 s: 0.506 keeps it and 0.507 drops it.
-- **End:** output stops before the first keyframe at or after the end time.
-  - Ends up to 6.512 s stop before green.
-  - Ends from 6.513 s include green's first GOP.
-- **Same cuts moved one NTSC frame (33.367 ms) earlier, start and end:** the problem goes away.
-  - red, green and blue each come out as exactly 180 frames of their own colour.
-  - The durations are 6.022, 6.032 and 6.042 s. Audio starts at 7, 17 and 27 ms.
-  - On green, the chapters come out at 5 ms and 3.005 s and the first subtitle at 1.005 s. All are inside the test's tolerances.
+The other checks under the ruling:
+- **(3)** The green cut puts the chapters at **[5 ms, 3.005 s]** and the first subtitle at **1.005 s**. Pass.
+- **(4)** The output is written under the given name. Pass.
+- **(5)** The copy is 12.032 s (want 12 s), blue first and red last. Pass.
 
-These are candidate fixes. **They are not verified in the test and not decided:**
-- Bias both cut points earlier by a margin. The margin must be larger than the accumulated drift (about 4.7 ms per earlier VOB ID here) and smaller than the shortest GOP before the boundary.
-- Or compute group time the way mkvmerge does: per VOB ID segment, use the video duration (frame count × frame time) instead of the sum of `VOBU_E_PTM − VOBU_S_PTM`.
+### Remaining failure (observed by hand, not asserted)
 
-The margin's drift budget is set by the number of VOB IDs before the cut point. On a real disc with many VOB IDs a fixed one-frame margin may not be enough. The second option needs video frame timing, which the NAV packs alone don't give.
+The ruling cuts the video exactly. Each of the three cuts has a 180-frame video track of 6.005 s and holds only its own colour. The failing number is the container duration, which runs to the end of the audio:
+
+| cut | video timestamps (ms) | audio timestamps (ms) | audio track duration | container |
+|---|---|---|---|---|
+| red | 1 … 6006.37 | 7 … 6023 | 6.016 s | 6.022 s |
+| green | 1 … 6006.37 | 17 … 6033 | 6.016 s | 6.032 s |
+| blue | 1 … 6006.37 | 27 … 6043 | 6.016 s | 6.042 s |
+
+- Each segment's AC-3 is 10 ms longer than its video, and mkvmerge appends each segment's audio straight after the previous segment's audio.
+- So on the group timeline the audio falls about 10 ms further behind the video at each VOB ID change: audio starts 7, 17 and 27 ms after the video in the three cuts.
+- In blue's cut the audio starts 27 ms after the video and runs 6.016 s. It ends at about 6.043 s, past the video's 6.006 s, so the container is 6.042 s.
+
+This is not a cut error. It does show two things:
+- A container-duration check against the IFO time picks up audio drift that builds up per VOB ID.
+- mkvmerge's group mux leaves the audio behind the video by about (audio length − video length) for each preceding VOB ID. Here that is 27 ms at blue.
+
+The tolerance was not loosened. Two options are left for the controller, neither applied:
+- Assert on the video track's duration (the `DURATION` tag or frame timestamps), since the cut is a video-keyframe cut.
+- Make the fixture's audio match its video length more closely. AC-3 can only get within one 32 ms frame.
 
 ## Conclusion for Tasks 4/6
 
-The copy path (Task 6) and single-range output naming work as the plan assumes. The cut path (Task 4) does not work with cut points taken directly from summed VOBU durations. mkvmerge snaps each end of the range to the next keyframe, and those times run a few ms past the real boundary keyframes. The plan needs a decided correction, such as an early bias or frame-accurate segment timing, before Task 4 is built on it.
+**Task 6 (copy):** as planned. Concatenate the run's sectors into the temp VOB and mux it as a `( … )` group. Out-of-order runs come out as one continuous timeline.
+
+**Task 4 (cut):** implement exactly the ruled algorithm:
+1. start₀ = Σ(`VOBU_E_PTM − VOBU_S_PTM`) over every NAV before R0. end₀ = start₀ + the same sum over the run's NAVs (R0 ≤ sector ≤ R1).
+2. m_s = min(last VOBU before R0, first VOBU of the run) / 2, or 0 if start₀ = 0. m_e = (the run's last VOBU) / 2.
+3. Fail with an error if (VOB ID changes among NAVs from the group start to R1) × 10 ms ≥ min(m_s if start₀ > 0, m_e).
+4. Otherwise pass `--split parts:<start₀ − m_s>-<end₀ − m_e>` with a single range, which keeps the given output name.
+5. Write chapters and VobSub timestamps on the group timeline (from start₀). mkvmerge shifts them by the keyframe it actually cut at.
+
+On this fixture that algorithm gives frame-exact video for every episode. The one open item is how Task 4's tests should treat the audio drift above, which is up to about 10 ms per earlier VOB ID here.
