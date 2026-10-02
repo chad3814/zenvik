@@ -123,7 +123,7 @@ Run on authored discs, from both a folder and a darwin ISO:
 
 ### 6.4 Acceptance (local, not committed)
 
-Rip *Swiss Family Robinson (1960)* title 01. It must use `rip_method` `cut` and skip cell 22 with a warning. Its duration must be 2:06:13 ±1 frame, it must have 19 chapters and all its audio and subtitle tracks, and `info` must pick title 01 as the main feature.
+Rip *Swiss Family Robinson (1960)* title 01. It must use `rip_method` `cut` and skip cell 22 with a warning. Its video duration must be the sum of its kept cells (about 7580.7 s, 2:06:21, with NTSC IFO times read as frame counts; see §8) within ±0.1 s. It must have 18 chapters (chapter 19 starts at the skipped cell 22, so §2 removes it), each within one frame of the title's chapter starts, and all its audio and subtitle tracks, and `info` must pick title 01 as the main feature.
 
 ## 7. Rollout (plan tasks)
 
@@ -141,11 +141,16 @@ Task 2 can run in parallel with Task 1, and Tasks 4 and 5 can run in parallel.
 
 These record where the implementation differs from §2–§6 and what was observed while building it. The verification notes are in [docs/superpowers/notes/2026-10-02-m6-mkvmerge-cut.md](../notes/2026-10-02-m6-mkvmerge-cut.md).
 
-- **Cut points (replaces §3 step 2's start and end).** Let start₀ be the summed VOBU durations (`vobu_e_ptm − vobu_s_ptm`) before `R0`, and end₀ be start₀ plus the run's summed VOBU durations. mkvmerge gets start = start₀ − m_s and end = end₀ − m_e.
-  - m_s is half the shorter of the VOBU before the run and the run's first VOBU. It is 0 when start₀ is 0.
-  - m_e is half the run's last VOBU.
-- **Why the margins exist.** Summed VOBU durations run about 4.7 ms ahead of mkvmerge's timeline per VOB ID, because each VOB's last VOBU is padded past its last video frame. mkvmerge cuts at the first keyframe at or after the time it is given, so a cut time even 1 ms past a boundary keyframe gains or loses a whole GOP. Moving each point back by half a VOBU puts it safely before the boundary keyframe.
-- **Drift guard.** zenvik counts the VOB ID changes among the NAV packs from the group start up to `R1`. If changes × 10 ms reaches any non-zero margin, the cut can't be trusted and the rip fails with `zenvik: title <id>: cannot compute cut points: …`.
+- **NTSC IFO times are frame counts (fix wave A).** At NTSC (rate bits 3) the BCD playback time counts frames at a nominal 30 fps, and each frame lasts 1001/30000 s. So `hh:mm:ss:ff` is ((h·3600 + m·60 + s)·30 + f) × 1001/30000 s, and dvdauthor's `00:00:06:00` for a 180-frame episode is 6.006 s. PAL (25 fps) times are exact. `dvd.NewTime` inverts this, rounding to the nearest frame.
+  - Evidence: on *Swiss Family Robinson* title 01, cells 1–21 sum to 7573.13 s read as wall-clock time, but their NAV VOBU durations sum to 7580.71 s, exactly ×1.001.
+  - Before this fix every NTSC duration and chapter was 0.1 % short: 7.5 s over this 2 h film. Chapters are now placed from the corrected IFO times.
+  - The stray limit (§2's 1.0 s) is an IFO time of `00:00:01:00`, which is 1.001 s at NTSC. zenvik compares against 1.001 s, so a one-second NTSC cell, such as cell 22 on this disc, is still dropped.
+- **Cut points (replaces §3 step 2's start and end).** Let start₀ be the summed VOBU durations (`vobu_e_ptm − vobu_s_ptm`) before `R0`, and end₀ be start₀ plus the run's summed VOBU durations. mkvmerge gets start = start₀ − m_s and end = end₀ − m_e. With frame = 1001/30000 s:
+  - m_s = min(c_s × 10 ms + frame, half the shorter of the VOBU before the run and the run's first VOBU). c_s counts the VOB ID changes among the NAV packs from the group start through `R0`'s VOBU, so a change into `R0`'s VOBU counts. m_s is 0 when start₀ is 0.
+  - m_e = min(c_e × 10 ms + frame, half the run's last VOBU). c_e counts the VOB ID changes from the group start through `R1`.
+- **Why the margins exist.** Summed VOBU durations run about 4.7 ms ahead of mkvmerge's timeline per VOB ID on the authored discs, because each VOB's last VOBU is padded past its last video frame. mkvmerge cuts at the first keyframe at or after the time it is given, so a cut time even 1 ms past a boundary keyframe gains or loses a whole GOP. Each point is moved back by the drift bound (10 ms per VOB ID change) plus one frame.
+  - Real VOBUs can hold several GOPs. The first rule moved each point back by half a VOBU, and on *Swiss Family Robinson* that snapped to keyframes inside a VOBU. The output began with 0.1 s of the skipped black cell and lost the last 0.2 s of cell 21. The drift budget keeps the margin a few frames wide, short of any earlier keyframe.
+- **Drift guard.** The rip fails with `zenvik: title <id>: cannot compute cut points: …` when c × 10 ms + frame exceeds its half-VOBU bound, for m_s (only when start₀ > 0) or m_e. The drift budget must fit inside half a VOBU.
 - **Chapters and VobSub on cut titles** are shifted by start₀, the run's true start, not by the requested cut time. mkvmerge moves them back by the keyframe it actually cuts at.
 - **The cut group** starts at the latest VOBU-aligned title VOB at or before the run's first file (§3 step 1), so mkvmerge's timeline starts on a VOBU.
 - **Cells outside the VOBs.** A title with a kept cell whose sectors lie outside its title set's VOBs is unsupported, with the reason `cells point outside the title VOBs`. Dropped strays are not checked.
@@ -157,12 +162,21 @@ These record where the implementation differs from §2–§6 and what was observ
   - title 05 (cut, red, cell 3 skipped): video 6.005 s, red to red, warning `title 05: skipped cell 3 (0.5 s at sectors 0–12, out of order)`; container 6.022 s.
   - title 06 (copy): video 12.012 s (IFO 12 s), blue to red; container 12.032 s.
   - title 04 from a darwin ISO (cut): blue to blue, no mount left.
-- **Acceptance run (§6.4), 2026-10-02, mkvmerge v102.** *Swiss Family Robinson (1960)* title 01:
-  - `info` marks 01 with ★, `cut`, with the note `skipped 1 short cell(s)`, 18 chapters, 2:06:13.
-  - The `start` event has `"rip_method":"cut"`, `"title":"01"`, `duration_seconds` 7573.133. The warning is `title 01: skipped cell 22 (1.0 s at sectors 0–438, out of order)`, and the run ends with `done`. No mounts are left.
-  - Tracks: video, audio eng (AC-3 5.1), spa (AC-3 5.1), eng (AC-3 Stereo, Director's Commentary), and English VobSub.
-  - The cut was `parts:00:00:00.800800000-02:06:21.373800000`. The video track is 7580.606 s and the container 7580.702 s.
-  - **IFO times run short on this disc.** The IFO cell times sum to 7573.13 s for cells 1–21, but their NAV packs sum to 7580.71 s, and mkvmerge's keyframes fall at the NAV-summed cell starts. Most cells' IFO times are about 0.1% short, which is consistent with a 30 fps timecode counted over 29.97 fps video; cell 10's is exact. The title's real length is therefore about 7.5 s longer than its listed duration, and §6.4's "2:06:13 ±1 frame" can't hold for the video.
+- **First acceptance run (§6.4), 2026-10-02, mkvmerge v102, before fix wave A.** *Swiss Family Robinson (1960)* title 01:
+  - `info` marked 01 with ★, `cut`, with the note `skipped 1 short cell(s)`, 18 chapters, 2:06:13 (IFO times read as wall-clock seconds).
+  - The cut was `parts:00:00:00.800800000-02:06:21.373800000`. The video track was 7580.606 s and the container 7580.702 s.
+  - The IFO cell times summed to 7573.13 s for cells 1–21, but their NAV packs summed to 7580.71 s. This led to the NTSC time fix above.
   - **Chapters: 18, not 19.** Chapter 19 starts at cell 22, the dropped stray, and no kept cell follows it, so §2 removes it.
-  - **Chapter times come from the IFO.** Chapters are placed by IFO cell times, so on this disc they drift early as the title goes on: chapter 18 is at 2:02:03.576, about 7.3 s before cell 21 starts in the video.
-  - **Margins and multi-GOP VOBUs.** This disc has VOBUs that hold more than one GOP. Cell 22 (one 1.001 s VOBU) has keyframes at 0, 0.3, 0.6 and 0.9 s, so the start time of 0.8008 s snapped to 0.901 s and the output begins with about 0.1 s of the skipped black cell (chapter 1 is at 0.100 s). The run's last VOBU (0.667 s) has a keyframe 0.2 s before its end, so the end time snapped there and the last 0.2 s of cell 21 is missing. The video is 0.1 s shorter than the run's NAV-summed 7580.71 s. At the two VOB ID changes inside the run (before cells 9 and 17), the keyframes sit at the NAV-summed cell starts plus the same two-frame lead-in seen at cell 1, so no drift was measurable.
+  - Chapters placed from the short IFO times drifted early, to about 7.3 s early at chapter 18.
+  - The half-VOBU margins snapped inside multi-GOP VOBUs (see "Why the margins exist" above).
+- **Acceptance run after fix wave A, 2026-10-02, mkvmerge v102.**
+  - `info` marks 01 with ★, `cut`, 2:06:21, 5.9 GiB, 18 chapters, `skipped 1 short cell(s)`. `duration_seconds` is 7580.706 s, the NAV-summed length of cells 1–21. Every title's method and skipped-cell count is the same as before the fix.
+  - The `start` event has `"rip_method":"cut"`, `"title":"01"` and `duration_seconds` 7580.706466666. The warning is `title 01: skipped cell 22 (1.0 s at sectors 0–438, out of order)`, and the run ends with `done`. No mounts are left.
+  - The cut is `parts:00:00:00.957633334-02:06:21.644100000`: m_s = 10 ms + frame (one VOB ID change, 1→2, into `R0`'s VOBU), and m_e = 30 ms + frame (three changes).
+  - The video track is 7580.706 s, 0.1 ms from `duration_seconds`. The container is 7580.727 s.
+  - Frame hashes show that the output's first frame is cell 1's first frame. The group's first 30 frames are cell 22's; the output has none of them and none of the frames after `R1`. The output ends on the last frame of cell 21. Cell 1 itself opens with about 0.93 s of black, so a colour check of the first frame can't tell the two cells apart.
+  - Tracks: video, audio eng (AC-3 5.1), spa (AC-3 5.1), eng (AC-3 Stereo, Director's Commentary), and English VobSub.
+  - **Chapters are 2 frames early (open finding).** All 17 non-zero chapters are 67.1–68.0 ms before the title's chapter starts in `info --json`, which is more than the one-frame tolerance.
+    - The run's first VOBU (sector 439) has `vobu_s_ptm` 25257, but its first video PES (the I-frame) has PTS 31263. That is 6006 ticks, two leading B-frames of an open GOP. The stray VOBU at sector 0 has no lead-in.
+    - mkvmerge snaps the cut to that I-frame (1.068 s on the group timeline). It rebases the video to the first displayed frame (1.001 s, start₀), but it shifts the chapters by the keyframe's 1.068 s. Chapters written at start₀ + title time therefore come out 66.7 ms early.
+    - Offsetting the chapters by start₀ + (first video PTS − `vobu_s_ptm`) of `R0`'s VOBU would cancel this. That would change the "shifted by start₀" ruling above, so it is left for the controller. VobSub timing on cut titles was not measured.

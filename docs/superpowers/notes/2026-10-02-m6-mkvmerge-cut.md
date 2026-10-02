@@ -2,6 +2,8 @@
 
 **Gate result: PASS** under the controller's two rulings. The first sets half-VOBU cut margins with a drift guard. The second makes the duration checks measure the video track. Checks (1), (3), (4) and (5) pass, and check (2) holds once the margins are applied.
 
+Fix wave A (2026-10-02) replaced the half-VOBU margins with a drift-budget margin and corrected NTSC IFO times. See the last section.
+
 History:
 - The first run, at the raw summed VOBU times, was BLOCKED on (1)–(3).
 - The margin ruling fixed the cuts, but blue's *container* duration stayed 42 ms over the IFO time. The cause is audio drift (see "Audio drift across VOB IDs"), not the cut.
@@ -183,3 +185,54 @@ For video track 0, mkvextract writes one more value than there are frames. The f
 On this fixture that algorithm gives frame-exact video for every episode.
 
 **Integration duration checks (Tasks 4 and 6) must use the video track** (`videoDuration`: mkvextract `timestamps_v2` of track 0, dropping the trailing end-time line, then last − first + one frame), and not the container duration. The container duration includes per-VOB-ID audio drift of about 10 ms per earlier VOB ID on this fixture.
+
+## Real-disc findings and the revised margin rule (fix wave A, 2026-10-02)
+
+The *Swiss Family Robinson (1960)* acceptance run found two defects. The disc is local only and is never committed.
+
+### NTSC IFO times are 30 fps frame counts
+
+- Title 01's cells 1–21 sum to 7573.13 s if their IFO times are read as wall-clock time, but their NAV VOBU durations sum to 7580.71 s. The ratio is exactly 1.001.
+- dvdauthor writes `00:00:06:00` for each 180-frame (6.006 s) episode on this fixture.
+- So at NTSC a BCD time is a frame count at a nominal 30 fps: `hh:mm:ss:ff` is ((h·3600 + m·60 + s)·30 + f) × 1001/30000 s. `dvd.Time.Duration` and `dvd.NewTime` now use this, and `NewTime` rounds to the nearest frame.
+- On this fixture the episodes' IFO time is now 6.006 s, and the video tracks are 6.005 s, so they are closer than before.
+- The stray limit of 1.0 s is an IFO time of `00:00:01:00`, which is 1.001 s at NTSC, so zenvik compares cells against 1.001 s.
+
+### Half-VOBU margins break on multi-GOP VOBUs
+
+- The disc's VOBUs hold several GOPs. Cell 22 is one 1.001 s VOBU with keyframes at 0, 0.300, 0.601 and 0.901 s.
+- The half-VOBU start margin put the start at 0.8008 s, which snapped to the keyframe at 0.901 s. The output began with 0.1 s of the skipped cell.
+- The run's last VOBU (0.667 s) has a keyframe 0.2 s before its end. The end margin snapped there, and the output lost the last 0.2 s of cell 21.
+- The drift at the VOB ID changes inside the run was not measurable on this disc. On the authored discs it is 4.67 ms per VOB ID.
+
+### Revised rule (controller ruling, fix wave A)
+
+With frame = 1001/30000 s and 10 ms of drift allowed per VOB ID change:
+
+- **Start.** If start₀ = 0, there is no margin. Otherwise m_s = min(c_s × 10 ms + frame, half the shorter of the VOBU before `R0` and the run's first VOBU). c_s counts the VOB ID changes in the NAV sequence from the group start through `R0`'s VOBU, so a change into `R0`'s VOBU counts.
+- **End.** m_e = min(c_e × 10 ms + frame, half the run's last VOBU), where c_e counts the changes from the group start through `R1`.
+- **Guard.** The cut fails when c × 10 ms + frame exceeds its half-VOBU bound, for m_s (when start₀ > 0) or m_e.
+- Chapters and VobSub are still shifted by start₀.
+
+`TestEpisodeCutting`'s `planCut` applies the same rule. Its results, all passing:
+
+| episode | m_s | m_e | VOB ID changes | video duration (IFO 6.006 s) | colours |
+|---|---|---|---|---|---|
+| red | 43.37 ms | 43.37 ms | 1 | 6.005367 s | red / red |
+| green | 53.37 ms | 53.37 ms | 2 | 6.005367 s | green / green |
+| blue | 63.37 ms | 63.37 ms | 3 | 6.005367 s | blue / blue |
+
+- The green cut puts the chapters at [5 ms, 3.008 s]. Cell 1's IFO time is now 3.003 s.
+- The first subtitle comes at 1.006 s.
+- The copy run (blue + red) is 12.012 s, with blue first and red last.
+
+### Acceptance after the fix
+
+- The cut is `parts:00:00:00.957633334-02:06:21.644100000`.
+- The video track is 7580.706 s, matching `duration_seconds` 7580.706 s.
+- Frame hashes show the output starts on cell 1's first frame and ends on cell 21's last frame. It has no frames from cell 22 or from after `R1`.
+- **Chapters are 2 frames early on open GOPs (open finding).**
+  - The run's first VOBU starts at `vobu_s_ptm` 25257, but its I-frame has PTS 31263. That is 6006 ticks: two leading B-frames.
+  - mkvmerge cuts at the I-frame. It rebases the video to the first displayed frame (start₀), but it shifts the chapters by the I-frame's time, 66.7 ms later.
+  - So all 17 non-zero chapters come out 67–68 ms before the title's chapter starts, which is more than one frame.
+  - On the authored discs the GOPs are closed, so this didn't show.
