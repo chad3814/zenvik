@@ -128,17 +128,20 @@ func cutDriftGuard(changes int, half time.Duration) error {
 //   - end = start₀ + (the run's VOBUs) − m_e, where m_e = min(changes
 //     through R1 × 10 ms + frame, half the run's last VOBU).
 func cutPoints(info *dvdInfo, paths []string) (start, end time.Duration, err error) {
-	_, start, end, err = planCut(info, paths)
+	_, _, start, end, err = planCut(info, paths)
 	return start, end, err
 }
 
 // planCut computes cutPoints and also returns start₀, the run's start on
-// the group timeline, by which the title's chapters and subtitles are
-// shifted: mkvmerge moves them back by the keyframe it cuts at, which is
-// the run's first (see docs/superpowers/notes/2026-10-02-m6-mkvmerge-cut.md).
-func planCut(info *dvdInfo, paths []string) (start0, start, end time.Duration, err error) {
+// the group timeline, and gap, the lead-in of the run's first VOBU (see
+// vobuLeadIn). The title's chapters and subtitles are shifted by
+// start₀ + gap: mkvmerge rebases the video to the run's first displayed
+// frame, at start₀, but moves chapters back by the keyframe it cuts at,
+// which is gap later on an open GOP (see
+// docs/superpowers/notes/2026-10-02-m6-mkvmerge-cut.md).
+func planCut(info *dvdInfo, paths []string) (start0, gap, start, end time.Duration, err error) {
 	if len(info.vobus) == 0 {
-		return 0, 0, 0, errors.New("the IFO has no VOBU address map")
+		return 0, 0, 0, 0, errors.New("the IFO has no VOBU address map")
 	}
 	group := cutGroup(info)
 	g0 := info.files[group[0]].first
@@ -150,14 +153,8 @@ func planCut(info *dvdInfo, paths []string) (start0, start, end time.Duration, e
 		}
 	}()
 	buf := make([]byte, 2048)
-	var before, during, lastBefore, firstRun, lastRun uint64
-	sawStart := false
-	changes, changesAtR0, prevVOB := 0, 0, -1
-	for _, s := range info.vobus {
-		sec := int64(s)
-		if sec < g0 || sec > r1 {
-			continue
-		}
+	// read returns sector sec of the title VOBs in buf.
+	read := func(sec int64) ([]byte, error) {
 		fi := -1
 		for i, f := range info.files {
 			if sec >= f.first && sec <= f.last {
@@ -165,21 +162,41 @@ func planCut(info *dvdInfo, paths []string) (start0, start, end time.Duration, e
 			}
 		}
 		if fi < 0 {
-			return 0, 0, 0, fmt.Errorf("VOBU at sector %d is outside the title VOBs", sec)
+			return nil, fmt.Errorf("sector %d is outside the title VOBs", sec)
 		}
 		f, ok := open[fi]
 		if !ok {
+			var err error
 			if f, err = os.Open(paths[fi]); err != nil {
-				return 0, 0, 0, err
+				return nil, err
 			}
 			open[fi] = f
 		}
 		if _, err := f.ReadAt(buf, (sec-info.files[fi].first)*2048); err != nil {
-			return 0, 0, 0, fmt.Errorf("reading the NAV pack at sector %d: %w", sec, err)
+			return nil, fmt.Errorf("reading sector %d: %w", sec, err)
 		}
-		nav, ok := dvd.ParseNAV(buf)
+		return buf, nil
+	}
+	var before, during, lastBefore, firstRun, lastRun uint64
+	var navR0 dvd.NAV
+	sawStart := false
+	nextAfterR0 := info.files[len(info.files)-1].last + 1
+	changes, changesAtR0, prevVOB := 0, 0, -1
+	for _, s := range info.vobus {
+		sec := int64(s)
+		if sec > r0 && sec < nextAfterR0 {
+			nextAfterR0 = sec
+		}
+		if sec < g0 || sec > r1 {
+			continue
+		}
+		p, err := read(sec)
+		if err != nil {
+			return 0, 0, 0, 0, fmt.Errorf("VOBU at sector %d: %w", sec, err)
+		}
+		nav, ok := dvd.ParseNAV(p)
 		if !ok {
-			return 0, 0, 0, fmt.Errorf("no NAV pack at VOBU sector %d", sec)
+			return 0, 0, 0, 0, fmt.Errorf("no NAV pack at VOBU sector %d", sec)
 		}
 		if prevVOB >= 0 && nav.VOBID != prevVOB {
 			changes++
@@ -195,29 +212,81 @@ func planCut(info *dvdInfo, paths []string) (start0, start, end time.Duration, e
 				sawStart = true
 				firstRun = d
 				changesAtR0 = changes
+				navR0 = nav
 			}
 			during += d
 			lastRun = d
 		}
 	}
 	if !sawStart {
-		return 0, 0, 0, fmt.Errorf("no VOBU starts at the title's first sector %d", r0)
+		return 0, 0, 0, 0, fmt.Errorf("no VOBU starts at the title's first sector %d", r0)
+	}
+	lead, err := vobuLeadIn(read, r0, nextAfterR0, navR0)
+	if err != nil {
+		return 0, 0, 0, 0, err
 	}
 	ticks := func(n uint64) time.Duration { return time.Duration(n) * time.Second / 90000 }
 	var ms time.Duration
 	if before > 0 {
 		half := ticks(min(lastBefore, firstRun)) / 2
 		if err := cutDriftGuard(changesAtR0, half); err != nil {
-			return 0, 0, 0, err
+			return 0, 0, 0, 0, err
 		}
 		ms = min(cutBudget(changesAtR0), half)
 	}
 	half := ticks(lastRun) / 2
 	if err := cutDriftGuard(changes, half); err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, 0, err
 	}
 	me := min(cutBudget(changes), half)
-	return ticks(before), ticks(before) - ms, ticks(before+during) - me, nil
+	return ticks(before), ticks(lead), ticks(before) - ms, ticks(before+during) - me, nil
+}
+
+// videoPTS returns the PTS of the video PES packet (stream 0xE0) that
+// pack p starts, if it has one.
+func videoPTS(p []byte) (uint64, bool) {
+	if len(p) != 2048 || p[0] != 0 || p[1] != 0 || p[2] != 1 || p[3] != 0xBA || p[4]&0xC0 != 0x40 {
+		return 0, false
+	}
+	o := 14 + int(p[13]&7)
+	if o+14 > len(p) || p[o] != 0 || p[o+1] != 0 || p[o+2] != 1 || p[o+3] != 0xE0 || p[o+7]&0x80 == 0 || p[o+8] < 5 {
+		return 0, false
+	}
+	b := p[o+9 : o+14]
+	return uint64(b[0]>>1&7)<<30 | uint64(b[1])<<22 | uint64(b[2]>>1)<<15 | uint64(b[3])<<7 | uint64(b[4]>>1), true
+}
+
+// vobuLeadIn returns, in 90 kHz ticks, how far the first video PES packet
+// with a PTS in the VOBU whose NAV pack nav is at sector sec starts after
+// the VOBU's vobu_s_ptm. It reads sectors sec+1 up to next, the following
+// VOBU's start, with read. An open GOP's leading B-frames display before
+// the I-frame that starts the VOBU, so mkvmerge's cut at that I-frame is
+// this much after the VOBU's start. A missing PTS or a negative gap is 0;
+// a gap past the VOBU's end is an error.
+func vobuLeadIn(read func(sec int64) ([]byte, error), sec, next int64, nav dvd.NAV) (uint64, error) {
+	for s := sec + 1; s < next; s++ {
+		p, err := read(s)
+		if err != nil {
+			return 0, err
+		}
+		pts, ok := videoPTS(p)
+		if !ok {
+			continue
+		}
+		const mod = int64(1) << 33
+		d := (int64(pts) - int64(nav.StartPTM)) % mod
+		if d < 0 {
+			d += mod
+		}
+		if d >= mod/2 { // before vobu_s_ptm, the shorter way round a wrap
+			return 0, nil
+		}
+		if d > int64(nav.EndPTM-nav.StartPTM) {
+			return 0, fmt.Errorf("the first video frame at sector %d starts %d ticks into the VOBU at sector %d, longer than its VOBU (%d ticks)", s, d, sec, nav.EndPTM-nav.StartPTM)
+		}
+		return uint64(d), nil
+	}
+	return 0, nil
 }
 
 // copyTitle copies title t's kept cells, in play order, into a temporary

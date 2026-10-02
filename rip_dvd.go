@@ -60,12 +60,12 @@ func dvdJob(ctx context.Context, mk *mux.Mkvmerge, root string, t *Title, output
 			job.Concat = append(job.Concat, paths[i])
 		}
 		identifyPath = job.Concat[0]
-		start0, start, end, err := planCut(info, paths)
+		start0, gap, start, end, err := planCut(info, paths)
 		if err != nil {
 			return fail(fmt.Errorf("zenvik: title %s: cannot compute cut points: %w", t.ID, err))
 		}
 		job.Split = []mux.TimeRange{{Start: start, End: end}}
-		offset = start0
+		offset = start0 + gap
 		subSpans = byteSpans(info.ranges, info.files, paths)
 	case "copy":
 		if dryRun {

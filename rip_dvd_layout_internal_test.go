@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chad3814/zenvik/dvd"
 	"github.com/chad3814/zenvik/internal/mux"
 	"github.com/chad3814/zenvik/internal/testdisc"
 )
@@ -215,5 +216,42 @@ esac
 	}
 	if !strings.HasPrefix(string(b), "CHAPTER01=00:39:59.997\n") { // start₀ = 2 × 35964 frames = 2399.9976 s
 		t.Errorf("chapter file:\n%s", b)
+	}
+}
+
+// videoPESPack is a pack holding one video PES packet (stream 0xE0) with PTS pts.
+func videoPESPack(pts uint32) []byte {
+	p := testdisc.VOBPacks(1, false)
+	v := uint64(pts)
+	copy(p[14:], []byte{0, 0, 1, 0xE0, 0x07, 0xEC, 0x81, 0x80, 0x05,
+		0x21 | byte(v>>29)&0x0E, byte(v >> 22), byte(v>>14)&0xFE | 1, byte(v >> 7), byte(v<<1)&0xFE | 1})
+	return p
+}
+
+func TestVOBULeadIn(t *testing.T) {
+	nav := dvd.NAV{StartPTM: 25257, EndPTM: 61293, VOBID: 2, CellID: 1}
+	reader := func(packs ...[]byte) func(int64) ([]byte, error) {
+		b := bytes.Join(packs, nil)
+		return func(sec int64) ([]byte, error) {
+			if (sec+1)*2048 > int64(len(b)) {
+				return nil, errors.New("past the end")
+			}
+			return b[sec*2048 : (sec+1)*2048], nil
+		}
+	}
+	// The real-disc case: two leading B-frames, so the I-frame's PTS is vobu_s_ptm + 6006.
+	gap, err := vobuLeadIn(reader(testdisc.NAVPack(nav), testdisc.VOBPacks(1, false), videoPESPack(25257+6006)), 0, 3, nav)
+	if err != nil || gap != 6006 || ticks90k(gap) != 66733333*time.Nanosecond {
+		t.Errorf("open GOP: gap %d ticks (%v), %v; want 6006 (66.7 ms)", gap, ticks90k(gap), err)
+	}
+	// No video PES with a PTS before the next VOBU (sector 2, which has one): no gap.
+	if gap, err := vobuLeadIn(reader(testdisc.NAVPack(nav), testdisc.VOBPacks(1, false), videoPESPack(25257+6006)), 0, 2, nav); err != nil || gap != 0 {
+		t.Errorf("no PTS: gap %d, %v; want 0", gap, err)
+	}
+	if gap, err := vobuLeadIn(reader(testdisc.NAVPack(nav), videoPESPack(25257-3003)), 0, 2, nav); err != nil || gap != 0 {
+		t.Errorf("PTS before vobu_s_ptm: gap %d, %v; want 0", gap, err)
+	}
+	if _, err := vobuLeadIn(reader(testdisc.NAVPack(nav), videoPESPack(61293+1)), 0, 2, nav); err == nil || !strings.Contains(err.Error(), "longer than its VOBU") {
+		t.Errorf("gap past the VOBU: err = %v", err)
 	}
 }
