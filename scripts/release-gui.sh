@@ -38,7 +38,12 @@ cp "$root/gui/README.md" "$stage/README.md"
 case $goos in
 darwin)
 	cp -R "$bin/Zenvik.app" "$stage/"
-	(cd "$dist" && rm -f "$name.zip" && ditto -c -k --keepParent "$name" "$name.zip")
+	(cd "$dist" && rm -f "$name.zip" && ditto -c -k --norsrc --noextattr --noacl --keepParent "$name" "$name.zip")
+	if stray=$(unzip -l "$dist/$name.zip" | grep -E '/\._|__MACOSX'); then
+		echo "AppleDouble entries in $name.zip:" >&2
+		echo "$stray" >&2
+		exit 1
+	fi
 	;;
 windows)
 	cp "$bin/zenvik-gui.exe" "$stage/"
