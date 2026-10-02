@@ -356,8 +356,9 @@ func TestVOBUMapCorrupt(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := append([]byte(nil), b...)
-			if _, err := dvd.ParseVTS(mut(c)); !errors.Is(err, dvd.ErrCorrupt) {
-				t.Errorf("err = %v, want ErrCorrupt", err)
+			got, err := dvd.ParseVTS(mut(c))
+			if err != nil || got.VOBUs != nil {
+				t.Errorf("VOBUs %v, err %v; want no VOBUs and no error", got.VOBUs, err)
 			}
 		})
 	}

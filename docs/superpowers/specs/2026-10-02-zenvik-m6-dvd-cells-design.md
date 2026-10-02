@@ -57,7 +57,7 @@ Let the run cover sectors `R0`…`R1`, which lie in title VOBs `VTS_nn_a` … `V
 
 1. **mkvmerge input.** mkvmerge reads `( VTS_nn_a.VOB … VTS_nn_b.VOB )` as one group (M5 ruling: never `+`), from the latest title VOB at or before the run's first file whose first sector starts a VOBU (VTS_nn_1 always does), through the run's last file. Real discs split VOB files at about 1 GB, which can fall inside a VOBU. Its timeline starts at 0 at the group's first byte.
 2. **Cut points from the VOBU map.**
-   - The `dvd` package parses `VTS_VOBU_ADMAP`, the start sector of every VOBU in the title VOBs.
+   - The `dvd` package parses `VTS_VOBU_ADMAP`, the start sector of every VOBU in the title VOBs. A map that is missing or corrupt leaves `VOBUs` nil and does not fail the title set: only cut titles need it, and they fail at plan time.
    - zenvik reads the NAV pack at each VOBU start from the group's first sector up to `R1`. From each PCI it takes `vobu_s_ptm` and `vobu_e_ptm`.
    - **start** = Σ (`e_ptm − s_ptm`) over the VOBUs before `R0`.
    - **end** = start + Σ over the run's VOBUs.

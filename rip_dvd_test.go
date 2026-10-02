@@ -2,6 +2,7 @@ package zenvik_test
 
 import (
 	"context"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -119,6 +120,35 @@ func TestDVDCutDryRun(t *testing.T) {
 	i := slices.Index(cmd, "(")
 	if i < 0 || len(cmd) < i+4 || !strings.HasSuffix(cmd[i+1], "VTS_02_1.VOB") || !strings.HasSuffix(cmd[i+2], "VTS_02_2.VOB") || cmd[i+3] != ")" {
 		t.Errorf("group = %q", cmd[max(0, i):])
+	}
+}
+
+// A corrupt VOBU address map only costs the title set its cut titles.
+func TestDVDCorruptVOBUMapFailsCutAtPlanTime(t *testing.T) {
+	t.Setenv("PATH", "")
+	stub := layoutStub(t)
+	root := writeDVD(t, testdisc.SampleDVD())
+	ifo := filepath.Join(root, "VIDEO_TS", "VTS_02_0.IFO")
+	b, err := os.ReadFile(ifo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary.BigEndian.PutUint32(b[0xE4:], 0x7FFF) // VOBU_ADMAP pointer past the end
+	if err := os.WriteFile(ifo, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := openDisc(t, root)
+	cut := mustTitle(t, d, "05")
+	if cut.Unsupported != "" || cut.RipMethod != "cut" {
+		t.Fatalf("05: unsupported %q, method %q", cut.Unsupported, cut.RipMethod)
+	}
+	_, err = d.Rip(context.Background(), cut, zenvik.RipOptions{OutputPath: filepath.Join(t.TempDir(), "ep.mkv"), DryRun: true, MkvmergePath: stub})
+	if err == nil || !strings.Contains(err.Error(), "no VOBU address map") {
+		t.Errorf("cut rip: err = %v, want the missing-map plan error", err)
+	}
+	whole := mustTitle(t, d, "06")
+	if whole.Unsupported != "" || whole.RipMethod != "files" {
+		t.Errorf("06: unsupported %q, method %q", whole.Unsupported, whole.RipMethod)
 	}
 }
 

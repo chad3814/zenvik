@@ -37,7 +37,7 @@ type VTS struct {
 	Subpictures []SubpictureAttributes // logical subpicture streams, at most 32
 	Titles      [][]PartOfTitle        // [title-1][chapter-1]
 	PGCs        []*PGC                 // PGC number n is PGCs[n-1]
-	VOBUs       []uint32               // VTS_VOBU_ADMAP: start sector of every VOBU, ascending; nil if absent
+	VOBUs       []uint32               // VTS_VOBU_ADMAP: start sector of every VOBU, ascending; nil if absent or unreadable
 }
 
 // VideoCoding is the video compression.
@@ -268,8 +268,10 @@ func ParseVTS(b []byte) (*VTS, error) {
 	if v.PGCs, err = parsePGCI(pgci); err != nil {
 		return nil, err
 	}
-	if v.VOBUs, err = parseVOBUMap(b, be32(b, 0xE4)); err != nil {
-		return nil, err
+	// Only cut titles need the VOBU map, so a bad one leaves VOBUs nil
+	// (planCut then refuses them) instead of failing the whole title set.
+	if vobus, err := parseVOBUMap(b, be32(b, 0xE4)); err == nil {
+		v.VOBUs = vobus
 	}
 	for ti, chapters := range v.Titles {
 		for ci, p := range chapters {
