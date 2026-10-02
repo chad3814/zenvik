@@ -16,6 +16,11 @@ func cell(first, last uint32, d time.Duration) dvd.Cell {
 	return dvd.Cell{FirstSector: first, LastSector: last, Time: dvd.NewTime(d, dvd.Rate30)}
 }
 
+// frames is a cell lasting n frames at rate r.
+func frames(first, last uint32, n int, r dvd.FrameRate) dvd.Cell {
+	return dvd.Cell{FirstSector: first, LastSector: last, Time: dvd.Time{Seconds: n / int(r), Frames: n % int(r), Rate: r}}
+}
+
 func TestWholeFiles(t *testing.T) {
 	vobs := []vobFile{{name: "1", size: 10 * 2048, first: 0, last: 9}, {name: "2", size: 10 * 2048, first: 10, last: 19}}
 	for _, tt := range []struct {
@@ -54,6 +59,11 @@ func TestClassifyCells(t *testing.T) {
 		{"middle stray kept", []dvd.Cell{cell(26, 49, m), cell(0, 1, s), cell(2, 25, m)}, "copy", nil},
 		{"mid-file run", []dvd.Cell{cell(5, 9, m), cell(10, 20, m)}, "cut", nil},
 		{"never empties", []dvd.Cell{cell(10, 11, s/2), cell(0, 1, s/2)}, "cut", []int{0}},
+		// The limit is the listed IFO time 00:00:01:00: 30 NTSC frames (1.001 s) or 25 PAL frames (1.0 s).
+		{"30 NTSC frames dropped", []dvd.Cell{cell(2, 25, m), cell(26, 49, m), frames(0, 1, 30, dvd.Rate30)}, "cut", []int{2}},
+		{"31 NTSC frames kept", []dvd.Cell{cell(2, 25, m), cell(26, 49, m), frames(0, 1, 31, dvd.Rate30)}, "copy", nil},
+		{"25 PAL frames dropped", []dvd.Cell{cell(2, 25, m), cell(26, 49, m), frames(0, 1, 25, dvd.Rate25)}, "cut", []int{2}},
+		{"26 PAL frames kept", []dvd.Cell{cell(2, 25, m), cell(26, 49, m), frames(0, 1, 26, dvd.Rate25)}, "copy", nil},
 	} {
 		method, skipped := classifyCells(tt.cells, vobs)
 		if method != tt.method || !slices.Equal(skipped, tt.skipped) {

@@ -276,9 +276,10 @@ func wholeFiles(cells []dvd.Cell, vobs []vobFile) ([]vobFile, bool) {
 	return vobs[start : end+1], true
 }
 
-// maxStray is the longest cell that may be dropped from a title's edge: an
-// IFO time of 1.0 s, which at NTSC is 00:00:01:00, 30 frames of 1001/30000 s
-// (PAL's 25 frames are exactly 1 s).
+// maxStray is the longest cell that may be dropped from a title's edge. The
+// rule is on the time the IFO lists: at most 1 s, 00:00:01:00. At NTSC that
+// is 30 frames of 1001/30000 s, 1.001 s; at PAL it is 25 frames, 1.0 s. So a
+// 31-frame NTSC or 26-frame PAL cell is kept.
 const maxStray = 1001 * time.Millisecond
 
 // classifyCells decides how a title whose angle-1 cells, in play order,
