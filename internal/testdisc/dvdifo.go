@@ -71,7 +71,34 @@ func VTSFile(v *dvd.VTS) []byte {
 	put32(mat, 0xC8, 1)
 	put32(mat, 0xCC, uint32(1+len(ptt)/2048))
 	out := append(mat, ptt...)
-	return append(out, pgci...)
+	out = append(out, pgci...)
+	if len(v.VOBUs) > 0 {
+		put32(out, 0xE4, uint32(len(out)/2048))
+		m := make([]byte, 4+4*len(v.VOBUs))
+		put32(m, 0, uint32(len(m)-1))
+		for i, s := range v.VOBUs {
+			put32(m, 4+4*i, s)
+		}
+		out = append(out, padSector(m)...)
+	}
+	return out
+}
+
+// NAVPack encodes n as a 2048-byte NAV pack (pack header, system header,
+// PCI and DSI) that dvd.ParseNAV reads back. CellElapsed is written at
+// 30 fps.
+func NAVPack(n dvd.NAV) []byte {
+	p := make([]byte, 2048)
+	copy(p, []byte{0, 0, 1, 0xBA, 0x44, 0, 4, 0, 4, 1, 0x01, 0x89, 0xC3, 0xF8})
+	copy(p[0x0E:], []byte{0, 0, 1, 0xBB, 0x00, 0x12})
+	copy(p[0x26:], []byte{0, 0, 1, 0xBF, 0x03, 0xD4, 0x00})
+	put32(p, 0x2D+12, n.StartPTM)
+	put32(p, 0x2D+16, n.EndPTM)
+	copy(p[0x400:], []byte{0, 0, 1, 0xBF, 0x03, 0xFA, 0x01})
+	put16(p, 0x407+24, n.VOBID)
+	p[0x407+27] = byte(n.CellID)
+	putTime(p[0x407+28:], dvd.NewTime(n.CellElapsed, dvd.Rate30))
+	return p
 }
 
 func encodeVideo(b []byte, v dvd.VideoAttributes) {

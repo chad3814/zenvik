@@ -6,7 +6,6 @@ package vobsub
 import (
 	"bufio"
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/chad3814/zenvik/dvd"
 )
 
 const packSize = 2048
@@ -114,9 +115,9 @@ func Extract(ctx context.Context, p Params) (*Result, error) {
 				return nil, fmt.Errorf("vobsub: reading %s: %w", v, err)
 			}
 			done += packSize
-			if vob, cell, elapsed, s, ok := navInfo(buf); ok {
-				start, found := starts[[2]int{vob, cell}]
-				base, ptm, known = start+elapsed, uint64(s), found
+			if nav, ok := dvd.ParseNAV(buf); ok {
+				start, found := starts[[2]int{nav.VOBID, nav.CellID}]
+				base, ptm, known = start+nav.CellElapsed, uint64(nav.StartPTM), found
 				continue
 			}
 			id, pts, hasPTS, ok := spuInfo(buf)
@@ -178,19 +179,6 @@ func Extract(ctx context.Context, p Params) (*Result, error) {
 	return res, nil
 }
 
-// navInfo reads a NAV pack: the DSI's VOB ID, cell ID and cell elapsed
-// time, and the PCI's VOBU start PTS.
-func navInfo(p []byte) (vob, cell int, elapsed time.Duration, ptm uint32, ok bool) {
-	if !packHeader(p) || p[0x0E] != 0 || p[0x0F] != 0 || p[0x10] != 1 || p[0x11] != 0xBB ||
-		p[0x26] != 0 || p[0x27] != 0 || p[0x28] != 1 || p[0x29] != 0xBF || p[0x2C] != 0x00 ||
-		p[0x400] != 0 || p[0x401] != 0 || p[0x402] != 1 || p[0x403] != 0xBF || p[0x406] != 0x01 {
-		return 0, 0, 0, 0, false
-	}
-	ptm = binary.BigEndian.Uint32(p[0x2D+12:])
-	dsi := p[0x407:]
-	return int(binary.BigEndian.Uint16(dsi[24:])), int(dsi[27]), bcdTime(dsi[28:32]), ptm, true
-}
-
 // spuInfo reports whether pack p carries a subpicture PES packet (private
 // stream 1, sub-stream 0x20–0x3F), its stream number, and its PTS if the
 // packet has one.
@@ -234,24 +222,6 @@ func ptsDelta(pts, ref uint64) time.Duration {
 		d -= mod
 	}
 	return time.Duration(d) * time.Second / 90000
-}
-
-// bcdTime decodes a 4-byte BCD playback time, tolerating bad digits and
-// rates (they decode as zero or 30 fps).
-func bcdTime(b []byte) time.Duration {
-	dec := func(x byte) int {
-		hi, lo := int(x>>4), int(x&0x0F)
-		if hi > 9 || lo > 9 {
-			return 0
-		}
-		return hi*10 + lo
-	}
-	d := time.Duration(dec(b[0]))*time.Hour + time.Duration(dec(b[1]))*time.Minute + time.Duration(dec(b[2]))*time.Second
-	frames := time.Duration(dec(b[3] & 0x3F))
-	if b[3]>>6 == 1 {
-		return d + frames*40*time.Millisecond
-	}
-	return d + frames*1001*time.Second/30000
 }
 
 // rgb converts a palette entry (0x00YYCrCb, studio range) to "rrggbb"

@@ -37,6 +37,7 @@ type VTS struct {
 	Subpictures []SubpictureAttributes // logical subpicture streams, at most 32
 	Titles      [][]PartOfTitle        // [title-1][chapter-1]
 	PGCs        []*PGC                 // PGC number n is PGCs[n-1]
+	VOBUs       []uint32               // VTS_VOBU_ADMAP: start sector of every VOBU, ascending; nil if absent
 }
 
 // VideoCoding is the video compression.
@@ -266,6 +267,9 @@ func ParseVTS(b []byte) (*VTS, error) {
 	if v.PGCs, err = parsePGCI(pgci); err != nil {
 		return nil, err
 	}
+	if v.VOBUs, err = parseVOBUMap(b, be32(b, 0xE4)); err != nil {
+		return nil, err
+	}
 	for ti, chapters := range v.Titles {
 		for ci, p := range chapters {
 			if p.PGC > len(v.PGCs) || p.Program > len(v.PGCs[p.PGC-1].Programs) {
@@ -473,4 +477,31 @@ func parsePGC(p []byte) (*PGC, error) {
 		pg.Cells = append(pg.Cells, cell)
 	}
 	return pg, nil
+}
+
+// parseVOBUMap reads VTS_VOBU_ADMAP at sector: a u32 end address (the last
+// byte, relative to the table) and u32 VOBU start sectors from byte 4.
+// Sector 0 means the IFO has no map.
+func parseVOBUMap(b []byte, sector uint32) ([]uint32, error) {
+	if sector == 0 {
+		return nil, nil
+	}
+	off := int64(sector) * sectorSize
+	if off+4 > int64(len(b)) {
+		return nil, corrupt("VOBU address map at sector %d is outside the file", sector)
+	}
+	end := int64(be32(b, int(off)))
+	if end < 3 || off+end >= int64(len(b)) {
+		return nil, corrupt("VOBU address map end address %d is outside the file", end)
+	}
+	n := (end + 1 - 4) / 4
+	out := make([]uint32, 0, n)
+	for i := int64(0); i < n; i++ {
+		s := be32(b, int(off+4+4*i))
+		if i > 0 && s <= out[i-1] {
+			return nil, corrupt("VOBU address map is not ascending at entry %d", i)
+		}
+		out = append(out, s)
+	}
+	return out, nil
 }

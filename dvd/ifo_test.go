@@ -38,6 +38,7 @@ func sampleVTS() *dvd.VTS {
 		},
 		Subpictures: []dvd.SubpictureAttributes{{Language: "fr", CodeExtension: dvd.SubpictureForced}},
 		Titles:      [][]dvd.PartOfTitle{{{PGC: 1, Program: 1}, {PGC: 1, Program: 2}}, {{PGC: 2, Program: 1}}},
+		VOBUs:       []uint32{0, 100, 200, 300},
 		PGCs:        []*dvd.PGC{pgc, {Time: t(time.Minute), Programs: []int{1}, Cells: []dvd.Cell{{Time: t(time.Minute), FirstSector: 300, LastSector: 309, VOBID: 3, CellID: 1}}}},
 	}
 }
@@ -293,5 +294,28 @@ func TestOverlappingPGCsRejectedCheaply(t *testing.T) {
 	}
 	if got := after.TotalAlloc - before.TotalAlloc; got > 64<<20 {
 		t.Errorf("ParseVTS allocated %d MiB on a hostile table", got>>20)
+	}
+}
+
+func TestVOBUMapCorrupt(t *testing.T) {
+	v := sampleVTS()
+	b := testdisc.VTSFile(v)
+	sec := int(binary.BigEndian.Uint32(b[0xE4:])) * 2048
+	for name, mut := range map[string]func([]byte) []byte{
+		"pointer past end": func(b []byte) []byte { binary.BigEndian.PutUint32(b[0xE4:], 0x7FFF); return b },
+		"end past file":    func(b []byte) []byte { binary.BigEndian.PutUint32(b[sec:], 0x7FFFFFF); return b },
+		"not ascending":    func(b []byte) []byte { binary.BigEndian.PutUint32(b[sec+8:], 0); return b },
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := append([]byte(nil), b...)
+			if _, err := dvd.ParseVTS(mut(c)); !errors.Is(err, dvd.ErrCorrupt) {
+				t.Errorf("err = %v, want ErrCorrupt", err)
+			}
+		})
+	}
+	v.VOBUs = nil
+	got, err := dvd.ParseVTS(testdisc.VTSFile(v))
+	if err != nil || got.VOBUs != nil {
+		t.Errorf("no map: VOBUs %v, err %v", got.VOBUs, err)
 	}
 }

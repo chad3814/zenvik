@@ -28,3 +28,8 @@ func FuzzParseVTS(f *testing.F) {
 		}
 	})
 }
+
+func FuzzParseNAV(f *testing.F) {
+	f.Add(testdisc.NAVPack(dvd.NAV{StartPTM: 1, EndPTM: 2, VOBID: 1, CellID: 1}))
+	f.Fuzz(func(t *testing.T, b []byte) { _, _ = dvd.ParseNAV(b) })
+}
