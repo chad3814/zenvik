@@ -12,7 +12,7 @@ Audience: the author's personal collection first, structured so it can be publis
 
 ### Goals (v1)
 
-- Inputs: Blu-ray **ISO image** or **BDMV directory**. UHD Blu-ray works as plain Blu-ray.
+- Inputs: Blu-ray **ISO image** or **BDMV directory**. UHD Blu-ray works as plain Blu-ray. Since M5, also DVD ISO images and VIDEO_TS folders (see the M5 spec).
 - Output: lossless **remux** of a selected title to MKV with all video, audio, and subtitle tracks, chapters, correct languages, track names, and default flags.
 - Automatic **main-feature detection** with explainable, overridable results.
 - **Config file + presets** and **output naming templates**.
@@ -26,7 +26,7 @@ Audience: the author's personal collection first, structured so it can be publis
 - No track-selection rules (all tracks are kept).
 - No online metadata lookup.
 - No BD-J execution. No HDR10+/Dolby Vision special handling. Multi-angle titles rip angle 1 only.
-- DVD (`VIDEO_TS`) is milestone 5 and gets its own spec.
+- DVD (`VIDEO_TS`) arrived in milestone 5; see `2026-10-01-zenvik-m5-dvd-design.md`.
 - No release packaging (goreleaser) in v1.
 
 ## 2. Architecture
@@ -38,6 +38,7 @@ zenvik/
 ├── zenvik.go            # public facade: Open, Disc, Title, Rip, FormatName, options, errors
 ├── udf/                 # public: UDF reader → io/fs.FS over io.ReaderAt
 ├── bluray/              # public: index.bdmv, MovieObject.bdmv, MPLS, CLPI, bdmt meta parsers
+├── dvd/                 # public: VIDEO_TS.IFO and VTS_nn_0.IFO parsers (added in M5)
 ├── internal/
 │   ├── source/          # detect input kind (ISO | BDMV dir); expose fs.FS
 │   ├── mount/           # OS mount helpers (build tags: darwin, linux, windows)
@@ -50,9 +51,9 @@ zenvik/
 ```
 
 - The root package `zenvik` is the only API the CLI and GUI depend on.
-- `udf` and `bluray` are public, standalone parsers. They know nothing about zenvik and do no I/O beyond `io.ReaderAt` / `fs.FS`.
+- `udf`, `bluray` and `dvd` are public, standalone parsers. They know nothing about zenvik and do no I/O beyond `io.ReaderAt` / `fs.FS`.
 - Everything else is `internal/` until its API stabilizes.
-- DVD later adds a `dvd/` parser and a new source kind. The facade API does not change.
+- DVD (M5) added a `dvd/` parser and a new source kind. The facade API gained only additive fields (see the M5 spec).
 
 **Data flow:** `zenvik.Open(path)` → detect source → parse BDMV via `fs.FS` (UDF for ISO, `os.DirFS` for directories) → build `Disc{Titles}` → detect encryption → rank → `disc.Rip(ctx, title, opts)` → mount the ISO if needed → `mkvmerge` → progress events → MKV.
 
@@ -64,11 +65,12 @@ zenvik/
 func Open(ctx context.Context, path string, opts ...OpenOption) (*Disc, error) // e.g. WithMinDuration(d)
 func FormatName(tmpl string, d *Disc, t *Title, vars NameVars) (string, error)
 
-type SourceKind int // ISO, BDMVDir (later: VideoTSDir)
+type SourceKind int // ISO, BDMVDir, VideoTSDir
 
 type Disc struct {
   Path   string
   Kind   SourceKind
+  Format Format       // Bluray or DVD (added in M5)
   Label  string       // volume label (ISO) or directory name
   Meta   *DiscMeta    // from BDMV/META/DL/bdmt_*.xml; nil if absent
   Titles []*Title     // ranked; Titles[0] is the best main-feature candidate
@@ -100,7 +102,7 @@ type RipOptions struct {
   OnProgress   func(Progress) // optional; called from the muxing goroutine
 }
 type Progress struct {
-  Phase      Phase   // Mounting, Scanning, Muxing, Finalizing
+  Phase      Phase   // Mounting, Scanning, Muxing, Finalizing (M5 adds Subtitles: extracting DVD subtitles)
   Fraction   float64 // 0..1 within the current phase
   BytesDone  int64
   BytesTotal int64
@@ -111,7 +113,7 @@ type RipResult struct { OutputPath string; Duration time.Duration; Warnings []st
 - Ranking runs inside `Open`, so all consumers see the same ordering and reasons.
 - Cancellation uses `ctx`: mkvmerge is killed and the partial file deleted.
 - Progress is a callback, not a channel, so there is nothing to drain or leak.
-- Sentinel errors (checked with `errors.Is`): `ErrUnsupportedSource`, `ErrEncrypted`, `ErrNoTitles`, `ErrMkvmergeNotFound`, `ErrMkvmergeTooOld`, `ErrMountUnavailable`, `ErrOutputExists`, `ErrMuxFailed`, `ErrInvalidTemplate`.
+- Sentinel errors (checked with `errors.Is`): `ErrUnsupportedSource`, `ErrEncrypted`, `ErrNoTitles`, `ErrMkvmergeNotFound`, `ErrMkvmergeTooOld`, `ErrMountUnavailable`, `ErrOutputExists`, `ErrMuxFailed`, `ErrInvalidTemplate`, and (M5) `ErrUnsupportedTitle`.
 
 ### Encryption detection
 
@@ -252,4 +254,4 @@ template   = "{name}[ ({year})]/{name}[ ({year})].mkv"
 2. **Scan:** `source`, `Open`, encryption detection, `rank`, `zenvik info`.
 3. **Rip:** `mux` (mkvmerge), `mount`, `zenvik rip` with progress and cancellation.
 4. **Polish:** `config`, presets, `naming`, `zenvik doctor`.
-5. **DVD:** separate spec.
+5. **DVD:** done; see the M5 spec.
