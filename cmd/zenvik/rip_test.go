@@ -40,8 +40,8 @@ func TestRipExitCodes(t *testing.T) {
 		{"no args", []string{"rip"}, 2, ""},
 		{"unknown playlist", []string{"rip", "-p", "12345", good}, 2, "12345"},
 		{"encrypted", []string{"rip", encrypted}, 3, "encrypted"},
-		{"no main title", []string{"rip", "-o", t.TempDir(), noMain}, 1, "--title"},
-		{"output exists", []string{"rip", "-o", existsDir, good}, 1, "--overwrite"},
+		{"no main title", []string{"rip", "-d", t.TempDir(), noMain}, 1, "--title"},
+		{"output exists", []string{"rip", "-d", existsDir, good}, 1, "--overwrite"},
 	}
 	for _, tt := range tests {
 		code, _, errOut := runCLI(tt.args...)
@@ -54,7 +54,7 @@ func TestRipExitCodes(t *testing.T) {
 func TestRipMissingMkvmerge(t *testing.T) {
 	good := writeDisc(t, testdisc.SampleMovie())
 	t.Setenv("PATH", t.TempDir())
-	code, _, errOut := runCLI("rip", "-o", t.TempDir(), good)
+	code, _, errOut := runCLI("rip", "-d", t.TempDir(), good)
 	if code != 4 || !strings.Contains(errOut, "mkvmerge not found") || !strings.Contains(errOut, "mkvtoolnix.download") {
 		t.Errorf("exit %d, stderr %q", code, errOut)
 	}
@@ -70,7 +70,7 @@ func TestRipAmbiguousWarning(t *testing.T) {
 	d.Playlists["00802"] = testdisc.SimplePlaylist(segs...)
 	d.AddClipsFor()
 	t.Setenv("PATH", t.TempDir()) // stop before muxing; the warning comes first
-	_, out, errOut := runCLI("rip", "-o", t.TempDir(), writeDisc(t, d))
+	_, out, errOut := runCLI("rip", "-d", t.TempDir(), writeDisc(t, d))
 	if !strings.Contains(errOut, "close call") || !strings.Contains(errOut, "--title") {
 		t.Errorf("stderr = %q", errOut)
 	}

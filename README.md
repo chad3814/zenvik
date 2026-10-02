@@ -33,13 +33,22 @@ zenvik info <path>          # list titles; ★ marks the likely main feature
 zenvik info --all <path>    # include filtered titles and why they were filtered
 zenvik info --json <path>   # machine-readable output
 zenvik rip <path>                     # remux the main feature to ./<disc name>.mkv
-zenvik rip -p 00801 -o ~/Movies <path> # a specific playlist, into ~/Movies
+zenvik rip -p 00801 -d ~/Movies <path> # a specific playlist, into ~/Movies
+zenvik rip -o "/srv/rips/My Film.mkv" <path>  # this exact path (no template)
 zenvik rip --title 3 <path>           # a specific title (DVD title number or Blu-ray playlist)
 zenvik rip --dry-run <path>           # show the output path and mkvmerge command
 zenvik rip --name "Big Buck Bunny" --year 2008 <path>   # → ./Big Buck Bunny (2008).mkv
 zenvik rip --preset plex <path>                          # use a config preset
 zenvik doctor                                            # check mkvmerge, mounting, config, leftovers
 ```
+
+`rip` names the file from the template (`--template`, else the config's) inside the output
+directory (`--output-dir`/`-d`, else the config's `output_dir`, else the current directory).
+`--output-file`/`-o` gives the path instead and uses it as is: no template, no name cleaning
+and no `.mkv` added. A path starting with `/` (on Windows: a drive letter, `\` or `/`) is
+absolute; any other path is inside the output directory and may leave it with `..`. A leading
+`~` is your home directory. `--output-file` can't be combined with `--template`, `--name` or
+`--year`.
 
 `<path>` is a Blu-ray or DVD ISO image, a folder containing `BDMV` or `VIDEO_TS`, a `BDMV`
 folder, or a `VIDEO_TS` folder. `--title` (`-t`) and `--playlist` (`-p`) are the same option;

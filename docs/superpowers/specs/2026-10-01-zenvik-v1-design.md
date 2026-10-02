@@ -184,13 +184,14 @@ Typed parsers for `index.bdmv` (titles → movie object or BD-J), `MovieObject.b
 
 ```
 zenvik info <path> [--all] [--json]
-zenvik rip  <path> [-t|--title ID] [-o|--output-dir DIR] [--name NAME] [--year YYYY]
-                   [--template TMPL] [--preset NAME] [--overwrite] [--dry-run]
+zenvik rip  <path> [-t|--title ID] [-d|--output-dir DIR] [-o|--output-file PATH]
+                   [--name NAME] [--year YYYY] [--template TMPL] [--preset NAME]
+                   [--overwrite] [--dry-run]
 zenvik doctor
 ```
 
 - **`info`:** a ranked table with columns ★ (main), ID, duration, size, chapters, video, audio languages, subtitle languages, and notes (duplicate, ambiguous, encrypted, angles). `--all` includes filtered titles with their reasons. `--json` prints the `Disc` model, with `"kind": "iso" | "bdmv" | "video_ts"` and `"format": "bluray" | "dvd"` (M5).
-- **`rip`:** rips the main title by default (or `--title`; `--playlist`/`-p` is an alias for it). It prints the chosen title and why, then the progress. When the result is ambiguous, it rips the top candidate and warns, naming the alternatives. `--dry-run` prints the resolved output path and the mkvmerge command without running it.
+- **`rip`:** rips the main title by default (or `--title`; `--playlist`/`-p` is an alias for it). It prints the chosen title and why, then the progress. When the result is ambiguous, it rips the top candidate and warns, naming the alternatives. `--dry-run` prints the resolved output path and the mkvmerge command without running it. The output path is the rendered template inside the output directory (`--output-dir`/`-d` > preset > config `output_dir` > current directory). `--output-file`/`-o PATH` replaces it with a path used as is (no template, no name cleaning, no `.mkv` added): absolute if it starts with `/` (Windows: a drive letter, `\` or `/`), otherwise joined to the output directory (`..` may leave it); a leading `~` is the home directory; combining it with `--template`, `--name` or `--year` is a usage error (exit 2). Before 2026-10-02, `-o` was the shorthand for `--output-dir`.
 - **`doctor`:** checks that mkvmerge is found and its version, whether ISO mounting is possible on this OS, the config path and whether it parses, and any leftover zenvik mounts. If the config file doesn't exist, doctor creates it (exclusive create, never overwriting) with every top-level key at its built-in default, comments, and a commented-out example preset, and prints `✓ config: created <path> with the defaults`; if it can't be created, that is a `!` warning and the defaults are used. This is the only file doctor writes (added 2026-10-02). It prints `✓`, `!` (warning) or `✗` per check. A leftover whose mount is still live is `✗ leftover mount: …`; a stale record (mount already gone) is `! stale mount record: <image> (mount is gone); remove with: <command>`. Exit `4` if mkvmerge is missing or too old, else `2` if the config is invalid, else `1` if there are live leftover mounts, else `0`. Stale records and unavailable ISO mounting are only warnings.
 - **Progress:** an in-place progress bar on a TTY; plain periodic lines otherwise.
 - **Signals:** SIGINT/SIGTERM cancel the context, so cleanup (partial-file removal, unmount) runs.

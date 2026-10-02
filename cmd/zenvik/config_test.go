@@ -47,10 +47,10 @@ func ripTarget(t *testing.T, args ...string) string {
 func TestRipNamingFlags(t *testing.T) {
 	disc := writeDisc(t, testdisc.SampleMovie())
 	out := t.TempDir()
-	if got, want := ripTarget(t, "-o", out, "--name", "Big Film", "--year", "2024", disc), filepath.Join(out, "Big Film (2024).mkv"); got != want {
+	if got, want := ripTarget(t, "-d", out, "--name", "Big Film", "--year", "2024", disc), filepath.Join(out, "Big Film (2024).mkv"); got != want {
 		t.Errorf("target = %q, want %q", got, want)
 	}
-	if got, want := ripTarget(t, "-o", out, "--template", "{label}/{playlist}", disc), filepath.Join(out, "SAMPLE_MOVIE", "00800.mkv"); got != want {
+	if got, want := ripTarget(t, "-d", out, "--template", "{label}/{playlist}", disc), filepath.Join(out, "SAMPLE_MOVIE", "00800.mkv"); got != want {
 		t.Errorf("template target = %q, want %q", got, want)
 	}
 }
@@ -72,7 +72,7 @@ template   = "{name}/{name}.mkv"
 	}{
 		{[]string{disc}, filepath.Join(b, "Sample Movie", "Sample Movie.mkv")},
 		{[]string{"--preset=", disc}, filepath.Join(a, "Sample Movie.mkv")},
-		{[]string{"-o", c, "--template", "{label}", disc}, filepath.Join(c, "SAMPLE_MOVIE.mkv")},
+		{[]string{"-d", c, "--template", "{label}", disc}, filepath.Join(c, "SAMPLE_MOVIE.mkv")},
 	}
 	for _, tt := range tests {
 		if got := ripTarget(t, tt.args...); got != tt.want {
@@ -101,7 +101,7 @@ func TestRipConfigErrors(t *testing.T) {
 			if tc.config != "" {
 				writeUserConfig(t, tc.config)
 			}
-			code, _, errOut := runCLI(append([]string{"rip", "-o", t.TempDir()}, tc.args...)...)
+			code, _, errOut := runCLI(append([]string{"rip", "-d", t.TempDir()}, tc.args...)...)
 			if code != 2 || !strings.Contains(errOut, tc.want) {
 				t.Errorf("exit %d, stderr %q; want 2 mentioning %q", code, errOut, tc.want)
 			}
@@ -113,7 +113,7 @@ func TestRipMkvmergePathFromConfig(t *testing.T) {
 	disc := writeDisc(t, testdisc.SampleMovie())
 	missing := filepath.Join(t.TempDir(), "my-mkvmerge")
 	writeUserConfig(t, "mkvmerge_path = "+tomlPath(missing))
-	code, _, errOut := runCLI("rip", "-o", t.TempDir(), disc)
+	code, _, errOut := runCLI("rip", "-d", t.TempDir(), disc)
 	if code != 4 || !strings.Contains(errOut, "my-mkvmerge") {
 		t.Errorf("exit %d, stderr %q", code, errOut)
 	}
@@ -130,14 +130,14 @@ func TestInfoMinDurationFromConfig(t *testing.T) {
 
 func TestTemplateErrorText(t *testing.T) {
 	disc := writeDisc(t, testdisc.SampleMovie())
-	code, _, errOut := runCLI("rip", "-o", t.TempDir(), "--template", "{bogus}", disc)
+	code, _, errOut := runCLI("rip", "-d", t.TempDir(), "--template", "{bogus}", disc)
 	if code != 2 || !strings.HasPrefix(errOut, "zenvik: invalid name template: ") ||
 		strings.Contains(errOut, "configuration") || strings.Count(errOut, "zenvik:") != 1 {
 		t.Errorf("flag: exit %d, stderr %q", code, errOut)
 	}
 
 	writeUserConfig(t, `template = "[{name}"`)
-	code, _, errOut = runCLI("rip", "-o", t.TempDir(), disc)
+	code, _, errOut = runCLI("rip", "-d", t.TempDir(), disc)
 	if code != 2 || !strings.HasPrefix(errOut, "zenvik: invalid configuration: ") ||
 		!strings.Contains(errOut, `template "[{name}": invalid name template: `) || strings.Count(errOut, "zenvik:") != 1 {
 		t.Errorf("config: exit %d, stderr %q", code, errOut)

@@ -93,14 +93,14 @@ func TestInfoDVDISO(t *testing.T) {
 
 func TestRipDVDTitleFlag(t *testing.T) {
 	root := writeDVD(t)
-	if code, _, errOut := runCLI("rip", "--title", "3", "-o", t.TempDir(), root); code != 1 || !strings.Contains(errOut, "starts or ends mid-file") {
+	if code, _, errOut := runCLI("rip", "--title", "3", "-d", t.TempDir(), root); code != 1 || !strings.Contains(errOut, "starts or ends mid-file") {
 		t.Errorf("unsupported title: code %d, stderr %q", code, errOut)
 	}
 	if code, _, errOut := runCLI("rip", "--title", "1", "--playlist", "01", root); code != 2 || !strings.Contains(errOut, "not both") {
 		t.Errorf("both flags: code %d, stderr %q", code, errOut)
 	}
 	t.Setenv("PATH", t.TempDir())
-	code, out, _ := runCLI("rip", "-t", "1", "-o", t.TempDir(), root)
+	code, out, _ := runCLI("rip", "-t", "1", "-d", t.TempDir(), root)
 	if code != 4 || !strings.Contains(out, "Ripping 01") {
 		t.Errorf("rip -t 1 without mkvmerge: code %d, out %q", code, out)
 	}

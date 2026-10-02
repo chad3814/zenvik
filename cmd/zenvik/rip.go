@@ -16,7 +16,7 @@ import (
 var yearRE = regexp.MustCompile(`^\d{4}$`)
 
 func newRipCmd() *cobra.Command {
-	var playlist, titleID, outDir, name, year, template, preset string
+	var playlist, titleID, outDir, outFile, name, year, template, preset string
 	var overwrite, dryRun bool
 	cmd := &cobra.Command{
 		Use:   "rip <path>",
@@ -24,7 +24,13 @@ func newRipCmd() *cobra.Command {
 		Long: `Remux one title of a Blu-ray or DVD disc image or folder to an MKV file
 with mkvmerge, keeping every video, audio and subtitle track, chapters and
 languages. Without --title (or --playlist), the main feature is chosen
-automatically.`,
+automatically.
+
+The file is named from the template (--template, else the config's) inside
+the output directory (--output-dir, else the config's output_dir, else the
+current directory). --output-file instead gives the path itself, used as is:
+an absolute path stands alone, and a relative one is inside the output
+directory.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageError{fmt.Errorf("rip needs exactly one path, got %d", len(args))}
@@ -42,6 +48,14 @@ automatically.`,
 			id := titleID
 			if id == "" {
 				id = playlist
+			}
+			useOutFile := cmd.Flags().Changed("output-file")
+			if useOutFile {
+				for _, f := range []string{"template", "name", "year"} {
+					if cmd.Flags().Changed(f) {
+						return usageError{fmt.Errorf("--output-file names the file itself; it can't be combined with --%s", f)}
+					}
+				}
 			}
 			var flags config.Flags
 			if cmd.Flags().Changed("output-dir") {
@@ -70,11 +84,18 @@ automatically.`,
 			if auto && t.Rank.Ambiguous {
 				fmt.Fprintf(stderr, "warning: the main title is a close call (%s) — pass --title to choose\n", closeSecond(t))
 			}
-			rel, err := zenvik.FormatName(s.Template, d, t, zenvik.NameVars{Name: name, Year: year})
-			if err != nil {
-				return err
+			var out string
+			if useOutFile {
+				if out, err = outputFilePath(outFile, s.OutputDir); err != nil {
+					return err
+				}
+			} else {
+				rel, err := zenvik.FormatName(s.Template, d, t, zenvik.NameVars{Name: name, Year: year})
+				if err != nil {
+					return err
+				}
+				out = filepath.Join(s.OutputDir, rel)
 			}
-			out := filepath.Join(s.OutputDir, rel)
 			fmt.Fprintf(stdout, "Ripping %s (%s) → %s\n", t.ID, formatDuration(t.Duration), out)
 			if auto && len(t.Rank.Reasons) > 0 {
 				fmt.Fprintf(stdout, "  chosen because: %s\n", strings.Join(t.Rank.Reasons, "; "))
@@ -98,7 +119,8 @@ automatically.`,
 	}
 	cmd.Flags().StringVarP(&titleID, "title", "t", "", "rip this title instead of the main feature: a DVD title number (e.g. 3) or a Blu-ray playlist (e.g. 00800)")
 	cmd.Flags().StringVarP(&playlist, "playlist", "p", "", "same as --title, for Blu-ray playlists (e.g. 00800)")
-	cmd.Flags().StringVarP(&outDir, "output-dir", "o", "", "directory for the MKV file (default: config output_dir, else the current directory)")
+	cmd.Flags().StringVarP(&outDir, "output-dir", "d", "", "directory for the MKV file (default: config output_dir, else the current directory)")
+	cmd.Flags().StringVarP(&outFile, "output-file", "o", "", "write the MKV to this path, as is (no template); a relative path is inside the output directory")
 	cmd.Flags().StringVar(&name, "name", "", "title for {name} (default: the disc's title or tidied volume label)")
 	cmd.Flags().StringVar(&year, "year", "", "year for {year}, e.g. 1999")
 	cmd.Flags().StringVar(&template, "template", "", `output name template, e.g. "{name}[ ({year})].mkv" (default: config template)`)
