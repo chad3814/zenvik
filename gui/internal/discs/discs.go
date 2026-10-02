@@ -25,7 +25,13 @@ type List struct {
 	ctx     context.Context
 	open    Opener
 	changed func([]Summary)
+	// closeDisc closes a disc; tests replace it to observe closes.
+	closeDisc func(*zenvik.Disc)
 
+	// emitMu serializes snapshot-and-emit so events reach changed in the
+	// order their snapshots were taken. It is always taken before mu, and
+	// changed must not call back into the List.
+	emitMu sync.Mutex
 	mu     sync.Mutex
 	cfg    Config
 	order  []string
@@ -40,13 +46,15 @@ type item struct {
 
 // New returns an empty list. changed is called without the list's lock held.
 func New(ctx context.Context, open Opener, cfg Config, changed func([]Summary)) *List {
-	return &List{ctx: ctx, open: open, changed: changed, cfg: cfg, byPath: map[string]*item{}}
+	return &List{ctx: ctx, open: open, changed: changed, closeDisc: func(d *zenvik.Disc) { d.Close() }, cfg: cfg, byPath: map[string]*item{}}
 }
 
 // Add starts opening each path that isn't listed yet and returns every
 // path's absolute form, in order, so the caller can select the last one.
 func (l *List) Add(paths []string) []string {
 	var abs []string
+	l.emitMu.Lock()
+	defer l.emitMu.Unlock()
 	l.mu.Lock()
 	for _, p := range paths {
 		a, err := filepath.Abs(p)
@@ -57,12 +65,13 @@ func (l *List) Add(paths []string) []string {
 		if _, ok := l.byPath[a]; ok {
 			continue
 		}
-		l.byPath[a] = &item{summary: Summary{
+		it := &item{summary: Summary{
 			Path: a, State: "opening", Name: filepath.Base(a),
 			OutputDir: l.cfg.OutputDir, Titles: []TitleSummary{},
 		}}
+		l.byPath[a] = it
 		l.order = append(l.order, a)
-		go l.load(a)
+		go l.load(a, it)
 	}
 	s := l.snapshotLocked()
 	l.mu.Unlock()
@@ -70,14 +79,15 @@ func (l *List) Add(paths []string) []string {
 	return abs
 }
 
-func (l *List) load(path string) {
+func (l *List) load(path string, it *item) {
 	d, err := l.open(l.ctx, path)
+	l.emitMu.Lock()
+	defer l.emitMu.Unlock()
 	l.mu.Lock()
-	it, ok := l.byPath[path]
-	if !ok { // removed while opening
+	if l.byPath[path] != it { // removed (and maybe re-added) while opening
 		l.mu.Unlock()
 		if d != nil {
-			d.Close()
+			l.closeDisc(d)
 		}
 		return
 	}
@@ -110,6 +120,8 @@ func (it *item) fill(cfg Config) {
 
 // Remove closes and drops the disc at path; queue entries are unaffected.
 func (l *List) Remove(path string) {
+	l.emitMu.Lock()
+	defer l.emitMu.Unlock()
 	l.mu.Lock()
 	it, ok := l.byPath[path]
 	if !ok {
@@ -126,13 +138,15 @@ func (l *List) Remove(path string) {
 	s := l.snapshotLocked()
 	l.mu.Unlock()
 	if it.disc != nil {
-		it.disc.Close()
+		l.closeDisc(it.disc)
 	}
 	l.changed(s)
 }
 
 // SetOutputDir sets the folder for path's MKVs; Configure leaves it alone.
 func (l *List) SetOutputDir(path, dir string) {
+	l.emitMu.Lock()
+	defer l.emitMu.Unlock()
 	l.mu.Lock()
 	it, ok := l.byPath[path]
 	if !ok {
@@ -148,6 +162,8 @@ func (l *List) SetOutputDir(path, dir string) {
 // Configure applies a new template and default output folder (after the
 // config file changed), re-rendering every open disc's default names.
 func (l *List) Configure(cfg Config) {
+	l.emitMu.Lock()
+	defer l.emitMu.Unlock()
 	l.mu.Lock()
 	l.cfg = cfg
 	for _, it := range l.byPath {
@@ -189,7 +205,7 @@ func (l *List) Close() {
 	l.mu.Unlock()
 	for _, it := range items {
 		if it.disc != nil {
-			it.disc.Close()
+			l.closeDisc(it.disc)
 		}
 	}
 }
