@@ -17,7 +17,7 @@ M5 lets zenvik remux **unencrypted DVD-Video** discs to MKV with the same UX as 
 
 ### Non-goals (M5)
 
-- **Titles that start or end in the middle of a VOB file.** This includes most TV episodes that share a title set. They are not ripped: `rip` refuses them, the default `info` listing hides them as filtered, and `info --all` shows each with its reason. That is planned for a later milestone.
+- **Titles that start or end in the middle of a VOB file.** This includes most TV episodes that share a title set. They are not ripped: `rip` refuses them, the default `info` listing hides them as filtered, and `info --all` shows each with its reason. These titles are ripped since M6; see the [M6 spec](2026-10-02-zenvik-m6-dvd-cells-design.md).
 - **Pipes or temp copies of video data.** mkvmerge v102 cannot read MPEG-PS from a FIFO (it aborts with `mm_io::seek_x`) or from stdin. M5 therefore only passes real VOB files to mkvmerge.
 - Angles other than angle 1, menus, closed captions (line 21), and CSS decryption.
 

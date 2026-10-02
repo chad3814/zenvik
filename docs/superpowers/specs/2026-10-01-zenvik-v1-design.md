@@ -12,7 +12,7 @@ Audience: the author's personal collection first, structured so it can be publis
 
 ### Goals (v1)
 
-- Inputs: Blu-ray **ISO image** or **BDMV directory**. UHD Blu-ray works as plain Blu-ray. Since M5, also DVD ISO images and VIDEO_TS folders (see the M5 spec).
+- Inputs: Blu-ray **ISO image** or **BDMV directory**. UHD Blu-ray works as plain Blu-ray. Since M5, also DVD ISO images and VIDEO_TS folders (see the M5 spec). M6 lifts the DVD whole-file limit (see the M6 spec).
 - Output: lossless **remux** of a selected title to MKV with all video, audio, and subtitle tracks, chapters, correct languages, track names, and default flags.
 - Automatic **main-feature detection** with explainable, overridable results.
 - **Config file + presets** and **output naming templates**.

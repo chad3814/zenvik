@@ -8,6 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
+
+	"github.com/chad3814/zenvik/dvd"
 )
 
 // EpisodeColors are the solid colours of AuthorEpisodesDVD's titles 2–4.
@@ -130,4 +133,61 @@ func Dominant(rgb [3]byte) string {
 		return "blue"
 	}
 	return ""
+}
+
+// AddMixedEpisodeTitles adds two titles to an AuthorEpisodesDVD folder by
+// rewriting its IFOs: title 5 plays episode 1 then the 0.5 s black cell (a
+// short trailing stray), and title 6 plays episode 3 then episode 1 (out of
+// sector order). The IFOs are re-encoded with VMGFile/VTSFile, which keep
+// the title table, attributes, PGCs, chapters and VOBU map that zenvik uses.
+func AddMixedEpisodeTitles(dir string) error {
+	vd := filepath.Join(dir, "VIDEO_TS")
+	vb, err := os.ReadFile(filepath.Join(vd, "VIDEO_TS.IFO"))
+	if err != nil {
+		return err
+	}
+	vmg, err := dvd.ParseVMG(vb)
+	if err != nil {
+		return err
+	}
+	tb, err := os.ReadFile(filepath.Join(vd, "VTS_01_0.IFO"))
+	if err != nil {
+		return err
+	}
+	vts, err := dvd.ParseVTS(tb)
+	if err != nil {
+		return err
+	}
+	if len(vts.Titles) < 4 {
+		return fmt.Errorf("testdisc: %s is not an AuthorEpisodesDVD folder", dir)
+	}
+	pgcOf := func(title int) *dvd.PGC { return vts.PGCs[vts.Titles[title-1][0].PGC-1] }
+	join := func(parts ...*dvd.PGC) *dvd.PGC {
+		p := *parts[0]
+		p.Cells, p.Programs = nil, nil
+		var total time.Duration
+		for _, q := range parts {
+			for _, c := range q.Cells {
+				p.Cells = append(p.Cells, c)
+				p.Programs = append(p.Programs, len(p.Cells))
+				total += c.Time.Duration()
+			}
+		}
+		p.Time = dvd.NewTime(total, dvd.Rate30)
+		return &p
+	}
+	for _, parts := range [][]*dvd.PGC{{pgcOf(2), pgcOf(1)}, {pgcOf(4), pgcOf(2)}} {
+		p := join(parts...)
+		vts.PGCs = append(vts.PGCs, p)
+		var ptt []dvd.PartOfTitle
+		for k := range p.Programs {
+			ptt = append(ptt, dvd.PartOfTitle{PGC: len(vts.PGCs), Program: k + 1})
+		}
+		vts.Titles = append(vts.Titles, ptt)
+		vmg.Titles = append(vmg.Titles, dvd.TitleEntry{Angles: 1, Chapters: len(ptt), TitleSet: 1, TitleSetTitle: len(vts.Titles)})
+	}
+	if err := os.WriteFile(filepath.Join(vd, "VIDEO_TS.IFO"), VMGFile(vmg), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(vd, "VTS_01_0.IFO"), VTSFile(vts), 0o644)
 }

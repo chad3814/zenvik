@@ -59,8 +59,8 @@ absolute. Every event has an `"event"` field:
 
 | event | when | fields |
 |---|---|---|
-| `start` | the title and output path are resolved | `version` (schema version, 1), `source`, `kind`, `format`, `title`, `duration_seconds`, `size_bytes`, `output`, `auto` (main feature picked automatically), `ambiguous`, `reasons` |
-| `progress` | a phase starts, at each whole percent, and at its end | `phase` (`mounting`, `extracting subtitles`, `scanning`, `muxing`, `finalizing`), `fraction` (0–1), `bytes_done`, `bytes_total` |
+| `start` | the title and output path are resolved | `version` (schema version, 1), `source`, `kind`, `format`, `title`, `duration_seconds`, `size_bytes`, `output`, `rip_method` (DVD: `files`, `cut` or `copy`), `temp_bytes` (DVD copy path: the temporary file's size), `auto` (main feature picked automatically), `ambiguous`, `reasons` |
+| `progress` | a phase starts, at each whole percent, and at its end | `phase` (`mounting`, `copying` (DVD copy path), `extracting subtitles`, `scanning`, `muxing`, `finalizing`), `fraction` (0–1), `bytes_done`, `bytes_total` |
 | `warning` | anything `rip` would print as a warning | `message` |
 | `done` | the MKV is written | `output`, `duration_seconds` |
 | `dry_run` | instead of `done` with `--dry-run` | `output`, `command` (the mkvmerge program and arguments, as an array) |
@@ -82,8 +82,11 @@ passing both is a usage error.
 `info --json` prints `format` (`"bluray"` or `"dvd"`) and `kind` (`"iso"`, `"bdmv"` or
 `"video_ts"`) for the disc. For each title, `unsupported` (why zenvik can't rip it) appears
 when set. Video tracks add `aspect_ratio` (`"4:3"` or `"16:9"`), and audio and subtitle tracks
-add `description` (for example `Director's Commentary` or `Forced`), when present. Only
-`unsupported`, `aspect_ratio` and `description` are DVD only.
+add `description` (for example `Director's Commentary` or `Forced`), when present. DVD titles
+also have `rip_method` (`"files"`, `"cut"` or `"copy"`, as above) and, when cells were
+skipped, `skipped_cells`: `[{cell, duration_seconds, first_sector, last_sector}]`, with `cell`
+numbered from 1 in the title's program chain. Only `unsupported`, `aspect_ratio`,
+`description`, `rip_method` and `skipped_cells` are DVD only.
 
 Exit codes: 0 success, 1 failure, 2 usage error, 3 unsupported or encrypted source,
 4 missing or too-old dependency.
@@ -99,12 +102,21 @@ data rate is a sliver of the disc's highest. Rip a specific title with `--title`
 zenvik rip --title 3 "/path/to/MY_DVD"
 ```
 
-zenvik passes the title's VOB files to mkvmerge, so it can rip a title only when the title
-is made of **whole VOB files** (and only one program chain). That covers most movie main
-features and "play all" titles. Titles that start or end in the middle of a VOB file, which
-includes most individual TV episodes, can't be ripped yet: they are filtered out of the
-default `info` listing, `info --all` shows them with the reason (for example `starts or ends
-mid-file (not supported yet)`), and `rip` refuses them with exit code 1. A title is also
+zenvik rips any DVD title made of one program chain, angle 1, whatever
+its cell layout:
+
+- titles made of whole VOB files go to mkvmerge as they are;
+- titles that start or end inside a VOB file (most TV episodes) are cut
+  out of their VOB files with mkvmerge `--split`, with no temporary copy;
+- titles whose cells play out of disc order are copied, in play order, to
+  a temporary `.<name>.title.vob` beside the output first. zenvik checks
+  that the output's drive has room for the title plus 64 MiB.
+
+A cell of 1 second or less at a title's start or end that is out of disc
+order (often a black filler) is skipped, with a warning.
+
+Titles that span several program chains are filtered out of the default `info` listing;
+`info --all` shows them with the reason, and `rip` refuses them with exit code 1. A title is also
 unsupported if a VOB's size isn't a multiple of 2048 bytes. CSS-encrypted titles are
 detected and refused, never decrypted. `rip` of an encrypted title exits 3, and `info` or
 `rip` exits 3 when the only titles zenvik could otherwise use are encrypted.

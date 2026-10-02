@@ -1,7 +1,7 @@
 # zenvik M6 — DVD titles that aren't whole VOB files
 
 - **Date:** 2026-10-02
-- **Status:** Draft for review
+- **Status:** Implemented
 - **Extends:** [zenvik v1 design](2026-10-01-zenvik-v1-design.md) and [M5 DVD design](2026-10-01-zenvik-m5-dvd-design.md). Everything there still applies unless this document says otherwise.
 
 ## 1. Purpose and scope
@@ -54,7 +54,7 @@ Ranking is unchanged. It now sees long titles such as this disc's title 01, so t
 
 Let the run cover sectors `R0`…`R1`, which lie in title VOBs `VTS_nn_a` … `VTS_nn_b`.
 
-1. **mkvmerge input.** mkvmerge reads `( VTS_nn_a.VOB … VTS_nn_b.VOB )`, the files the run touches, as one group (M5 ruling: never `+`). Its timeline starts at 0 at the group's first byte.
+1. **mkvmerge input.** mkvmerge reads `( VTS_nn_a.VOB … VTS_nn_b.VOB )` as one group (M5 ruling: never `+`), from the latest title VOB at or before the run's first file whose first sector starts a VOBU (VTS_nn_1 always does), through the run's last file. Real discs split VOB files at about 1 GB, which can fall inside a VOBU. Its timeline starts at 0 at the group's first byte.
 2. **Cut points from the VOBU map.**
    - The `dvd` package parses `VTS_VOBU_ADMAP`, the start sector of every VOBU in the title VOBs.
    - zenvik reads the NAV pack at each VOBU start from the group's first sector up to `R1`. From each PCI it takes `vobu_s_ptm` and `vobu_e_ptm`.
@@ -65,7 +65,7 @@ Let the run cover sectors `R0`…`R1`, which lie in title VOBs `VTS_nn_a` … `V
 4. **Chapters and subtitles** are written on the group timeline (title time + start). The chapter file is OGM text; the subtitles are a VobSub `.idx`. mkvmerge cuts every input and the chapters at the same points.
    - The VobSub extractor reads only the run's sectors.
    - Its cell map holds only the title's kept cells, so packs from other titles get no index entries.
-5. **Output name.** If mkvmerge appends a number to the split output, zenvik renames that file to `<output>.partial` before the normal final rename.
+5. **Output name.** mkvmerge writes a single `parts:` range under the given name (verified with v102), so no rename is needed.
 
 ## 4. The copy path
 
@@ -136,3 +136,33 @@ Rip *Swiss Family Robinson (1960)* title 01. It must use `rip_method` `cut` and 
 7. Integration tests, docs and spec sync.
 
 Task 2 can run in parallel with Task 1, and Tasks 4 and 5 can run in parallel.
+
+## 8. Implementation notes
+
+These record where the implementation differs from §2–§6 and what was observed while building it. The verification notes are in [docs/superpowers/notes/2026-10-02-m6-mkvmerge-cut.md](../notes/2026-10-02-m6-mkvmerge-cut.md).
+
+- **Cut points (replaces §3 step 2's start and end).** Let start₀ be the summed VOBU durations (`vobu_e_ptm − vobu_s_ptm`) before `R0`, and end₀ be start₀ plus the run's summed VOBU durations. mkvmerge gets start = start₀ − m_s and end = end₀ − m_e.
+  - m_s is half the shorter of the VOBU before the run and the run's first VOBU. It is 0 when start₀ is 0.
+  - m_e is half the run's last VOBU.
+- **Why the margins exist.** Summed VOBU durations run about 4.7 ms ahead of mkvmerge's timeline per VOB ID, because each VOB's last VOBU is padded past its last video frame. mkvmerge cuts at the first keyframe at or after the time it is given, so a cut time even 1 ms past a boundary keyframe gains or loses a whole GOP. Moving each point back by half a VOBU puts it safely before the boundary keyframe.
+- **Drift guard.** zenvik counts the VOB ID changes among the NAV packs from the group start up to `R1`. If changes × 10 ms reaches any non-zero margin, the cut can't be trusted and the rip fails with `zenvik: title <id>: cannot compute cut points: …`.
+- **Chapters and VobSub on cut titles** are shifted by start₀, the run's true start, not by the requested cut time. mkvmerge moves them back by the keyframe it actually cuts at.
+- **The cut group** starts at the latest VOBU-aligned title VOB at or before the run's first file (§3 step 1), so mkvmerge's timeline starts on a VOBU.
+- **Cells outside the VOBs.** A title with a kept cell whose sectors lie outside its title set's VOBs is unsupported, with the reason `cells point outside the title VOBs`. Dropped strays are not checked.
+- **Classification order (differs from §2).** Short edge strays are dropped first, and then the whole-file check runs. So kept cells that cover whole VOB files after a drop use the `files` method.
+- **Audio lag at VOB ID changes.** In a `( … )` group, mkvmerge appends each VOB ID's audio straight after the previous one's audio. On the authored discs each segment's AC-3 is 10 ms longer than its video, so the audio lags the video by about 10 ms per earlier VOB ID. This is an observation about mkvmerge's group mux (it shows in the whole-file path too), not a cut-path defect. The integration tests therefore check durations on the video track (mkvextract `timestamps_v2` of track 0, dropping its trailing end-time line), not the container duration.
+- **Single-part naming.** A single `parts:` range writes the given file name, so §3 step 5's rename is not needed.
+- **Integration tests (§6.3).** `testdisc.AddMixedEpisodeTitles` adds two titles to the episodes fixture: title 05 (red episode, then the 0.5 s black cell as a trailing stray) and title 06 (blue episode, then red, out of sector order). Observed with mkvmerge v102:
+  - title 03 (cut, green): video 6.005 s (IFO 6 s), green to green, chapters at 5 ms and 3.005 s, first subtitle at 1.005 s; container 6.032 s.
+  - title 05 (cut, red, cell 3 skipped): video 6.005 s, red to red, warning `title 05: skipped cell 3 (0.5 s at sectors 0–12, out of order)`; container 6.022 s.
+  - title 06 (copy): video 12.012 s (IFO 12 s), blue to red; container 12.032 s.
+  - title 04 from a darwin ISO (cut): blue to blue, no mount left.
+- **Acceptance run (§6.4), 2026-10-02, mkvmerge v102.** *Swiss Family Robinson (1960)* title 01:
+  - `info` marks 01 with ★, `cut`, with the note `skipped 1 short cell(s)`, 18 chapters, 2:06:13.
+  - The `start` event has `"rip_method":"cut"`, `"title":"01"`, `duration_seconds` 7573.133. The warning is `title 01: skipped cell 22 (1.0 s at sectors 0–438, out of order)`, and the run ends with `done`. No mounts are left.
+  - Tracks: video, audio eng (AC-3 5.1), spa (AC-3 5.1), eng (AC-3 Stereo, Director's Commentary), and English VobSub.
+  - The cut was `parts:00:00:00.800800000-02:06:21.373800000`. The video track is 7580.606 s and the container 7580.702 s.
+  - **IFO times run short on this disc.** The IFO cell times sum to 7573.13 s for cells 1–21, but their NAV packs sum to 7580.71 s, and mkvmerge's keyframes fall at the NAV-summed cell starts. Most cells' IFO times are about 0.1% short, which is consistent with a 30 fps timecode counted over 29.97 fps video; cell 10's is exact. The title's real length is therefore about 7.5 s longer than its listed duration, and §6.4's "2:06:13 ±1 frame" can't hold for the video.
+  - **Chapters: 18, not 19.** Chapter 19 starts at cell 22, the dropped stray, and no kept cell follows it, so §2 removes it.
+  - **Chapter times come from the IFO.** Chapters are placed by IFO cell times, so on this disc they drift early as the title goes on: chapter 18 is at 2:02:03.576, about 7.3 s before cell 21 starts in the video.
+  - **Margins and multi-GOP VOBUs.** This disc has VOBUs that hold more than one GOP. Cell 22 (one 1.001 s VOBU) has keyframes at 0, 0.3, 0.6 and 0.9 s, so the start time of 0.8008 s snapped to 0.901 s and the output begins with about 0.1 s of the skipped black cell (chapter 1 is at 0.100 s). The run's last VOBU (0.667 s) has a keyframe 0.2 s before its end, so the end time snapped there and the last 0.2 s of cell 21 is missing. The video is 0.1 s shorter than the run's NAV-summed 7580.71 s. At the two VOB ID changes inside the run (before cells 9 and 17), the keyframes sit at the NAV-summed cell starts plus the same two-frame lead-in seen at cell 1, so no drift was measurable.
