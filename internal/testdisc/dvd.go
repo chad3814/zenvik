@@ -259,9 +259,9 @@ func SampleDVD() *DVD {
 	}}
 
 	angle1 := cell(5, 9, 3*time.Minute, 1, 2)
-	angle1.BlockMode, angle1.AngleBlock = dvd.FirstInBlock, true
+	angle1.BlockMode, angle1.AngleBlock, angle1.Interleaved = dvd.FirstInBlock, true, true
 	angle2 := cell(10, 14, 3*time.Minute, 2, 1)
-	angle2.BlockMode, angle2.AngleBlock = dvd.LastInBlock, true
+	angle2.BlockMode, angle2.AngleBlock, angle2.Interleaved = dvd.LastInBlock, true, true
 	vts4 := DVDTitleSet{VOBs: []int{20}, VTS: dvd.VTS{
 		Video:  video,
 		Audio:  []dvd.AudioAttributes{stereo("en")},

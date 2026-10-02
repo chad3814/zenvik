@@ -218,6 +218,9 @@ func encodePGC(p *dvd.PGC) []byte {
 		if c.AngleBlock {
 			b[o] |= 1 << 4
 		}
+		if c.Interleaved {
+			b[o] |= 0x04
+		}
 		putTime(b[o+4:], c.Time)
 		put32(b, o+8, c.FirstSector)
 		put32(b, o+20, c.LastSector)

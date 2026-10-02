@@ -35,7 +35,7 @@ func ntsc(d time.Duration) time.Duration { return dvd.NewTime(d, dvd.Rate30).Dur
 func checkSampleDVD(t *testing.T, d *zenvik.Disc, vob1, vob2 string) {
 	t.Helper()
 	ch25 := ntsc(25 * time.Minute)
-	if got, want := ids(d.Titles), []string{"01", "06", "03", "04", "05", "08", "02", "07"}; !reflect.DeepEqual(got, want) {
+	if got, want := ids(d.Titles), []string{"01", "06", "03", "04", "05", "02", "07", "08"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("titles = %v, want %v", got, want)
 	}
 	m := d.Main()
@@ -74,7 +74,7 @@ func checkSampleDVD(t *testing.T, d *zenvik.Disc, vob1, vob2 string) {
 	if dup := mustTitle(t, d, "02"); dup.Rank.DuplicateOf != "01" {
 		t.Errorf("02 rank = %+v", dup.Rank)
 	}
-	for id, method := range map[string]string{"01": "files", "06": "files", "03": "cut", "04": "cut", "05": "cut", "08": "copy"} {
+	for id, method := range map[string]string{"01": "files", "06": "files", "03": "cut", "04": "cut", "05": "cut"} {
 		ti := mustTitle(t, d, id)
 		if ti.RipMethod != method || ti.Unsupported != "" || ti.Rank.Filtered {
 			t.Errorf("%s: method %q, unsupported %q, rank %+v; want %q", id, ti.RipMethod, ti.Unsupported, ti.Rank, method)
@@ -83,8 +83,8 @@ func checkSampleDVD(t *testing.T, d *zenvik.Disc, vob1, vob2 string) {
 	if ep := mustTitle(t, d, "04"); ep.Size != 20*2048 || len(ep.Clips) != 2 {
 		t.Errorf("04 spans both VOBs: size %d, clips %v", ep.Size, ep.Clips)
 	}
-	if ang := mustTitle(t, d, "08"); ang.Size != 15*2048 {
-		t.Errorf("08 copies its 15 angle-1 sectors: size %d", ang.Size)
+	if ang := mustTitle(t, d, "08"); ang.Unsupported != "interleaved angle block (not supported yet)" || ang.RipMethod != "" || !ang.Rank.Filtered {
+		t.Errorf("08: unsupported %q, method %q, rank %+v", ang.Unsupported, ang.RipMethod, ang.Rank)
 	}
 	all := mustTitle(t, d, "06")
 	if all.Unsupported != "" || all.Duration != ntsc(3*ntsc(20*time.Minute)) || len(all.Clips) != 2 || len(all.Chapters) != 3 || all.Chapters[2].Start != 2*ntsc(20*time.Minute) {
@@ -93,9 +93,8 @@ func checkSampleDVD(t *testing.T, d *zenvik.Disc, vob1, vob2 string) {
 	if ex := mustTitle(t, d, "07"); !ex.Rank.Filtered || !slices.Contains(ex.Rank.Reasons, "shorter than 2m0s") {
 		t.Errorf("07 rank = %+v", ex.Rank)
 	}
-	ang := mustTitle(t, d, "08")
-	if ang.Angles != 2 || len(ang.Chapters) != 3 || ang.Chapters[1].Start != ntsc(2*time.Minute) || ang.Chapters[2].Start != ntsc(2*time.Minute)+ntsc(3*time.Minute) {
-		t.Errorf("08 = angles %d, chapters %v", ang.Angles, ang.Chapters)
+	if ang := mustTitle(t, d, "08"); ang.Angles != 2 {
+		t.Errorf("08 angles = %d", ang.Angles)
 	}
 }
 

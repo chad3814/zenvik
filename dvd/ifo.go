@@ -173,6 +173,7 @@ const (
 type Cell struct {
 	BlockMode   BlockMode
 	AngleBlock  bool // the cell's block is an angle block
+	Interleaved bool // the cell's sectors are interleaved with other cells' (C_PBIT bit 2)
 	Time        Time
 	FirstSector uint32 // relative to the start of the title set's title VOBs
 	LastSector  uint32
@@ -469,7 +470,7 @@ func parsePGC(p []byte) (*PGC, error) {
 			return nil, fmt.Errorf("cell %d: %w", i+1, err)
 		}
 		q := p[posOff+4*i:]
-		cell := Cell{BlockMode: BlockMode(c[0] >> 6), AngleBlock: (c[0]>>4)&3 == 1, Time: t,
+		cell := Cell{BlockMode: BlockMode(c[0] >> 6), AngleBlock: (c[0]>>4)&3 == 1, Interleaved: c[0]&0x04 != 0, Time: t,
 			FirstSector: be32(c, 8), LastSector: be32(c, 20), VOBID: be16(q, 0), CellID: int(q[3])}
 		if cell.LastSector < cell.FirstSector {
 			return nil, fmt.Errorf("cell %d ends at sector %d before it starts at %d", i+1, cell.LastSector, cell.FirstSector)

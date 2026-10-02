@@ -125,9 +125,9 @@ func TestDVDCutDryRun(t *testing.T) {
 func TestDVDCopyDryRun(t *testing.T) {
 	t.Setenv("PATH", "")
 	stub := layoutStub(t)
-	d := openDisc(t, writeDVD(t, testdisc.SampleDVD()))
+	d := openDisc(t, writeDVD(t, testdisc.StrayCellDVD()))
 	out := filepath.Join(t.TempDir(), "angle.mkv")
-	res, err := d.Rip(context.Background(), mustTitle(t, d, "08"), zenvik.RipOptions{OutputPath: out, DryRun: true, MkvmergePath: stub})
+	res, err := d.Rip(context.Background(), mustTitle(t, d, "02"), zenvik.RipOptions{OutputPath: out, DryRun: true, MkvmergePath: stub})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,9 +143,9 @@ func TestDVDCopyDryRun(t *testing.T) {
 func TestDVDCopyRemovesTempOnMuxFailure(t *testing.T) {
 	t.Setenv("PATH", "")
 	stub := layoutStub(t)
-	d := openDisc(t, writeDVD(t, testdisc.SampleDVD()))
+	d := openDisc(t, writeDVD(t, testdisc.StrayCellDVD()))
 	out := filepath.Join(t.TempDir(), "angle.mkv")
-	if _, err := d.Rip(context.Background(), mustTitle(t, d, "08"), zenvik.RipOptions{OutputPath: out, MkvmergePath: stub}); err == nil {
+	if _, err := d.Rip(context.Background(), mustTitle(t, d, "02"), zenvik.RipOptions{OutputPath: out, MkvmergePath: stub}); err == nil {
 		t.Fatal("the stub fails the mux; Rip must fail")
 	}
 	if ents, _ := os.ReadDir(filepath.Dir(out)); len(ents) != 0 {

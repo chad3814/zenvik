@@ -22,6 +22,7 @@ The motivating disc is *Swiss Family Robinson (1960)*. Its 2:06:14 feature (titl
 ### Non-goals
 
 - Angles other than 1.
+- Interleaved angle blocks. A title whose kept cells include an interleaved cell (C_PBIT bit 2) is unsupported with `interleaved angle block (not supported yet)`: the other angles' sectors lie inside angle 1's range, so copying or cutting that range would mix every angle into the output. This keeps M5's refusal for the usual authored multi-angle title.
 - Titles that span several PGCs (`spans several program chains (not supported yet)` stays).
 - Dropping cells longer than 1 second.
 
@@ -112,7 +113,7 @@ If any check fails, update this spec before building on it.
 - The free-space check and its failure.
 - Temp-file cleanup on success, failure, cancellation and dry run.
 - The `rip_method` and `skipped_cells` JSON fields, and the `--jsonl` start event.
-- `SampleDVD`'s episodes (03–05) and the two-angle title (08) become rippable (`cut` or `copy`). A new fixture title has a 1 s out-of-order trailing cell.
+- `SampleDVD`'s episodes (03–05) become rippable (`cut`), while its two-angle title (08), whose angle cells are marked interleaved, stays unsupported (`interleaved angle block (not supported yet)`). `StrayCellDVD` has titles with a 1 s out-of-order cell, one of them copied.
 
 ### 6.3 Integration tests
 

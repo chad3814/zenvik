@@ -129,7 +129,7 @@ func TestCutPointsErrors(t *testing.T) {
 }
 
 func TestCopyTitle(t *testing.T) {
-	_, ti, paths := sampleTitle(t, testdisc.SampleDVD(), "08")
+	_, ti, paths := sampleTitle(t, testdisc.StrayCellDVD(), "02")
 	out := filepath.Join(t.TempDir(), "out", "Angle.mkv.partial")
 	var last float64
 	tmp, err := copyTitle(context.Background(), ti, paths, out, func(p Phase, f float64) {
@@ -146,16 +146,16 @@ func TestCopyTitle(t *testing.T) {
 	got, _ := os.ReadFile(tmp)
 	src, _ := os.ReadFile(paths[0])
 	var want []byte
-	for _, r := range [][2]int{{0, 4}, {5, 9}, {15, 19}} {
+	for _, r := range [][2]int{{26, 49}, {0, 1}, {2, 25}} {
 		want = append(want, src[r[0]*2048:(r[1]+1)*2048]...)
 	}
 	if !bytes.Equal(got, want) {
-		t.Errorf("copied %d bytes, want the 15 angle-1 sectors in play order", len(got))
+		t.Errorf("copied %d bytes, want the 50 sectors in play order", len(got))
 	}
 }
 
 func TestCopyCleanup(t *testing.T) {
-	_, ti, paths := sampleTitle(t, testdisc.SampleDVD(), "08")
+	_, ti, paths := sampleTitle(t, testdisc.StrayCellDVD(), "02")
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -169,7 +169,7 @@ func TestCopyCleanup(t *testing.T) {
 	t.Cleanup(func() { freeSpace = old })
 	freeSpace = func(string) (uint64, bool) { return 1000, true }
 	if _, err := copyTitle(context.Background(), ti, paths, filepath.Join(dir, "x.mkv.partial"), func(Phase, float64) {}); err == nil ||
-		!strings.Contains(err.Error(), "copying title 08 needs") || !strings.Contains(err.Error(), "only 1000 B free") {
+		!strings.Contains(err.Error(), "copying title 02 needs") || !strings.Contains(err.Error(), "only 1000 B free") {
 		t.Errorf("no space: err = %v", err)
 	}
 	if ents, _ := os.ReadDir(dir); len(ents) != 0 {

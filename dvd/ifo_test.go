@@ -26,8 +26,8 @@ func sampleVTS() *dvd.VTS {
 		Programs: []int{1, 3},
 		Cells: []dvd.Cell{
 			{Time: t(10 * time.Minute), FirstSector: 0, LastSector: 99, VOBID: 1, CellID: 1},
-			{BlockMode: dvd.FirstInBlock, AngleBlock: true, Time: t(10 * time.Minute), FirstSector: 100, LastSector: 199, VOBID: 1, CellID: 2},
-			{BlockMode: dvd.LastInBlock, AngleBlock: true, Time: t(10 * time.Minute), FirstSector: 200, LastSector: 299, VOBID: 2, CellID: 1},
+			{BlockMode: dvd.FirstInBlock, AngleBlock: true, Interleaved: true, Time: t(10 * time.Minute), FirstSector: 100, LastSector: 199, VOBID: 1, CellID: 2},
+			{BlockMode: dvd.LastInBlock, AngleBlock: true, Interleaved: true, Time: t(10 * time.Minute), FirstSector: 200, LastSector: 299, VOBID: 2, CellID: 1},
 		},
 	}
 	return &dvd.VTS{

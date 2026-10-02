@@ -23,6 +23,10 @@ const reasonMultiPGC = "spans several program chains (not supported yet)"
 // past the title set's VOBs can't be ripped.
 const reasonOutsideVOBs = "cells point outside the title VOBs"
 
+// reasonInterleaved is why a DVD title with an interleaved angle block can't
+// be ripped: the other angles' sectors lie inside angle 1's range.
+const reasonInterleaved = "interleaved angle block (not supported yet)"
+
 type sectorRange struct{ first, last int64 }
 
 // insideVOBs reports whether cell c's sectors lie within the title VOBs.
@@ -187,8 +191,14 @@ func dvdTitle(num int, e dvd.TitleEntry, ts *titleSet) (*Title, rank.Candidate) 
 	}
 	slices.SortFunc(t.SkippedCells, func(a, b SkippedCell) int { return a.Cell - b.Cell })
 	for k, cl := range cells {
-		if !drop[play[k]] && !insideVOBs(cl, ts.vobs) {
+		if drop[play[k]] {
+			continue
+		}
+		if !insideVOBs(cl, ts.vobs) {
 			return unsupported(reasonOutsideVOBs)
+		}
+		if cl.Interleaved {
+			return unsupported(reasonInterleaved)
 		}
 	}
 	t.RipMethod = method

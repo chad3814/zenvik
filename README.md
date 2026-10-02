@@ -103,7 +103,7 @@ zenvik rip --title 3 "/path/to/MY_DVD"
 ```
 
 zenvik rips any DVD title made of one program chain, angle 1, whatever
-its cell layout:
+its cell layout (except interleaved angle blocks):
 
 - titles made of whole VOB files go to mkvmerge as they are;
 - titles that start or end inside a VOB file (most TV episodes) are cut

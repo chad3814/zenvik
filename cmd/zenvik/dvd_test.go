@@ -72,8 +72,8 @@ func TestInfoDVDJSON(t *testing.T) {
 				t.Errorf("03 = %+v, want rippable by cut", ti)
 			}
 		case "08":
-			if ti.RipMethod != "copy" {
-				t.Errorf("08 rip_method = %q", ti.RipMethod)
+			if ti.RipMethod != "" || ti.Unsupported != "interleaved angle block (not supported yet)" {
+				t.Errorf("08 rip_method = %q, unsupported %q", ti.RipMethod, ti.Unsupported)
 			}
 		}
 	}
