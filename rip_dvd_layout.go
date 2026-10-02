@@ -95,15 +95,21 @@ func byteSpans(ranges []sectorRange, files []vobFile, paths []string) []vobsub.S
 // per VOB ID on authored discs; see docs/superpowers/notes/2026-10-02-m6-mkvmerge-cut.md).
 const driftPerVOBID = 10 * time.Millisecond
 
-// cutDriftGuard fails when changes VOB ID changes could drift the cut by at
-// least the smallest non-zero margin, so mkvmerge might snap to the wrong
-// keyframe.
-func cutDriftGuard(changes int, margins ...time.Duration) error {
-	drift := time.Duration(changes) * driftPerVOBID
-	for _, m := range margins {
-		if m > 0 && drift >= m {
-			return fmt.Errorf("%d VOB ID changes before the cut could shift it by %v, more than the %v margin", changes, drift, m)
-		}
+// ntscFrame is one NTSC frame, the base of each cut margin.
+const ntscFrame = 1001 * time.Second / 30000
+
+// cutBudget is the margin a cut point needs with changes VOB ID changes
+// before it: the drift bound plus one frame.
+func cutBudget(changes int) time.Duration {
+	return time.Duration(changes)*driftPerVOBID + ntscFrame
+}
+
+// cutDriftGuard fails when the budget for changes VOB ID changes exceeds
+// half, half a VOBU: a margin that large could carry the cut point past a
+// VOBU boundary, so mkvmerge might snap to the wrong keyframe.
+func cutDriftGuard(changes int, half time.Duration) error {
+	if b := cutBudget(changes); b > half {
+		return fmt.Errorf("%d VOB ID changes before the cut need a %v margin, more than the %v half-VOBU bound", changes, b, half)
 	}
 	return nil
 }
@@ -111,10 +117,16 @@ func cutDriftGuard(changes int, margins ...time.Duration) error {
 // cutPoints returns the --split times for a cut title on the timeline of
 // its cut group. mkvmerge cuts at the first keyframe at or after each time,
 // and summed VOBU durations (from the NAV packs) run slightly ahead of its
-// timeline at VOB ID changes, so each point is moved back by half a VOBU:
-// start = (VOBUs before the run) − half the shorter of the VOBU before the
-// run and the run's first VOBU (no margin at 0); end = start₀ + (the run's
-// VOBUs) − half the run's last VOBU.
+// timeline at VOB ID changes, so each point is moved back by the drift
+// bound for the VOB ID changes before it plus one frame. A VOBU may hold
+// several GOPs, so a larger margin could snap to a keyframe inside the
+// VOBU before the cut point.
+//
+//   - start = start₀ − m_s, where start₀ is the VOBUs before the run and
+//     m_s = min(changes through R0's VOBU × 10 ms + frame, half the shorter
+//     of the VOBU before the run and the run's first VOBU); no margin at 0.
+//   - end = start₀ + (the run's VOBUs) − m_e, where m_e = min(changes
+//     through R1 × 10 ms + frame, half the run's last VOBU).
 func cutPoints(info *dvdInfo, paths []string) (start, end time.Duration, err error) {
 	_, start, end, err = planCut(info, paths)
 	return start, end, err
@@ -140,7 +152,7 @@ func planCut(info *dvdInfo, paths []string) (start0, start, end time.Duration, e
 	buf := make([]byte, 2048)
 	var before, during, lastBefore, firstRun, lastRun uint64
 	sawStart := false
-	changes, prevVOB := 0, -1
+	changes, changesAtR0, prevVOB := 0, 0, -1
 	for _, s := range info.vobus {
 		sec := int64(s)
 		if sec < g0 || sec > r1 {
@@ -182,6 +194,7 @@ func planCut(info *dvdInfo, paths []string) (start0, start, end time.Duration, e
 			if sec == r0 {
 				sawStart = true
 				firstRun = d
+				changesAtR0 = changes
 			}
 			during += d
 			lastRun = d
@@ -193,12 +206,17 @@ func planCut(info *dvdInfo, paths []string) (start0, start, end time.Duration, e
 	ticks := func(n uint64) time.Duration { return time.Duration(n) * time.Second / 90000 }
 	var ms time.Duration
 	if before > 0 {
-		ms = ticks(min(lastBefore, firstRun)) / 2
+		half := ticks(min(lastBefore, firstRun)) / 2
+		if err := cutDriftGuard(changesAtR0, half); err != nil {
+			return 0, 0, 0, err
+		}
+		ms = min(cutBudget(changesAtR0), half)
 	}
-	me := ticks(lastRun) / 2
-	if err := cutDriftGuard(changes, ms, me); err != nil {
+	half := ticks(lastRun) / 2
+	if err := cutDriftGuard(changes, half); err != nil {
 		return 0, 0, 0, err
 	}
+	me := min(cutBudget(changes), half)
 	return ticks(before), ticks(before) - ms, ticks(before+during) - me, nil
 }
 

@@ -65,7 +65,9 @@ func groupTime(navs []navAt, s uint32) time.Duration {
 type cutPlan struct {
 	start0, end0 time.Duration // summed VOBU durations before r0, and through r1
 	ms, me       time.Duration // start and end margins; ms is 0 when start0 is 0
+	halfS, halfE time.Duration // the half-VOBU bounds: half the shorter VOBU around r0, half the run's last VOBU
 	start, end   time.Duration // start0-ms and end0-me: the times passed to mkvmerge
+	startChanges int           // VOB ID changes among the NAV packs from the group start through r0's VOBU
 	changes      int           // VOB ID changes among the NAV packs from the group start up to r1
 }
 
@@ -73,44 +75,49 @@ func vobuDur(n navAt) time.Duration {
 	return time.Duration(n.eptm-n.sptm) * time.Second / 90000
 }
 
-// planCut applies the M6 ruling: mkvmerge cuts at the first keyframe at or
-// after each time, so each end is moved back by half a VOBU to land before
-// the run's own boundary keyframe despite the drift of summed VOBU time.
+// cutBudget is the drift bound for changes VOB ID changes (10 ms each) plus one frame.
+func cutBudget(changes int) time.Duration {
+	return time.Duration(changes)*10*time.Millisecond + ntscFrame
+}
+
+// planCut applies the M6 ruling (fix wave A): mkvmerge cuts at the first
+// keyframe at or after each time, so each end is moved back by the drift
+// bound for the VOB ID changes before it plus one frame, capped at half a
+// VOBU. A VOBU may hold several GOPs, so the margin stays small enough not
+// to reach an earlier keyframe inside the VOBU.
 func planCut(navs []navAt, r0, r1 uint32) cutPlan {
 	var before, first, last *navAt
 	p := cutPlan{start0: groupTime(navs, r0), end0: groupTime(navs, r1+1)}
 	for i := range navs {
 		n := &navs[i]
+		if n.sector <= r1 && i > 0 && n.vob != navs[i-1].vob {
+			p.changes++
+		}
 		switch {
 		case n.sector < r0:
 			before = n
 		case n.sector <= r1:
 			if first == nil {
 				first = n
+				p.startChanges = p.changes
 			}
 			last = n
 		}
-		if n.sector <= r1 && i > 0 && n.vob != navs[i-1].vob {
-			p.changes++
-		}
 	}
 	if before != nil && p.start0 > 0 {
-		p.ms = min(vobuDur(*before), vobuDur(*first)) / 2
+		p.halfS = min(vobuDur(*before), vobuDur(*first)) / 2
+		p.ms = min(cutBudget(p.startChanges), p.halfS)
 	}
-	p.me = vobuDur(*last) / 2
+	p.halfE = vobuDur(*last) / 2
+	p.me = min(cutBudget(p.changes), p.halfE)
 	p.start, p.end = p.start0-p.ms, p.end0-p.me
 	return p
 }
 
-// driftTripped reports whether the accumulated drift budget (10 ms per VOB
-// ID change) reaches the smallest applicable margin, in which case the cut
-// can't be trusted.
+// driftTripped reports whether a drift budget exceeds its half-VOBU bound
+// (the start's only when start0 > 0), in which case the cut can't be trusted.
 func (p cutPlan) driftTripped() bool {
-	m := p.me
-	if p.start0 > 0 {
-		m = min(m, p.ms)
-	}
-	return time.Duration(p.changes)*10*time.Millisecond >= m
+	return (p.start0 > 0 && cutBudget(p.startChanges) > p.halfS) || cutBudget(p.changes) > p.halfE
 }
 
 func mkvTime(d time.Duration) string {

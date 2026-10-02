@@ -38,6 +38,9 @@ func sampleTitle(t *testing.T, disc *testdisc.DVD, id string) (*Disc, *Title, []
 	return d, ti, paths
 }
 
+// frame is one NTSC frame, the margins' base.
+const frame = 1001 * time.Second / 30000
+
 // ticks90k converts 90 kHz ticks to a duration, as planCut does.
 func ticks90k(n uint64) time.Duration { return time.Duration(n) * time.Second / 90000 }
 
@@ -49,16 +52,16 @@ const (
 )
 
 func TestCutPoints(t *testing.T) {
-	half := ticks90k(vobu20) / 2
+	// SampleDVD's VTS 2 has one VOB ID, so each applicable margin is one
+	// frame: well inside half of its whole-cell VOBUs.
 	for _, tt := range []struct {
 		id         string
 		group      []string
 		start, end time.Duration
 	}{
-		// Synthetic VOBUs are whole 20-minute cells, so the half-VOBU margins are 10 minutes.
-		{"03", []string{"VTS_02_1.VOB"}, 0, ticks90k(vobu20) - half},
-		{"04", []string{"VTS_02_1.VOB", "VTS_02_2.VOB"}, ticks90k(vobu20) - half, ticks90k(2*vobu20) - half},
-		{"05", []string{"VTS_02_1.VOB", "VTS_02_2.VOB"}, ticks90k(2*vobu20) - half, ticks90k(3*vobu20) - half}, // VTS_02_2 starts mid-VOBU
+		{"03", []string{"VTS_02_1.VOB"}, 0, ticks90k(vobu20) - frame},
+		{"04", []string{"VTS_02_1.VOB", "VTS_02_2.VOB"}, ticks90k(vobu20) - frame, ticks90k(2*vobu20) - frame},
+		{"05", []string{"VTS_02_1.VOB", "VTS_02_2.VOB"}, ticks90k(2*vobu20) - frame, ticks90k(3*vobu20) - frame}, // VTS_02_2 starts mid-VOBU
 	} {
 		_, ti, paths := sampleTitle(t, testdisc.SampleDVD(), tt.id)
 		var names []string
@@ -74,25 +77,31 @@ func TestCutPoints(t *testing.T) {
 		}
 	}
 	_, ti, paths := sampleTitle(t, testdisc.StrayCellDVD(), "01")
-	// start₀ 1.001 s, m_s = min(1.001 s, 24 min)/2; end₀ = start₀ + 2 × 24 min, m_e = 24 min/2; one VOB-ID change (A→B), 10 ms ≪ margins.
-	wantStart, wantEnd := ticks90k(vobu1)-ticks90k(vobu1)/2, ticks90k(vobu1+2*vobu24)-ticks90k(vobu24)/2
+	// start₀ 1.001 s; end₀ = start₀ + 2 × 24 min. One VOB-ID change (A→B, into
+	// R0's VOBU) counts for both margins: m_s = min(10 ms + frame, 1.001 s/2),
+	// m_e = min(10 ms + frame, 24 min/2).
+	m := 10*time.Millisecond + frame
+	wantStart, wantEnd := ticks90k(vobu1)-m, ticks90k(vobu1+2*vobu24)-m
 	if start, end, err := cutPoints(ti.dvd, paths); err != nil || start != wantStart || end != wantEnd {
 		t.Errorf("stray 01: cut %v–%v (%v), want %v–%v", start, end, err, wantStart, wantEnd)
 	}
 }
 
 func TestCutDriftGuard(t *testing.T) {
-	if err := cutDriftGuard(3, 250*time.Millisecond, 300*time.Millisecond); err != nil {
-		t.Errorf("3 changes under 250 ms margins: %v", err)
+	if err := cutDriftGuard(3, 250*time.Millisecond); err != nil {
+		t.Errorf("3 × 10 ms + a frame fits in 250 ms: %v", err)
 	}
-	if err := cutDriftGuard(25, 250*time.Millisecond, 300*time.Millisecond); err == nil || !strings.Contains(err.Error(), "25 VOB ID changes") {
-		t.Errorf("25 changes × 10 ms ≥ 250 ms: err = %v", err)
+	if err := cutDriftGuard(21, 250*time.Millisecond); err != nil {
+		t.Errorf("21 × 10 ms + a frame = 243 ms fits in 250 ms: %v", err)
 	}
-	if err := cutDriftGuard(40, 0, 300*time.Millisecond); err == nil {
-		t.Error("a zero margin is ignored (no start cut), but 400 ms ≥ 300 ms must fail")
+	if err := cutDriftGuard(22, 250*time.Millisecond); err == nil || !strings.Contains(err.Error(), "22 VOB ID changes") {
+		t.Errorf("22 × 10 ms + a frame = 253 ms > 250 ms: err = %v", err)
 	}
-	if err := cutDriftGuard(1, 0, 300*time.Millisecond); err != nil {
-		t.Errorf("start at 0 has no margin to guard: %v", err)
+	if err := cutDriftGuard(0, frame); err != nil {
+		t.Errorf("a budget equal to half the VOBU fits: %v", err)
+	}
+	if err := cutDriftGuard(0, frame-1); err == nil {
+		t.Error("a VOBU shorter than two frames can't hold the one-frame margin")
 	}
 }
 
@@ -197,8 +206,7 @@ esac
 		t.Fatal(err)
 	}
 	defer cleanup()
-	half := ticks90k(vobu20) / 2
-	if len(job.Split) != 1 || job.Split[0] != (mux.TimeRange{Start: ticks90k(2*vobu20) - half, End: ticks90k(3*vobu20) - half}) {
+	if len(job.Split) != 1 || job.Split[0] != (mux.TimeRange{Start: ticks90k(2*vobu20) - frame, End: ticks90k(3*vobu20) - frame}) {
 		t.Errorf("split = %v", job.Split)
 	}
 	b, err := os.ReadFile(job.ChapterFile)
