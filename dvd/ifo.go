@@ -455,7 +455,7 @@ func parsePGC(p []byte) (*PGC, error) {
 		c := p[cellOff+24*i:]
 		t, err := parseTime(c[4:8])
 		if err != nil {
-			return nil, fmt.Errorf("cell %d: %v", i+1, err)
+			return nil, fmt.Errorf("cell %d: %w", i+1, err)
 		}
 		q := p[posOff+4*i:]
 		cell := Cell{BlockMode: BlockMode(c[0] >> 6), AngleBlock: (c[0]>>4)&3 == 1, Time: t,
