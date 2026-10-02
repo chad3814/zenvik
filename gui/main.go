@@ -18,16 +18,24 @@ var version = "dev"
 var assets embed.FS
 
 func main() {
-	app := NewApp()
-	err := wails.Run(&options.App{
-		Title:       "Zenvik",
-		Width:       1200,
-		Height:      800,
-		MinWidth:    900,
-		MinHeight:   560,
-		AssetServer: &assetserver.Options{Assets: assets},
-		OnStartup:   app.startup,
-		Bind:        []interface{}{app},
+	deps, err := defaultDeps()
+	if err != nil {
+		println("Error:", err.Error())
+		os.Exit(1)
+	}
+	app := NewApp(deps)
+	err = wails.Run(&options.App{
+		Title:         "Zenvik",
+		Width:         1200,
+		Height:        800,
+		MinWidth:      900,
+		MinHeight:     560,
+		AssetServer:   &assetserver.Options{Assets: assets},
+		OnStartup:     app.startup,
+		OnBeforeClose: app.beforeClose,
+		OnShutdown:    app.shutdown,
+		DragAndDrop:   &options.DragAndDrop{EnableFileDrop: true, DisableWebViewDrop: true},
+		Bind:          []interface{}{app},
 	})
 	if err != nil {
 		println("Error:", err.Error())
