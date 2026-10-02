@@ -222,6 +222,16 @@ func TestOpenStrayCellDVD(t *testing.T) {
 	}
 }
 
+func TestOpenDVDUnsupportedCarriesNoSkippedCells(t *testing.T) {
+	disc := testdisc.StrayCellDVD()
+	disc.TitleSets[0].VTS.PGCs[0].Cells[0].LastSector = 60 // the VOB has sectors 0–49
+	d := openDisc(t, writeDVD(t, disc))
+	ti := mustTitle(t, d, "01")
+	if ti.Unsupported != "cells point outside the title VOBs" || len(ti.SkippedCells) != 0 || ti.Duration != ntsc(48*time.Minute+time.Second) {
+		t.Errorf("01: unsupported %q, skipped %+v, duration %v", ti.Unsupported, ti.SkippedCells, ti.Duration)
+	}
+}
+
 func TestOpenDVDCellsOutsideVOBs(t *testing.T) {
 	disc := testdisc.SampleDVD()
 	disc.TitleSets[2].VTS.PGCs[0].Cells[0].LastSector = 12 // VTS_03_1.VOB has sectors 0–9

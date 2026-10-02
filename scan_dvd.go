@@ -184,12 +184,8 @@ func dvdTitle(num int, e dvd.TitleEntry, ts *titleSet) (*Title, rank.Candidate) 
 	method, skipped := classifyCells(cells, ts.vobs)
 	drop := map[int]bool{}
 	for _, k := range skipped {
-		cl := cells[k]
 		drop[play[k]] = true
-		t.SkippedCells = append(t.SkippedCells, SkippedCell{Cell: play[k] + 1, Duration: cl.Time.Duration(), FirstSector: cl.FirstSector, LastSector: cl.LastSector})
-		t.Duration -= cl.Time.Duration()
 	}
-	slices.SortFunc(t.SkippedCells, func(a, b SkippedCell) int { return a.Cell - b.Cell })
 	for k, cl := range cells {
 		if drop[play[k]] {
 			continue
@@ -201,6 +197,12 @@ func dvdTitle(num int, e dvd.TitleEntry, ts *titleSet) (*Title, rank.Candidate) 
 			return unsupported(reasonInterleaved)
 		}
 	}
+	for _, k := range skipped {
+		cl := cells[k]
+		t.SkippedCells = append(t.SkippedCells, SkippedCell{Cell: play[k] + 1, Duration: cl.Time.Duration(), FirstSector: cl.FirstSector, LastSector: cl.LastSector})
+		t.Duration -= cl.Time.Duration()
+	}
+	slices.SortFunc(t.SkippedCells, func(a, b SkippedCell) int { return a.Cell - b.Cell })
 	t.RipMethod = method
 	t.Chapters = titleChapters(pgc, ptts, drop)
 
