@@ -2,8 +2,11 @@ package queue
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -182,3 +185,52 @@ func TestSnapshotEntriesNeverNil(t *testing.T) {
 }
 
 var _ = time.Second
+
+func TestChangedEventsArriveInOrder(t *testing.T) {
+	q, h, _ := newQueue(t)
+	var calls atomic.Int32
+	q.hooks.Changed = func(s Snapshot) {
+		if calls.Add(1) == 1 {
+			time.Sleep(50 * time.Millisecond) // a slow first delivery
+		}
+		h.changed(s)
+	}
+	started := make(chan struct{})
+	go func() {
+		close(started)
+		q.SetPaused(true)
+	}()
+	<-started
+	time.Sleep(10 * time.Millisecond) // the first update is now stuck delivering
+	q.SetPaused(false)
+	time.Sleep(100 * time.Millisecond)
+
+	h.mu.Lock()
+	last := h.snaps[len(h.snaps)-1]
+	h.mu.Unlock()
+	if want := q.Snapshot(); !reflect.DeepEqual(last, want) {
+		t.Errorf("last event has paused=%v; queue has paused=%v", last.Paused, want.Paused)
+	}
+}
+
+func TestConcurrentUpdatesEndOnTheFinalState(t *testing.T) {
+	q, h, _ := newQueue(t)
+	var wg sync.WaitGroup
+	for g := 0; g < 8; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 25; i++ {
+				q.SetPaused(i%2 == 0)
+				q.Add([]NewEntry{{"/d", "01", abs(fmt.Sprintf("%d-%d.mkv", g, i))}})
+			}
+		}()
+	}
+	wg.Wait()
+	h.mu.Lock()
+	last := h.snaps[len(h.snaps)-1]
+	h.mu.Unlock()
+	if want := q.Snapshot(); !reflect.DeepEqual(last, want) {
+		t.Errorf("last event has %d entries, queue has %d", len(last.Entries), len(want.Entries))
+	}
+}

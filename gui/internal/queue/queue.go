@@ -84,6 +84,7 @@ type Queue struct {
 	hooks  Hooks
 	now    func() time.Time
 
+	emitMu   sync.Mutex // orders Hooks.Changed calls; taken before mu
 	mu       sync.Mutex
 	entries  []Entry
 	paused   bool
@@ -278,16 +279,24 @@ func (q *Queue) Snapshot() Snapshot {
 
 // update runs f under the lock. When f reports a change, the queue is saved,
 // Hooks.Changed gets a snapshot, and the runner is woken.
+//
+// emitMu is taken before mu and held through the Changed call, so snapshots
+// reach Hooks.Changed in the order the changes were made. Hooks run without mu
+// held: code that Hooks.Changed may wait on must take only mu, never emitMu
+// (Task 4's Cancel and Stop do), or it would deadlock.
 func (q *Queue) update(f func() bool) {
+	q.emitMu.Lock()
 	q.mu.Lock()
 	if !f() {
 		q.mu.Unlock()
+		q.emitMu.Unlock()
 		return
 	}
 	q.persistLocked()
 	s := q.snapshotLocked()
 	q.mu.Unlock()
 	q.hooks.Changed(s)
+	q.emitMu.Unlock()
 	q.poke()
 }
 
