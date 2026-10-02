@@ -103,7 +103,9 @@ as for Blu-ray.
 ## Configuration
 
 zenvik reads `$XDG_CONFIG_HOME/zenvik/config.toml` (default `~/.config/zenvik/config.toml`;
-`%AppData%\zenvik\config.toml` on Windows). Every key is optional:
+`%AppData%\zenvik\config.toml` on Windows). If the file doesn't exist, `zenvik doctor`
+creates it with every key set to its default and a commented-out example preset; it never
+changes an existing file. Every key is optional:
 
 ```toml
 output_dir    = "~/Movies"               # default: current directory
@@ -160,7 +162,7 @@ Run `zenvik doctor` to list mounts a crashed rip left behind, with the command t
 That command also deletes the mount's record file from zenvik's state directory
 (`$XDG_STATE_HOME/zenvik/mounts`, else your OS user cache directory). On Windows the printed
 command is a PowerShell command; elsewhere it is a POSIX shell command. `doctor` itself never
-deletes anything.
+deletes anything; the only file it writes is the default config file, when there is none.
 
 If a record's mount is already gone (after a reboot, or after you detached it by hand), doctor
 prints it as a `!` warning, `stale mount record`, with a command that only deletes the record.

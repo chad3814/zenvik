@@ -17,6 +17,9 @@ func newDoctorCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
 		Short: "Check mkvmerge, ISO mounting, the config file and leftover mounts",
+		Long: `Check that mkvmerge is installed, whether ISO images can be mounted, that the
+config file is valid, and whether a crashed rip left mounts behind. If there is no config
+file, doctor creates one with the defaults; it never changes an existing file.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return usageError{fmt.Errorf("doctor takes no arguments")}
@@ -50,11 +53,7 @@ func doctorCode(mkvmergeOK, configOK bool, leftovers int) int {
 }
 
 func runDoctor(ctx context.Context, out io.Writer) error {
-	cfgMsg, mkvmergePath, cfgOK := checkConfig()
-	mark := "✓"
-	if !cfgOK {
-		mark = "✗"
-	}
+	mark, cfgMsg, mkvmergePath, cfgOK := checkConfig()
 	fmt.Fprintf(out, "%s %s\n", mark, cfgMsg)
 
 	mk, err := mux.Find(ctx, mkvmergePath)
@@ -107,17 +106,24 @@ func removeWith(r mount.Record) string {
 // checkConfig describes the config file and returns the configured mkvmerge
 // path; ok is false when the file is invalid. Every failure reads
 // "config: <err>", where err names the file once.
-func checkConfig() (msg, mkvmergePath string, ok bool) {
+// checkConfig loads and validates the config file and returns the doctor
+// line's mark and message, the configured mkvmerge path, and whether the
+// configuration is usable. A missing config file is created with the
+// defaults; failing to create it is only a warning.
+func checkConfig() (mark, msg, mkvmergePath string, ok bool) {
 	s, f, err := readConfig(config.Flags{})
 	if err != nil {
-		return fmt.Sprintf("config: %v", err), "", false
+		return "✗", fmt.Sprintf("config: %v", err), "", false
 	}
 	if !f.Found {
-		return fmt.Sprintf("config: %s (not found; using defaults)", f.Path), s.MkvmergePath, true
+		if err := config.WriteDefault(f.Path); err != nil {
+			return "!", fmt.Sprintf("config: %s not found, and could not create it: %v", f.Path, err), s.MkvmergePath, true
+		}
+		return "✓", fmt.Sprintf("config: created %s with the defaults", f.Path), s.MkvmergePath, true
 	}
 	msg = "config: " + f.Path
 	if s.Preset != "" {
 		msg += fmt.Sprintf(" (default preset %q)", s.Preset)
 	}
-	return msg, s.MkvmergePath, true
+	return "✓", msg, s.MkvmergePath, true
 }

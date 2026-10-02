@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chad3814/zenvik/internal/config"
 )
 
 func TestDoctorCode(t *testing.T) {
@@ -31,12 +33,13 @@ func TestDoctorCode(t *testing.T) {
 }
 
 func TestDoctorMissingMkvmerge(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("PATH", t.TempDir())
 	code, out, errOut := runCLI("doctor")
 	if code != 4 {
 		t.Fatalf("exit %d, stderr %q", code, errOut)
 	}
-	for _, want := range []string{"✓ config:", "not found; using defaults", "✗ mkvmerge:", "ISO mounting", "✓ no leftover mounts"} {
+	for _, want := range []string{"✓ config: created ", "with the defaults", "✗ mkvmerge:", "ISO mounting", "✓ no leftover mounts"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
@@ -44,6 +47,7 @@ func TestDoctorMissingMkvmerge(t *testing.T) {
 }
 
 func TestDoctorBadConfig(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("PATH", t.TempDir())
 	path := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "zenvik", "config.toml")
 	for _, tt := range []struct{ name, config, want string }{
@@ -67,6 +71,7 @@ func TestDoctorBadConfig(t *testing.T) {
 }
 
 func TestDoctorUsesConfiguredMkvmerge(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("PATH", t.TempDir())
 	stub := stubMkvmerge(t)
 	writeUserConfig(t, "mkvmerge_path = "+tomlPath(stub))
@@ -115,6 +120,7 @@ func writeDeadRecord(t *testing.T, dir string) string {
 }
 
 func TestDoctorReportsStaleRecord(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("PATH", t.TempDir())
 	stub := stubMkvmerge(t)
 	writeUserConfig(t, "mkvmerge_path = "+tomlPath(stub))
@@ -137,6 +143,7 @@ func TestDoctorReportsStaleRecord(t *testing.T) {
 }
 
 func TestDoctorStaleRecordWithProblems(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("PATH", t.TempDir())
 	p := writeDeadRecord(t, "/nonexistent/zenvik-mount-x")
 	code, out, _ := runCLI("doctor")
@@ -154,5 +161,71 @@ func TestDoctorStaleRecordWithProblems(t *testing.T) {
 func TestDoctorArgs(t *testing.T) {
 	if code, _, _ := runCLI("doctor", "extra"); code != 2 {
 		t.Errorf("exit %d, want 2", code)
+	}
+}
+
+// isolateConfig gives the test its own XDG_CONFIG_HOME: doctor writes the
+// default config file when there is none.
+func isolateConfig(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	return filepath.Join(dir, "zenvik", "config.toml")
+}
+
+func TestDoctorWritesDefaultConfig(t *testing.T) {
+	path := isolateConfig(t)
+	t.Setenv("PATH", t.TempDir())
+	_, out, _ := runCLI("doctor")
+	if line := lineWith(out, "config:"); line != "✓ config: created "+path+" with the defaults" {
+		t.Errorf("config line = %q", line)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("doctor did not write the config file: %v", err)
+	}
+	if string(b) != config.DefaultFileContent() {
+		t.Errorf("written file =\n%s", b)
+	}
+	_, out, _ = runCLI("doctor")
+	if line := lineWith(out, "config:"); line != "✓ config: "+path {
+		t.Errorf("second run config line = %q, want the file reported as found", line)
+	}
+}
+
+func TestDoctorLeavesExistingConfigAlone(t *testing.T) {
+	path := isolateConfig(t)
+	t.Setenv("PATH", t.TempDir())
+	for _, body := range []string{"# mine\noutput_dir = \"/srv/rips\"\n", "outptu_dir = \"x\"\n"} {
+		writeUserConfig(t, body)
+		runCLI("doctor")
+		if b, _ := os.ReadFile(path); string(b) != body {
+			t.Errorf("doctor changed %q to %q", body, b)
+		}
+	}
+}
+
+func TestDoctorCannotWriteConfig(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permissions work differently on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root can write anywhere")
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("PATH", t.TempDir())
+	path := filepath.Join(dir, "zenvik", "config.toml")
+	code, out, _ := runCLI("doctor")
+	line := lineWith(out, "config:")
+	if !strings.HasPrefix(line, "! config: "+path+" not found, and could not create it: ") {
+		t.Errorf("config line = %q", line)
+	}
+	if code != 4 {
+		t.Errorf("exit %d, want 4 (mkvmerge missing; the config warning must not change it)", code)
 	}
 }
