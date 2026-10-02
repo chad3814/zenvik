@@ -65,7 +65,7 @@ func TestInfoDVDJSON(t *testing.T) {
 				t.Errorf("01 = %+v", ti)
 			}
 		case "03":
-			if ti.Unsupported != "starts or ends mid-file (not supported yet)" {
+			if ti.Unsupported != "" {
 				t.Errorf("03 unsupported = %q", ti.Unsupported)
 			}
 		}
@@ -93,7 +93,10 @@ func TestInfoDVDISO(t *testing.T) {
 
 func TestRipDVDTitleFlag(t *testing.T) {
 	root := writeDVD(t)
-	if code, _, errOut := runCLI("rip", "--title", "3", "-d", t.TempDir(), root); code != 1 || !strings.Contains(errOut, "starts or ends mid-file") {
+	if err := os.Remove(filepath.Join(root, "VIDEO_TS", "VTS_03_0.IFO")); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := runCLI("rip", "--title", "7", "-d", t.TempDir(), root); code != 1 || !strings.Contains(errOut, "missing VTS_03_0.IFO") {
 		t.Errorf("unsupported title: code %d, stderr %q", code, errOut)
 	}
 	if code, _, errOut := runCLI("rip", "--title", "1", "--playlist", "01", root); code != 2 || !strings.Contains(errOut, "not both") {

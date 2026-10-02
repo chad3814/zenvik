@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"slices"
 	"time"
 
 	"github.com/chad3814/zenvik/bluray"
@@ -14,12 +15,11 @@ import (
 	"github.com/chad3814/zenvik/internal/vobsub"
 )
 
-// Reasons a DVD title can't be ripped yet (M5 spec section 5.1).
-const (
-	reasonNotContiguous = "cells are not contiguous (not supported yet)"
-	reasonMidFile       = "starts or ends mid-file (not supported yet)"
-	reasonMultiPGC      = "spans several program chains (not supported yet)"
-)
+// reasonMultiPGC is why a DVD title that spans several PGCs can't be
+// ripped yet (M5 spec section 5.1).
+const reasonMultiPGC = "spans several program chains (not supported yet)"
+
+type sectorRange struct{ first, last int64 }
 
 // vobFile is one title VOB of a title set. Sectors are relative to the
 // start of the set's first title VOB, as cell addresses are.
@@ -155,30 +155,59 @@ func dvdTitle(num int, e dvd.TitleEntry, ts *titleSet) (*Title, rank.Candidate) 
 			return unsupported(reasonMultiPGC)
 		}
 	}
-	starts := cellStarts(pgc.Cells)
-	for i, p := range ptts {
-		t.Chapters = append(t.Chapters, Chapter{Number: i + 1, Start: starts[pgc.Programs[p.Program-1]-1]})
-	}
-	info := &dvdInfo{palette: pgc.Palette, width: ts.vts.Video.Width, height: ts.vts.Video.Height, subLang: map[uint16]string{}}
+	var play []int // indexes into pgc.Cells of the angle-1 cells, in play order
 	for i, cl := range pgc.Cells {
 		if !cl.AngleBlock || cl.BlockMode == dvd.FirstInBlock || cl.BlockMode == dvd.NotInBlock {
-			info.cells = append(info.cells, vobsub.Cell{VOBID: cl.VOBID, CellID: cl.CellID, Start: starts[i]})
+			play = append(play, i)
+		}
+	}
+	if len(play) == 0 {
+		return unsupported("has no cells")
+	}
+	cells := make([]dvd.Cell, len(play))
+	for k, i := range play {
+		cells[k] = pgc.Cells[i]
+	}
+	method, skipped := classifyCells(cells, ts.vobs)
+	drop := map[int]bool{}
+	for _, k := range skipped {
+		cl := cells[k]
+		drop[play[k]] = true
+		t.SkippedCells = append(t.SkippedCells, SkippedCell{Cell: play[k] + 1, Duration: cl.Time.Duration(), FirstSector: cl.FirstSector, LastSector: cl.LastSector})
+		t.Duration -= cl.Time.Duration()
+	}
+	slices.SortFunc(t.SkippedCells, func(a, b SkippedCell) int { return a.Cell - b.Cell })
+	t.RipMethod = method
+	t.Chapters = titleChapters(pgc, ptts, drop)
+
+	info := &dvdInfo{palette: pgc.Palette, width: ts.vts.Video.Width, height: ts.vts.Video.Height,
+		subLang: map[uint16]string{}, method: method, files: ts.vobs, vobus: ts.vts.VOBUs}
+	var keptAll []dvd.Cell
+	for i, cl := range pgc.Cells {
+		if !drop[i] {
+			keptAll = append(keptAll, cl)
+		}
+	}
+	starts := cellStarts(keptAll)
+	for k, cl := range keptAll {
+		if !cl.AngleBlock || cl.BlockMode == dvd.FirstInBlock || cl.BlockMode == dvd.NotInBlock {
+			info.cells = append(info.cells, vobsub.Cell{VOBID: cl.VOBID, CellID: cl.CellID, Start: starts[k]})
+			info.ranges = append(info.ranges, sectorRange{int64(cl.FirstSector), int64(cl.LastSector)})
+			t.Size += (int64(cl.LastSector) - int64(cl.FirstSector) + 1) * 2048
+			c.Clips = append(c.Clips, rank.Clip{ID: fmt.Sprintf("%d:%d:%d", e.TitleSet, cl.VOBID, cl.CellID), Out: cl.Time.Duration()})
 		}
 	}
 	t.dvd = info
 	fillDVDTracks(t, ts.vts, pgc, info)
-	cells := angleOne(pgc.Cells)
-	for _, cl := range cells {
-		t.Size += (int64(cl.LastSector) - int64(cl.FirstSector) + 1) * 2048
-		c.Clips = append(c.Clips, rank.Clip{ID: fmt.Sprintf("%d:%d:%d", e.TitleSet, cl.VOBID, cl.CellID), Out: cl.Time.Duration()})
-	}
-	files, reason := wholeFiles(cells, ts.vobs)
-	for _, f := range files {
-		t.Clips = append(t.Clips, Clip{ID: f.name})
+	for _, f := range ts.vobs {
+		for _, r := range info.ranges {
+			if r.first <= f.last && r.last >= f.first {
+				t.Clips = append(t.Clips, Clip{ID: f.name})
+				break
+			}
+		}
 	}
 	t.Encrypted = ts.encrypted
-	t.Unsupported = reason
-	c.Problem = reason
 	c.Duration = t.Duration
 	c.Chapters = len(t.Chapters)
 	c.Languages = countLanguages(t)
@@ -187,18 +216,6 @@ func dvdTitle(num int, e dvd.TitleEntry, ts *titleSet) (*Title, rank.Candidate) 
 	c.Size = t.Size
 	c.Encrypted = t.Encrypted
 	return t, c
-}
-
-// angleOne returns the cells angle 1 plays: cells outside blocks, cells
-// in non-angle blocks, and the first cell of each angle block.
-func angleOne(cells []dvd.Cell) []dvd.Cell {
-	var out []dvd.Cell
-	for _, c := range cells {
-		if !c.AngleBlock || c.BlockMode == dvd.FirstInBlock || c.BlockMode == dvd.NotInBlock {
-			out = append(out, c)
-		}
-	}
-	return out
 }
 
 // cellStarts returns each cell's start time in the title, counting only
@@ -219,15 +236,14 @@ func cellStarts(cells []dvd.Cell) []time.Duration {
 
 // wholeFiles returns the title VOBs the cells cover when they play one
 // contiguous run of sectors that starts at the start of a VOB and ends at
-// the end of a VOB; otherwise it returns the reason the title is
-// unsupported.
-func wholeFiles(cells []dvd.Cell, vobs []vobFile) ([]vobFile, string) {
+// the end of a VOB; otherwise it returns false.
+func wholeFiles(cells []dvd.Cell, vobs []vobFile) ([]vobFile, bool) {
 	if len(cells) == 0 {
-		return nil, "has no cells"
+		return nil, false
 	}
 	for i := 1; i < len(cells); i++ {
 		if int64(cells[i].FirstSector) != int64(cells[i-1].LastSector)+1 {
-			return nil, reasonNotContiguous
+			return nil, false
 		}
 	}
 	first, last := int64(cells[0].FirstSector), int64(cells[len(cells)-1].LastSector)
@@ -241,9 +257,69 @@ func wholeFiles(cells []dvd.Cell, vobs []vobFile) ([]vobFile, string) {
 		}
 	}
 	if start < 0 || end < start {
-		return nil, reasonMidFile
+		return nil, false
 	}
-	return vobs[start : end+1], ""
+	return vobs[start : end+1], true
+}
+
+// maxStray is the longest cell that may be dropped from a title's edge.
+const maxStray = time.Second
+
+// classifyCells decides how a title whose angle-1 cells, in play order,
+// are cells is ripped, and which of them (indexes into cells) are dropped
+// as short strays at the edges. At least one cell is always kept.
+func classifyCells(cells []dvd.Cell, vobs []vobFile) (method string, skipped []int) {
+	contiguous := func(a, b dvd.Cell) bool { return int64(b.FirstSector) == int64(a.LastSector)+1 }
+	lo, hi := 0, len(cells)-1
+	for hi > lo && !contiguous(cells[lo], cells[lo+1]) && cells[lo].Time.Duration() <= maxStray {
+		skipped = append(skipped, lo)
+		lo++
+	}
+	for hi > lo && !contiguous(cells[hi-1], cells[hi]) && cells[hi].Time.Duration() <= maxStray {
+		skipped = append(skipped, hi)
+		hi--
+	}
+	kept := cells[lo : hi+1]
+	if _, ok := wholeFiles(kept, vobs); ok {
+		return "files", skipped
+	}
+	for i := 1; i < len(kept); i++ {
+		if !contiguous(kept[i-1], kept[i]) {
+			return "copy", skipped
+		}
+	}
+	return "cut", skipped
+}
+
+// titleChapters returns the title's chapters on its own timeline. Cells in
+// drop (indexes into pgc.Cells) are left out. A chapter whose entry cell
+// is dropped moves to the next kept cell, or goes away if none follows.
+// Chapters landing on the same cell collapse, and numbers run from 1.
+func titleChapters(pgc *dvd.PGC, ptts []dvd.PartOfTitle, drop map[int]bool) []Chapter {
+	var kept []dvd.Cell
+	index := make([]int, len(pgc.Cells)) // pgc cell → index into kept, or -1
+	for i, c := range pgc.Cells {
+		index[i] = -1
+		if !drop[i] {
+			index[i] = len(kept)
+			kept = append(kept, c)
+		}
+	}
+	starts := cellStarts(kept)
+	var out []Chapter
+	last := -1
+	for _, p := range ptts {
+		e := pgc.Programs[p.Program-1] - 1
+		for e < len(pgc.Cells) && index[e] < 0 {
+			e++
+		}
+		if e >= len(pgc.Cells) || index[e] == last {
+			continue
+		}
+		last = index[e]
+		out = append(out, Chapter{Number: len(out) + 1, Start: starts[index[e]]})
+	}
+	return out
 }
 
 // fillDVDTracks sets t's tracks from the title set's attributes and the

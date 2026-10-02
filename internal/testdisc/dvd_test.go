@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/chad3814/zenvik/dvd"
@@ -84,5 +85,24 @@ func TestDVDISO(t *testing.T) {
 	}
 	if _, err := dvd.ParseVMG(b); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestSampleDVDNavigation(t *testing.T) {
+	files := SampleDVD().Files()
+	vts, err := dvd.ParseVTS(files["VIDEO_TS/VTS_02_0.IFO"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []uint32{0, 20, 40}; !slices.Equal(vts.VOBUs, want) {
+		t.Errorf("VTS 2 VOBUs = %v, want %v", vts.VOBUs, want)
+	}
+	vob := files["VIDEO_TS/VTS_02_1.VOB"]
+	nav, ok := dvd.ParseNAV(vob[20*2048 : 21*2048])
+	if !ok || nav.VOBID != 1 || nav.CellID != 2 || nav.EndPTM-nav.StartPTM != 20*60*90000 || nav.StartPTM != 20*60*90000 {
+		t.Errorf("NAV at sector 20 = %+v, %v", nav, ok)
+	}
+	if _, ok := dvd.ParseNAV(vob[2048:4096]); ok {
+		t.Error("sector 1 is not a VOBU start")
 	}
 }

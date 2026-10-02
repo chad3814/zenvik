@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -58,9 +59,20 @@ func (d *DVD) Files() map[string][]byte {
 	}
 	for i, ts := range d.TitleSets {
 		vts := ts.VTS
+		total := 0
+		for _, n := range ts.VOBs {
+			total += n
+		}
+		data := VOBPacks(total, ts.Scrambled)
+		vobus := navigate(&vts, data)
+		if vts.VOBUs == nil {
+			vts.VOBUs = vobus
+		}
 		files[dir+name(fmt.Sprintf("VTS_%02d_0.IFO", i+1))] = VTSFile(&vts)
+		off := 0
 		for k, sectors := range ts.VOBs {
-			files[dir+name(fmt.Sprintf("VTS_%02d_%d.VOB", i+1, k+1))] = VOBPacks(sectors, ts.Scrambled)
+			files[dir+name(fmt.Sprintf("VTS_%02d_%d.VOB", i+1, k+1))] = data[off*2048 : (off+sectors)*2048]
+			off += sectors
 		}
 	}
 	if d.AppleDouble {
@@ -74,6 +86,75 @@ func (d *DVD) Files() map[string][]byte {
 		}
 	}
 	return files
+}
+
+// navigate writes a NAV pack at the first sector of every cell of every
+// PGC in vts (each such sector starts a VOBU) into data, the title set's
+// title VOBs back to back, and returns those VOBU starts in ascending
+// order. VOBU PTMs run in sector order; each VOBU lasts its cell's time.
+func navigate(vts *dvd.VTS, data []byte) []uint32 {
+	byStart := map[uint32]dvd.Cell{}
+	for _, p := range vts.PGCs {
+		for _, c := range p.Cells {
+			if _, ok := byStart[c.FirstSector]; !ok {
+				byStart[c.FirstSector] = c
+			}
+		}
+	}
+	starts := make([]uint32, 0, len(byStart))
+	for s := range byStart {
+		if int(s+1)*2048 <= len(data) {
+			starts = append(starts, s)
+		}
+	}
+	slices.Sort(starts)
+	var ptm uint32
+	for _, s := range starts {
+		c := byStart[s]
+		ticks := uint32(c.Time.Duration() * 90000 / time.Second)
+		copy(data[int(s)*2048:], NAVPack(dvd.NAV{StartPTM: ptm, EndPTM: ptm + ticks, VOBID: c.VOBID, CellID: c.CellID}))
+		ptm += ticks
+	}
+	return starts
+}
+
+// StrayCellDVD returns a one-title-set disc for cell-layout tests. Its VOB
+// has 50 sectors in three cells: A 0–1 (1 s, VOB 1 cell 1), B 2–25 and
+// C 26–49 (24 min each, VOB 2 cells 1 and 2). Title 1 plays B C A (A is a
+// short trailing stray, so it's cut with A skipped), title 2 plays C A B
+// (copy), and title 3 plays A B C (whole file).
+func StrayCellDVD() *DVD {
+	tm := func(d time.Duration) dvd.Time { return dvd.NewTime(d, dvd.Rate30) }
+	a := dvd.Cell{Time: tm(time.Second), FirstSector: 0, LastSector: 1, VOBID: 1, CellID: 1}
+	b := dvd.Cell{Time: tm(24 * time.Minute), FirstSector: 2, LastSector: 25, VOBID: 2, CellID: 1}
+	c := dvd.Cell{Time: tm(24 * time.Minute), FirstSector: 26, LastSector: 49, VOBID: 2, CellID: 2}
+	var audio [8]dvd.AudioControl
+	audio[0] = dvd.AudioControl{Available: true}
+	pgc := func(cells ...dvd.Cell) *dvd.PGC {
+		var total time.Duration
+		progs := make([]int, len(cells))
+		for i, cl := range cells {
+			total += cl.Time.Duration()
+			progs[i] = i + 1
+		}
+		return &dvd.PGC{Time: tm(total), Audio: audio, Programs: progs, Cells: cells}
+	}
+	three := func(n int) []dvd.PartOfTitle {
+		return []dvd.PartOfTitle{{PGC: n, Program: 1}, {PGC: n, Program: 2}, {PGC: n, Program: 3}}
+	}
+	return &DVD{
+		Titles: []dvd.TitleEntry{
+			{Angles: 1, Chapters: 3, TitleSet: 1, TitleSetTitle: 1},
+			{Angles: 1, Chapters: 3, TitleSet: 1, TitleSetTitle: 2},
+			{Angles: 1, Chapters: 3, TitleSet: 1, TitleSetTitle: 3},
+		},
+		TitleSets: []DVDTitleSet{{VOBs: []int{50}, VTS: dvd.VTS{
+			Video:  dvd.VideoAttributes{Coding: dvd.MPEG2, Standard: dvd.NTSC, Aspect: dvd.Aspect4x3, Width: 720, Height: 480},
+			Audio:  []dvd.AudioAttributes{{Coding: dvd.AC3, Channels: 2, SampleRate: 48000, Language: "en"}},
+			Titles: [][]dvd.PartOfTitle{three(1), three(2), three(3)},
+			PGCs:   []*dvd.PGC{pgc(b, c, a), pgc(c, a, b), pgc(a, b, c)},
+		}}},
+	}
 }
 
 // WriteDir writes the disc's files under dir.

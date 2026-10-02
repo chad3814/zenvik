@@ -18,11 +18,6 @@ import (
 	"github.com/chad3814/zenvik/internal/testdisc/udfimage"
 )
 
-const (
-	reasonMidFile       = "starts or ends mid-file (not supported yet)"
-	reasonNotContiguous = "cells are not contiguous (not supported yet)"
-)
-
 func writeDVD(t *testing.T, d *testdisc.DVD) string {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "SAMPLE_DVD")
@@ -34,7 +29,7 @@ func writeDVD(t *testing.T, d *testdisc.DVD) string {
 
 func checkSampleDVD(t *testing.T, d *zenvik.Disc, vob1, vob2 string) {
 	t.Helper()
-	if got, want := ids(d.Titles), []string{"01", "06", "02", "03", "04", "05", "07", "08"}; !reflect.DeepEqual(got, want) {
+	if got, want := ids(d.Titles), []string{"01", "06", "03", "04", "05", "08", "02", "07"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("titles = %v, want %v", got, want)
 	}
 	m := d.Main()
@@ -73,11 +68,17 @@ func checkSampleDVD(t *testing.T, d *zenvik.Disc, vob1, vob2 string) {
 	if dup := mustTitle(t, d, "02"); dup.Rank.DuplicateOf != "01" {
 		t.Errorf("02 rank = %+v", dup.Rank)
 	}
-	for id, reason := range map[string]string{"03": reasonMidFile, "04": reasonMidFile, "05": reasonMidFile, "08": reasonNotContiguous} {
+	for id, method := range map[string]string{"01": "files", "06": "files", "03": "cut", "04": "cut", "05": "cut", "08": "copy"} {
 		ti := mustTitle(t, d, id)
-		if ti.Unsupported != reason || !ti.Rank.Filtered || !slices.Contains(ti.Rank.Reasons, reason) {
-			t.Errorf("%s: unsupported %q, rank %+v", id, ti.Unsupported, ti.Rank)
+		if ti.RipMethod != method || ti.Unsupported != "" || ti.Rank.Filtered {
+			t.Errorf("%s: method %q, unsupported %q, rank %+v; want %q", id, ti.RipMethod, ti.Unsupported, ti.Rank, method)
 		}
+	}
+	if ep := mustTitle(t, d, "04"); ep.Size != 20*2048 || len(ep.Clips) != 2 {
+		t.Errorf("04 spans both VOBs: size %d, clips %v", ep.Size, ep.Clips)
+	}
+	if ang := mustTitle(t, d, "08"); ang.Size != 15*2048 {
+		t.Errorf("08 copies its 15 angle-1 sectors: size %d", ang.Size)
 	}
 	all := mustTitle(t, d, "06")
 	if all.Unsupported != "" || all.Duration != time.Hour || len(all.Clips) != 2 || len(all.Chapters) != 3 || all.Chapters[2].Start != 40*time.Minute {
@@ -183,9 +184,34 @@ func TestDVDTitleLookup(t *testing.T) {
 }
 
 func TestRipUnsupportedDVDTitle(t *testing.T) {
-	d := openDisc(t, writeDVD(t, testdisc.SampleDVD()))
-	_, err := d.Rip(context.Background(), mustTitle(t, d, "03"), zenvik.RipOptions{OutputPath: filepath.Join(t.TempDir(), "x.mkv")})
-	if !errors.Is(err, zenvik.ErrUnsupportedTitle) || !strings.Contains(err.Error(), reasonMidFile) {
+	root := writeDVD(t, testdisc.SampleDVD())
+	if err := os.Remove(filepath.Join(root, "VIDEO_TS", "VTS_03_0.IFO")); err != nil {
+		t.Fatal(err)
+	}
+	d := openDisc(t, root)
+	_, err := d.Rip(context.Background(), mustTitle(t, d, "07"), zenvik.RipOptions{OutputPath: filepath.Join(t.TempDir(), "x.mkv")})
+	if !errors.Is(err, zenvik.ErrUnsupportedTitle) || !strings.Contains(err.Error(), "missing VTS_03_0.IFO") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestOpenStrayCellDVD(t *testing.T) {
+	d := openDisc(t, writeDVD(t, testdisc.StrayCellDVD()))
+	cut := mustTitle(t, d, "01")
+	if cut.RipMethod != "cut" || cut.Duration != 48*time.Minute || cut.Size != 48*2048 {
+		t.Errorf("01 = method %q, duration %v, size %d", cut.RipMethod, cut.Duration, cut.Size)
+	}
+	if want := []zenvik.SkippedCell{{Cell: 3, Duration: time.Second, FirstSector: 0, LastSector: 1}}; !reflect.DeepEqual(cut.SkippedCells, want) {
+		t.Errorf("01 skipped = %+v", cut.SkippedCells)
+	}
+	if want := []zenvik.Chapter{{Number: 1, Start: 0}, {Number: 2, Start: 24 * time.Minute}}; !reflect.DeepEqual(cut.Chapters, want) {
+		t.Errorf("01 chapters = %v", cut.Chapters)
+	}
+	cp := mustTitle(t, d, "02")
+	if cp.RipMethod != "copy" || len(cp.SkippedCells) != 0 || len(cp.Chapters) != 3 || cp.Chapters[2].Start != 24*time.Minute+time.Second {
+		t.Errorf("02 = method %q, skipped %v, chapters %v", cp.RipMethod, cp.SkippedCells, cp.Chapters)
+	}
+	if f := mustTitle(t, d, "03"); f.RipMethod != "files" {
+		t.Errorf("03 method %q", f.RipMethod)
 	}
 }
