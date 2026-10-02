@@ -32,7 +32,7 @@ Take the title's angle-1 cells in play order (M5 §5.1), then:
 1. **Whole files.** If the M5 whole-file check passes, use the M5 path unchanged. `rip_method` is `files`.
 2. **Drop short stray cells at the edges.**
    - A cell at the start or end of the title is a *stray* when it breaks sector order with its neighbour. The first cell is a stray if its sectors are not immediately followed by the second cell's. The last cell is a stray if it does not immediately follow the previous one.
-   - A stray is dropped if its IFO playback time is at most **1.0 s**. Drops are repeated from each end while the condition holds.
+   - A stray is dropped if the playback time its IFO lists is at most **1.0 s** (`00:00:01:00`): 30 NTSC frames, which last 1.001 s, or 25 PAL frames, 1.0 s. A 31-frame NTSC cell is kept. Drops are repeated from each end while the condition holds.
    - Cells in the middle are never dropped.
    - Each drop adds a warning: `title <id>: skipped cell <n> (<seconds> s at sectors <a>–<b>, out of order)`.
    - Chapters whose entry cell was dropped move to the next kept cell, or are removed if none follows. Chapter numbers are renumbered from 1.
@@ -144,14 +144,17 @@ These record where the implementation differs from §2–§6 and what was observ
 - **NTSC IFO times are frame counts (fix wave A).** At NTSC (rate bits 3) the BCD playback time counts frames at a nominal 30 fps, and each frame lasts 1001/30000 s. So `hh:mm:ss:ff` is ((h·3600 + m·60 + s)·30 + f) × 1001/30000 s, and dvdauthor's `00:00:06:00` for a 180-frame episode is 6.006 s. PAL (25 fps) times are exact. `dvd.NewTime` inverts this, rounding to the nearest frame.
   - Evidence: on *Swiss Family Robinson* title 01, cells 1–21 sum to 7573.13 s read as wall-clock time, but their NAV VOBU durations sum to 7580.71 s, exactly ×1.001.
   - Before this fix every NTSC duration and chapter was 0.1 % short: 7.5 s over this 2 h film. Chapters are now placed from the corrected IFO times.
-  - The stray limit (§2's 1.0 s) is an IFO time of `00:00:01:00`, which is 1.001 s at NTSC. zenvik compares against 1.001 s, so a one-second NTSC cell, such as cell 22 on this disc, is still dropped.
+  - The stray limit (§2's 1.0 s) is on the time the IFO lists, `00:00:01:00`: 30 NTSC frames (1.001 s) or 25 PAL frames (1.0 s). zenvik compares the cell's duration against 1.001 s, so a one-second NTSC cell such as cell 22 on this disc is still dropped, and a 31-frame NTSC or 26-frame PAL cell is kept (controller ruling, fix wave A round 2).
 - **Cut points (replaces §3 step 2's start and end).** Let start₀ be the summed VOBU durations (`vobu_e_ptm − vobu_s_ptm`) before `R0`, and end₀ be start₀ plus the run's summed VOBU durations. mkvmerge gets start = start₀ − m_s and end = end₀ − m_e. With frame = 1001/30000 s:
   - m_s = min(c_s × 10 ms + frame, half the shorter of the VOBU before the run and the run's first VOBU). c_s counts the VOB ID changes among the NAV packs from the group start through `R0`'s VOBU, so a change into `R0`'s VOBU counts. m_s is 0 when start₀ is 0.
   - m_e = min(c_e × 10 ms + frame, half the run's last VOBU). c_e counts the VOB ID changes from the group start through `R1`.
 - **Why the margins exist.** Summed VOBU durations run about 4.7 ms ahead of mkvmerge's timeline per VOB ID on the authored discs, because each VOB's last VOBU is padded past its last video frame. mkvmerge cuts at the first keyframe at or after the time it is given, so a cut time even 1 ms past a boundary keyframe gains or loses a whole GOP. Each point is moved back by the drift bound (10 ms per VOB ID change) plus one frame.
   - Real VOBUs can hold several GOPs. The first rule moved each point back by half a VOBU, and on *Swiss Family Robinson* that snapped to keyframes inside a VOBU. The output began with 0.1 s of the skipped black cell and lost the last 0.2 s of cell 21. The drift budget keeps the margin a few frames wide, short of any earlier keyframe.
 - **Drift guard.** The rip fails with `zenvik: title <id>: cannot compute cut points: …` when c × 10 ms + frame exceeds its half-VOBU bound, for m_s (only when start₀ > 0) or m_e. The drift budget must fit inside half a VOBU.
-- **Chapters and VobSub on cut titles** are shifted by start₀, the run's true start, not by the requested cut time. mkvmerge moves them back by the keyframe it actually cuts at.
+- **Chapters and VobSub on cut titles (fix wave A round 2).** Neither is shifted by the requested cut time.
+  - VobSub timestamps are shifted by start₀, the run's true start. mkvmerge rebases the subtitle track, like the video, to the run's first displayed frame.
+  - Chapters are shifted by start₀ + gap. mkvmerge moves chapters back by the I-frame it cuts at, not by the first displayed frame.
+  - gap = (PTS of the first video PES with a PTS after the NAV pack in the run's first VOBU) − that VOBU's `vobu_s_ptm`. On an open GOP this is the leading B-frames' length. It is 0 if there is no such PES before the next VOBU or if it is negative. A gap longer than the VOBU fails the cut. The `--split` times do not use it.
 - **The cut group** starts at the latest VOBU-aligned title VOB at or before the run's first file (§3 step 1), so mkvmerge's timeline starts on a VOBU.
 - **Cells outside the VOBs.** A title with a kept cell whose sectors lie outside its title set's VOBs is unsupported, with the reason `cells point outside the title VOBs`. Dropped strays are not checked.
 - **Classification order (differs from §2).** Short edge strays are dropped first, and then the whole-file check runs. So kept cells that cover whole VOB files after a drop use the `files` method.
@@ -176,7 +179,12 @@ These record where the implementation differs from §2–§6 and what was observ
   - The video track is 7580.706 s, 0.1 ms from `duration_seconds`. The container is 7580.727 s.
   - Frame hashes show that the output's first frame is cell 1's first frame. The group's first 30 frames are cell 22's; the output has none of them and none of the frames after `R1`. The output ends on the last frame of cell 21. Cell 1 itself opens with about 0.93 s of black, so a colour check of the first frame can't tell the two cells apart.
   - Tracks: video, audio eng (AC-3 5.1), spa (AC-3 5.1), eng (AC-3 Stereo, Director's Commentary), and English VobSub.
-  - **Chapters are 2 frames early (open finding).** All 17 non-zero chapters are 67.1–68.0 ms before the title's chapter starts in `info --json`, which is more than the one-frame tolerance.
+  - **Chapters were 2 frames early on this open-GOP cut.** All 17 non-zero chapters were 67.1–68.0 ms before the title's chapter starts in `info --json`, more than the one-frame tolerance.
     - The run's first VOBU (sector 439) has `vobu_s_ptm` 25257, but its first video PES (the I-frame) has PTS 31263. That is 6006 ticks, two leading B-frames of an open GOP. The stray VOBU at sector 0 has no lead-in.
-    - mkvmerge snaps the cut to that I-frame (1.068 s on the group timeline). It rebases the video to the first displayed frame (1.001 s, start₀), but it shifts the chapters by the keyframe's 1.068 s. Chapters written at start₀ + title time therefore come out 66.7 ms early.
-    - Offsetting the chapters by start₀ + (first video PTS − `vobu_s_ptm`) of `R0`'s VOBU would cancel this. That would change the "shifted by start₀" ruling above, so it is left for the controller. VobSub timing on cut titles was not measured.
+    - mkvmerge snaps the cut to that I-frame, at 1.068 s on the group timeline. It rebases the video to the first displayed frame (1.001 s, start₀), but it shifts the chapters by the keyframe's 1.068 s.
+- **Acceptance run after round 2 (chapters at start₀ + gap, VobSub at start₀), 2026-10-02.**
+  - The `info`, the `start`, `warning` and `done` events, the cut, the tracks and the video duration (7580.706 s) are all unchanged. No mounts are left.
+  - zenvik computes start₀ = 1.001 s and a gap of 66.733 ms. The chapter file starts at `00:00:01.067`.
+  - All 18 output chapters are within 1.3 ms of `info --json` (−1.27 ms to 0).
+  - **Subtitles.** The first `.idx` timestamp is `00:01:46:306` on the group timeline. The output's first subtitle block is at 105.305 s, which is idx − start₀. The next two blocks match the same way (111.561 → 110.560 s, 119.719 → 118.718 s).
+  - With the round-2 ruling as first written (VobSub also at start₀ + gap), the idx began at `00:01:46:372` and the output's first block was at 105.371 s. That is idx − start₀, 67 ms later than idx − (start₀ + gap). So mkvmerge shifts subtitles by start₀, and only the chapters take the gap.

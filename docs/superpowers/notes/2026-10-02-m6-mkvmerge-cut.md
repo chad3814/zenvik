@@ -196,7 +196,7 @@ The *Swiss Family Robinson (1960)* acceptance run found two defects. The disc is
 - dvdauthor writes `00:00:06:00` for each 180-frame (6.006 s) episode on this fixture.
 - So at NTSC a BCD time is a frame count at a nominal 30 fps: `hh:mm:ss:ff` is ((h·3600 + m·60 + s)·30 + f) × 1001/30000 s. `dvd.Time.Duration` and `dvd.NewTime` now use this, and `NewTime` rounds to the nearest frame.
 - On this fixture the episodes' IFO time is now 6.006 s, and the video tracks are 6.005 s, so they are closer than before.
-- The stray limit of 1.0 s is an IFO time of `00:00:01:00`, which is 1.001 s at NTSC, so zenvik compares cells against 1.001 s.
+- The stray limit of 1.0 s is on the time the IFO lists, `00:00:01:00`: 30 NTSC frames (1.001 s) or 25 PAL frames (1.0 s). zenvik compares cells against 1.001 s, so a 31-frame NTSC cell is kept.
 
 ### Half-VOBU margins break on multi-GOP VOBUs
 
@@ -212,7 +212,7 @@ With frame = 1001/30000 s and 10 ms of drift allowed per VOB ID change:
 - **Start.** If start₀ = 0, there is no margin. Otherwise m_s = min(c_s × 10 ms + frame, half the shorter of the VOBU before `R0` and the run's first VOBU). c_s counts the VOB ID changes in the NAV sequence from the group start through `R0`'s VOBU, so a change into `R0`'s VOBU counts.
 - **End.** m_e = min(c_e × 10 ms + frame, half the run's last VOBU), where c_e counts the changes from the group start through `R1`.
 - **Guard.** The cut fails when c × 10 ms + frame exceeds its half-VOBU bound, for m_s (when start₀ > 0) or m_e.
-- Chapters and VobSub are still shifted by start₀.
+- Chapters and VobSub were still shifted by start₀ in round 1. Round 2 changes this for chapters; see below.
 
 `TestEpisodeCutting`'s `planCut` applies the same rule. Its results, all passing:
 
@@ -231,8 +231,20 @@ With frame = 1001/30000 s and 10 ms of drift allowed per VOB ID change:
 - The cut is `parts:00:00:00.957633334-02:06:21.644100000`.
 - The video track is 7580.706 s, matching `duration_seconds` 7580.706 s.
 - Frame hashes show the output starts on cell 1's first frame and ends on cell 21's last frame. It has no frames from cell 22 or from after `R1`.
-- **Chapters are 2 frames early on open GOPs (open finding).**
+- **Chapters were 2 frames early on open GOPs.**
   - The run's first VOBU starts at `vobu_s_ptm` 25257, but its I-frame has PTS 31263. That is 6006 ticks: two leading B-frames.
   - mkvmerge cuts at the I-frame. It rebases the video to the first displayed frame (start₀), but it shifts the chapters by the I-frame's time, 66.7 ms later.
-  - So all 17 non-zero chapters come out 67–68 ms before the title's chapter starts, which is more than one frame.
+  - So all 17 non-zero chapters came out 67–68 ms before the title's chapter starts, which is more than one frame.
   - On the authored discs the GOPs are closed, so this didn't show.
+
+### Round 2: the open-GOP gap (controller ruling, 2026-10-02)
+
+- **Definition.** gap = (PTS of the first video PES with a PTS after the NAV pack in the run's first VOBU) − that VOBU's `vobu_s_ptm`, in 90 kHz ticks.
+  - It is 0 if there is no such PES before the next VOBU start, or if it is negative.
+  - A gap longer than the VOBU fails the cut.
+  - zenvik's `vobuLeadIn` computes it, and `planCut` returns it. The `--split` times don't use it.
+- **Chapters** are written at start₀ + gap + title time. On *Swiss Family Robinson*, gap = 66.733 ms, and all 18 chapters land within 1.3 ms of the title's chapter starts.
+- **Subtitles: measured, and they differ from chapters.** mkvmerge shifts the VobSub track like the video, by start₀, not by the I-frame.
+  - With the idx at start₀ + gap, the first `.idx` timestamp was `00:01:46:372` and the output's first subtitle block was at 105.371 s. That is idx − start₀, so the subtitles were 67 ms late.
+  - With the idx at start₀, the first timestamp is `00:01:46:306` and the output's first block is at 105.305 s, again idx − start₀. The next two blocks match the same way.
+  - So zenvik offsets VobSub by start₀ and only chapters by start₀ + gap.
