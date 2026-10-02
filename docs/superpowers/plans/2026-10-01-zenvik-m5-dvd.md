@@ -67,7 +67,8 @@
 - **Wave D**, in parallel:
   - T6: DVD rip. It needs T5.
   - T7: CLI. It needs T5.
-- **Wave E:** T8, integration tests and CI. It needs T1, T6 and T7.
+- **Wave D2:** T10, DVD subtitles (VobSub extraction). It needs T5 and T6, and can overlap T7.
+- **Wave E:** T8, integration tests and CI. It needs T1, T6, T7 and T10.
 - **Wave F:** T9, docs and spec sync.
 
 ---
@@ -2999,27 +3000,30 @@ git commit -m "Scan DVD titles: tracks, chapters, rippability, CSS detection and
 
 **Interfaces:**
 - Consumes:
-  - Task 5: `Disc.Format`, `zenvik.DVD`, the `Title` DVD fields and `CodingVobSub`.
+  - Task 5: `Disc.Format`, `zenvik.DVD`, and the `Title` DVD fields.
   - Task 4: `source.FindName`.
 - Produces:
-  - `mux.Job.Append []string` and `mux.Job.ChapterFile string`.
+  - `mux.Job.Concat []string`: inputs read as one file and passed as `( a b … )`. mkvmerge chains sibling VOBs on its own, and only the parenthesized form turns that off (Task 1 notes).
+  - `mux.Job.ChapterFile string`.
   - `mux.IdentifiedTrack.StreamID uint16` and `SubStreamID uint16`.
   - `Rip` works for DVD titles, from a folder or a mounted ISO.
   - In a dry run, the chapter argument is the literal placeholder `<chapters.txt>` and no chapter file is written.
 
-Read `docs/superpowers/notes/2026-10-01-m5-mkvmerge-dvd.md` from Task 1 first. If it says mkvmerge reports stream IDs differently from `stream_id` 189 with `sub_stream_id` 128+n (AC-3), 32+n (VobSub), or 224 (video), stop and report NEEDS_CONTEXT.
+Read `docs/superpowers/notes/2026-10-01-m5-mkvmerge-dvd.md` from Task 1 first. If it says mkvmerge reports stream IDs differently from `stream_id` 189 with `sub_stream_id` 128+n (AC-3) or 224 (video), stop and report NEEDS_CONTEXT.
+
+mkvmerge does not read DVD subtitles from VOBs (Task 1). This task maps video and audio only. Task 10 extracts the subtitles into a VobSub `.idx`/`.sub` pair.
 
 - [ ] **Step 1: Write the failing tests**
 
 Add to `internal/mux/mux_test.go`. Keep that file's package clause; add `reflect` to its imports if it's missing.
 
 ```go
-func TestArgsAppendAndChapters(t *testing.T) {
-	got := Args(Job{Input: "a.vob", Append: []string{"b.vob", "c.vob"}, ChapterFile: "ch.txt", Output: "o.mkv",
+func TestArgsConcatAndChapters(t *testing.T) {
+	got := Args(Job{Concat: []string{"a.vob", "b.vob", "c.vob"}, ChapterFile: "ch.txt", Output: "o.mkv",
 		Tracks: []Track{{ID: 0, Type: "video", Default: true}}})
 	want := []string{"-o", "o.mkv", "--chapters", "ch.txt", "--default-track-flag", "0:yes",
 		"--video-tracks", "0", "--no-audio", "--no-subtitles", "--track-order", "0:0",
-		"--no-chapters", "a.vob", "+", "b.vob", "+", "c.vob"}
+		"--no-chapters", "(", "a.vob", "b.vob", "c.vob", ")"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Args =\n%q\nwant\n%q", got, want)
 	}
@@ -3066,20 +3070,19 @@ func TestMapDVDTracks(t *testing.T) {
 		},
 		Subtitles: []SubtitleTrack{{PID: 0xBD20, Codec: CodingVobSub, Language: "eng", Description: "Forced"}},
 	}
+	// mkvmerge reports no subtitle tracks for VOBs; Task 10 adds them from a VobSub file.
 	id := &mux.Identification{Tracks: []mux.IdentifiedTrack{
 		{ID: 0, Type: "video", StreamID: 0xE0},
 		{ID: 1, Type: "audio", StreamID: 0xBD, SubStreamID: 0x80, Channels: 6},
 		{ID: 2, Type: "audio", StreamID: 0xBD, SubStreamID: 0x81, Channels: 2},
-		{ID: 3, Type: "subtitles", StreamID: 0xBD, SubStreamID: 0x20},
-		{ID: 4, Type: "audio", StreamID: 0xBD, SubStreamID: 0x82, Channels: 2},
+		{ID: 3, Type: "audio", StreamID: 0xBD, SubStreamID: 0x82, Channels: 2},
 	}}
 	tracks, warnings := mapDVDTracks(ti, id)
 	want := []mux.Track{
 		{ID: 0, Type: "video", Default: true},
 		{ID: 1, Type: "audio", Language: "eng", Name: "AC-3 5.1", Default: true},
 		{ID: 2, Type: "audio", Language: "fre", Name: "AC-3 Stereo (Director's Commentary)"},
-		{ID: 3, Type: "subtitles", Language: "eng", Name: "Forced"},
-		{ID: 4, Type: "audio"},
+		{ID: 3, Type: "audio"},
 	}
 	if !reflect.DeepEqual(tracks, want) {
 		t.Errorf("tracks =\n%+v\nwant\n%+v", tracks, want)
@@ -3146,10 +3149,7 @@ case "$1" in
 {"id":0,"type":"video","codec":"MPEG-1/2","properties":{"stream_id":224}},
 {"id":1,"type":"audio","codec":"AC-3","properties":{"stream_id":189,"sub_stream_id":128,"audio_channels":6}},
 {"id":2,"type":"audio","codec":"AC-3","properties":{"stream_id":189,"sub_stream_id":129,"audio_channels":2}},
-{"id":3,"type":"audio","codec":"AC-3","properties":{"stream_id":189,"sub_stream_id":130,"audio_channels":2}},
-{"id":4,"type":"subtitles","codec":"VobSub","properties":{"stream_id":189,"sub_stream_id":32}},
-{"id":5,"type":"subtitles","codec":"VobSub","properties":{"stream_id":189,"sub_stream_id":33}},
-{"id":6,"type":"subtitles","codec":"VobSub","properties":{"stream_id":189,"sub_stream_id":34}}]}
+{"id":3,"type":"audio","codec":"AC-3","properties":{"stream_id":189,"sub_stream_id":130,"audio_channels":2}}]}
 EOF
 ;;
 *) exit 2 ;;
@@ -3170,17 +3170,17 @@ esac
 	}
 	for _, p := range [][2]string{
 		{"--language", "1:eng"}, {"--language", "2:fre"}, {"--language", "3:eng"},
-		{"--track-name", "1:AC-3 5.1"}, {"--track-name", "3:AC-3 Stereo (Director's Commentary)"}, {"--track-name", "6:Forced"},
-		{"--default-track-flag", "0:yes"}, {"--default-track-flag", "1:yes"}, {"--default-track-flag", "2:no"}, {"--default-track-flag", "4:no"},
+		{"--track-name", "1:AC-3 5.1"}, {"--track-name", "3:AC-3 Stereo (Director's Commentary)"},
+		{"--default-track-flag", "0:yes"}, {"--default-track-flag", "1:yes"}, {"--default-track-flag", "2:no"},
 	} {
 		if !hasPair(cmd, p[0], p[1]) {
 			t.Errorf("missing %s %s in %q", p[0], p[1], cmd)
 		}
 	}
 	n := len(cmd)
-	if n < 4 || cmd[n-4] != "--no-chapters" || !strings.HasSuffix(cmd[n-3], filepath.Join("VIDEO_TS", "VTS_01_1.VOB")) ||
-		cmd[n-2] != "+" || !strings.HasSuffix(cmd[n-1], filepath.Join("VIDEO_TS", "VTS_01_2.VOB")) {
-		t.Errorf("inputs = %q", cmd[max(0, n-4):])
+	if n < 5 || cmd[n-5] != "--no-chapters" || cmd[n-4] != "(" || !strings.HasSuffix(cmd[n-3], filepath.Join("VIDEO_TS", "VTS_01_1.VOB")) ||
+		!strings.HasSuffix(cmd[n-2], filepath.Join("VIDEO_TS", "VTS_01_2.VOB")) || cmd[n-1] != ")" {
+		t.Errorf("inputs = %q", cmd[max(0, n-5):])
 	}
 	if _, err := os.Stat(out + ".partial"); err == nil {
 		t.Error("dry run wrote a partial file")
@@ -3192,8 +3192,8 @@ esac
 
 - [ ] **Step 2: Run them to see them fail**
 
-Run: `go test ./internal/mux/ ./ -run 'ArgsAppend|IdentifyStreamIDs|MapDVDTracks|WriteChapterFile|RipDVDDryRun'`
-Expected: FAIL to compile (`unknown field Append`, `undefined: mapDVDTracks`, …).
+Run: `go test ./internal/mux/ ./ -run 'ArgsConcat|IdentifyStreamIDs|MapDVDTracks|WriteChapterFile|RipDVDDryRun'`
+Expected: FAIL to compile (`unknown field Concat`, `undefined: mapDVDTracks`, …).
 
 - [ ] **Step 3: Extend `internal/mux`**
 
@@ -3202,8 +3202,8 @@ In `args.go`, replace `Job` with:
 ```go
 // Job describes one remux.
 type Job struct {
-	Input       string   // first input: a playlist (.mpls) or a VOB
-	Append      []string // more inputs appended to Input with "+" (DVD title VOBs)
+	Input       string   // the input file (a playlist, .mpls); ignored when Concat is set
+	Concat      []string // files mkvmerge reads as one input, passed as "( a b … )" (DVD title VOBs)
 	ChapterFile string   // chapters to use instead of the inputs' own; "" keeps the inputs' chapters
 	Output      string   // output file path
 	Tracks      []Track  // output tracks, in output order
@@ -3224,14 +3224,15 @@ Replace the final `return append(args, job.Input)` with:
 	if job.ChapterFile != "" {
 		args = append(args, "--no-chapters")
 	}
-	args = append(args, job.Input)
-	for _, a := range job.Append {
-		args = append(args, "+", a)
+	if len(job.Concat) > 0 {
+		args = append(args, "(")
+		args = append(args, job.Concat...)
+		return append(args, ")")
 	}
-	return args
+	return append(args, job.Input)
 ```
 
-Update the `Args` doc to: `// Args returns mkvmerge's arguments for job (without --gui-mode): output, the chapter file, per-track options, the track selection, the track order, then the inputs.`
+Update the `Args` doc to: `// Args returns mkvmerge's arguments for job (without --gui-mode): output, the chapter file, per-track options, the track selection, the track order, then the input (a "( … )" group for Concat).`
 
 In `identify.go`:
 - Add `SubStreamID uint64 \`json:"sub_stream_id"\`` to the raw `Properties` struct.
@@ -3299,7 +3300,7 @@ func dvdJob(ctx context.Context, mk *mux.Mkvmerge, root string, t *Title, output
 	if len(tracks) == 0 {
 		return mux.Job{}, nil, none, fmt.Errorf("%w: mkvmerge found no tracks in title %s", ErrMuxFailed, t.ID)
 	}
-	job := mux.Job{Input: inputs[0], Append: inputs[1:], Output: output, Tracks: tracks}
+	job := mux.Job{Concat: inputs, Output: output, Tracks: tracks}
 	cleanup := none
 	if len(t.Chapters) > 0 {
 		job.ChapterFile = chapterPlaceholder
@@ -3315,11 +3316,12 @@ func dvdJob(ctx context.Context, mk *mux.Mkvmerge, root string, t *Title, output
 	return job, warnings, cleanup, nil
 }
 
-// mapDVDTracks matches the title's tracks to mkvmerge's by MPEG-PS stream
-// key (stream_id<<8 | sub_stream_id, or stream_id alone): video first, then
-// audio and subtitles in IFO order, then any track the IFO doesn't
+// mapDVDTracks matches the title's video and audio tracks to mkvmerge's by
+// MPEG-PS stream key (stream_id<<8 | sub_stream_id, or stream_id alone):
+// video first, then audio in IFO order, then any track the IFO doesn't
 // describe, kept without a language or name. The first video and audio
-// tracks are default; subtitles never are.
+// tracks are default. Subtitles are not here: mkvmerge does not read them
+// from VOBs, so they come from an extracted VobSub file.
 func mapDVDTracks(t *Title, id *mux.Identification) ([]mux.Track, []string) {
 	key := func(it mux.IdentifiedTrack) uint16 {
 		if it.SubStreamID != 0 {
@@ -3368,9 +3370,6 @@ func mapDVDTracks(t *Title, id *mux.Identification) ([]mux.Track, []string) {
 			name += " (" + a.Description + ")"
 		}
 		add(a.PID, "audio", a.Language, name)
-	}
-	for _, s := range t.Subtitles {
-		add(s.PID, "subtitles", s.Language, s.Description)
 	}
 	for _, it := range id.Tracks {
 		if !used[it.ID] {
@@ -3507,8 +3506,690 @@ Run the Global Constraints verification, plus `go vet -tags integration ./...`.
 
 ```bash
 git add internal/mux rip.go rip_dvd.go rip_dvd_internal_test.go rip_dvd_test.go
-git commit -m "Rip DVD titles: append title VOBs, map tracks by stream ID, add IFO chapters"
+git commit -m "Rip DVD titles: concatenate title VOBs, map tracks by stream ID, add IFO chapters"
 ```
+
+---
+
+### Task 10: DVD subtitles — extract VobSub (.idx/.sub) and mux it
+
+mkvmerge ignores DVD subpicture streams inside VOBs (Task 1 notes). zenvik therefore copies the title's subpicture packs into a temporary VobSub `.sub` and writes a matching `.idx`, then gives mkvmerge the `.idx` as a second input. The `.idx` carries the size, the IFO palette and per-subtitle timestamps.
+
+Timestamps:
+- Every VOBU starts with a NAV pack. Its PCI gives `vobu_s_ptm`, the PTS at the VOBU start, at data offset +12. Its DSI gives the VOB ID (+24), the cell ID (+27) and `c_eltm`, the BCD elapsed time within the cell (+28).
+- A subpicture packet's title time is the cell's start in the title (from the IFO, angle-1 cells), plus `c_eltm`, plus `(PTS − vobu_s_ptm) / 90 kHz`.
+- This survives PTS resets at cell and VOB boundaries.
+
+**Files:**
+- Create: `internal/vobsub/vobsub.go`, `internal/vobsub/vobsub_test.go`
+- Modify:
+  - `title.go`: an unexported `dvd *dvdInfo` on `Title`.
+  - `scan_dvd.go`: fill it in.
+  - `internal/mux/args.go`: `Job.Extra`.
+  - `rip.go`: `PhaseSubtitles`.
+  - `rip_dvd.go`: extraction and subtitle tracks.
+- Test: `internal/mux/mux_test.go` (add), `rip_dvd_internal_test.go` (add), `rip_dvd_test.go` (update the dry-run expectations)
+
+**Interfaces:**
+- Consumes:
+  - Task 5: `scan_dvd.go`'s `dvdTitle`, `cellStarts` and `fillDVDTracks`.
+  - Task 6: `dvdJob`, `mux.Job.Concat` and `mapDVDTracks`.
+- Produces:
+  - `vobsub.Extract(ctx, vobsub.Params) (*vobsub.Result, error)`
+  - `vobsub.Cell{VOBID, CellID int; Start time.Duration}`
+  - `vobsub.Stream{ID int; Language string}`
+  - `mux.Input{Path string; Tracks []Track}` and `mux.Job.Extra []mux.Input`
+  - `zenvik.PhaseSubtitles` (5)
+  - A DVD rip's subtitle tracks come from the extracted `.idx`. In a dry run, the `.idx` path is the placeholder `<subtitles.idx>`.
+
+- [ ] **Step 1: Write the failing vobsub test**
+
+`internal/vobsub/vobsub_test.go`:
+
+```go
+package vobsub
+
+import (
+	"context"
+	"encoding/binary"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+// pack returns a 2048-byte MPEG-2 pack header with nothing after it.
+func pack() []byte {
+	p := make([]byte, 2048)
+	copy(p, []byte{0, 0, 1, 0xBA, 0x44, 0, 4, 0, 4, 1, 0x01, 0x89, 0xC3, 0xF8})
+	return p
+}
+
+// navPack builds a NAV pack for VOB vob, cell cell, cell elapsed time
+// elapsed (whole seconds, 30 fps) and VOBU start PTS ptm.
+func navPack(vob, cell, elapsed int, ptm uint32) []byte {
+	p := pack()
+	copy(p[0x0E:], []byte{0, 0, 1, 0xBB, 0x00, 0x12})
+	copy(p[0x26:], []byte{0, 0, 1, 0xBF, 0x03, 0xD4, 0x00})
+	binary.BigEndian.PutUint32(p[0x2D+12:], ptm)
+	copy(p[0x400:], []byte{0, 0, 1, 0xBF, 0x03, 0xFA, 0x01})
+	dsi := p[0x407:]
+	binary.BigEndian.PutUint16(dsi[24:], uint16(vob))
+	dsi[27] = byte(cell)
+	bcd := func(n int) byte { return byte(n/10<<4 | n%10) }
+	dsi[28], dsi[29], dsi[30], dsi[31] = bcd(elapsed/3600), bcd(elapsed/60%60), bcd(elapsed%60), 3<<6
+	return p
+}
+
+// spuPack builds a private-stream-1 pack for subpicture stream id; a
+// non-nil pts marks the first pack of a subpicture packet.
+func spuPack(id int, pts *uint32) []byte {
+	p := pack()
+	copy(p[14:], []byte{0, 0, 1, 0xBD, 0x07, 0xEC, 0x81})
+	o := 14
+	if pts == nil {
+		p[o+7], p[o+8] = 0x00, 0
+		p[o+9] = 0x20 + byte(id)
+		return p
+	}
+	v := *pts
+	p[o+7], p[o+8] = 0x80, 5
+	p[o+9] = 0x21 | byte(v>>29)&0x0E
+	p[o+10] = byte(v >> 22)
+	p[o+11] = byte(v>>14)&0xFE | 1
+	p[o+12] = byte(v >> 7)
+	p[o+13] = byte(v<<1)&0xFE | 1
+	p[o+14] = 0x20 + byte(id)
+	return p
+}
+
+func videoPack() []byte {
+	p := pack()
+	copy(p[14:], []byte{0, 0, 1, 0xE0, 0x07, 0xEC, 0x81, 0x00, 0x00})
+	return p
+}
+
+func u32(v uint32) *uint32 { return &v }
+
+func TestExtract(t *testing.T) {
+	dir := t.TempDir()
+	var vob1, vob2 []byte
+	vob1 = append(vob1, navPack(1, 1, 0, 900000)...)              // cell 1 starts at title 0; VOBU PTS 10 s
+	vob1 = append(vob1, spuPack(0, u32(900000+180000))...)       // stream 0 at 10 s + 2 s → title 2 s
+	vob1 = append(vob1, spuPack(0, nil)...)                      // continuation of that packet
+	vob1 = append(vob1, videoPack()...)
+	vob1 = append(vob1, spuPack(2, u32(900000))...)              // stream 2 is not requested
+	vob2 = append(vob2, navPack(1, 2, 3, 0)...)                  // cell 2 (starts at 25 min), 3 s in, PTS reset to 0
+	vob2 = append(vob2, spuPack(1, u32(45000))...)               // stream 1 at 0.5 s → 25:03.500
+	p1, p2 := filepath.Join(dir, "VTS_01_1.VOB"), filepath.Join(dir, "VTS_01_2.VOB")
+	if err := os.WriteFile(p1, vob1, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p2, vob2, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var palette [16]uint32
+	palette[0], palette[1] = 0x00108080, 0x00EB8080
+	out := t.TempDir()
+	res, err := Extract(context.Background(), Params{
+		VOBs:    []string{p1, p2},
+		Cells:   []Cell{{VOBID: 1, CellID: 1, Start: 0}, {VOBID: 1, CellID: 2, Start: 25 * time.Minute}},
+		Streams: []Stream{{ID: 0, Language: "en"}, {ID: 1, Language: "fr"}, {ID: 3, Language: "de"}},
+		Palette: palette, Width: 720, Height: 480, Dir: out,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Streams) != 2 || res.Streams[0].ID != 0 || res.Streams[1].ID != 1 {
+		t.Errorf("streams = %+v (stream 3 has no subtitles and must be left out)", res.Streams)
+	}
+	idx, err := os.ReadFile(res.IDX)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"# VobSub index file, v7 (do not modify this line!)\n",
+		"size: 720x480\n",
+		"palette: 000000, ffffff, 000000,",
+		"id: en, index: 0\ntimestamp: 00:00:02:000, filepos: 000000000\n",
+		"id: fr, index: 1\ntimestamp: 00:25:03:500, filepos: 000001000\n",
+	} {
+		if !strings.Contains(string(idx), want) {
+			t.Errorf("idx lacks %q:\n%s", want, idx)
+		}
+	}
+	if strings.Contains(string(idx), "index: 2") || strings.Contains(string(idx), "index: 3") {
+		t.Errorf("idx has unrequested or empty streams:\n%s", idx)
+	}
+	sub, err := os.ReadFile(strings.TrimSuffix(res.IDX, ".idx") + ".sub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sub) != 3*2048 {
+		t.Errorf(".sub is %d bytes, want 3 packs", len(sub))
+	}
+}
+
+func TestExtractRejectsPartialPack(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "x.vob")
+	if err := os.WriteFile(p, make([]byte, 3000), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Extract(context.Background(), Params{VOBs: []string{p}, Streams: []Stream{{ID: 0}}, Width: 720, Height: 480, Dir: t.TempDir()}); err == nil {
+		t.Error("want an error for a VOB that is not a whole number of packs")
+	}
+}
+
+func TestPaletteRGB(t *testing.T) {
+	for in, want := range map[uint32]string{0x00108080: "000000", 0x00EB8080: "ffffff", 0x00515AF0: "0000ff"} {
+		if got := rgb(in); got != want {
+			t.Errorf("rgb(%06X) = %s, want %s", in, got, want)
+		}
+	}
+}
+
+func TestPTSDelta(t *testing.T) {
+	if got := ptsDelta(90000, 0); got != time.Second {
+		t.Errorf("forward = %v", got)
+	}
+	if got := ptsDelta(10, 1<<33-80); got != 90*time.Second/90000 {
+		t.Errorf("wrap = %v", got)
+	}
+	if got := ptsDelta(0, 90000); got != -time.Second {
+		t.Errorf("backward = %v", got)
+	}
+}
+```
+
+Run: `go test ./internal/vobsub/`
+Expected: FAIL to compile (`undefined: Extract`).
+
+- [ ] **Step 2: Implement the extractor**
+
+`internal/vobsub/vobsub.go`:
+
+```go
+// Package vobsub copies DVD subpicture streams out of title VOBs into a
+// VobSub .idx/.sub pair, which mkvmerge reads (it ignores subpictures
+// inside VOBs).
+package vobsub
+
+import (
+	"bufio"
+	"context"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+const packSize = 2048
+
+// Cell is an angle-1 cell of the title and where it starts in the title.
+type Cell struct {
+	VOBID, CellID int
+	Start         time.Duration
+}
+
+// Stream is a subpicture stream to extract.
+type Stream struct {
+	ID       int    // physical stream number, 0..31 (sub-stream 0x20+ID)
+	Language string // ISO 639-1 code for the .idx; "" writes "--"
+}
+
+// Params describe an extraction.
+type Params struct {
+	VOBs          []string // the title's VOB files, in order
+	Cells         []Cell   // the title's angle-1 cells
+	Streams       []Stream // streams to extract, in output order
+	Palette       [16]uint32
+	Width, Height int
+	Dir           string                   // where subtitles.idx and subtitles.sub are written
+	OnProgress    func(done, total int64) // optional: bytes read so far
+}
+
+// Result is a finished extraction.
+type Result struct {
+	IDX     string   // path of the .idx; the .sub sits beside it
+	Streams []Stream // the streams that had at least one subtitle, in .idx order
+}
+
+type entry struct {
+	at  time.Duration
+	pos int64
+}
+
+// Extract copies every pack of the requested streams into Dir/subtitles.sub
+// and writes Dir/subtitles.idx.
+func Extract(ctx context.Context, p Params) (*Result, error) {
+	want := map[int]bool{}
+	for _, s := range p.Streams {
+		want[s.ID] = true
+	}
+	starts := map[[2]int]time.Duration{}
+	for _, c := range p.Cells {
+		starts[[2]int{c.VOBID, c.CellID}] = c.Start
+	}
+	var total int64
+	for _, v := range p.VOBs {
+		st, err := os.Stat(v)
+		if err != nil {
+			return nil, err
+		}
+		if st.Size()%packSize != 0 {
+			return nil, fmt.Errorf("vobsub: %s is not a whole number of 2048-byte packs", v)
+		}
+		total += st.Size()
+	}
+	subPath := filepath.Join(p.Dir, "subtitles.sub")
+	sub, err := os.Create(subPath)
+	if err != nil {
+		return nil, err
+	}
+	w := bufio.NewWriterSize(sub, 1<<20)
+	entries := map[int][]entry{}
+	var subPos, done int64
+	var base time.Duration
+	var ptm uint32
+	known := false
+	buf := make([]byte, packSize)
+	for _, v := range p.VOBs {
+		f, err := os.Open(v)
+		if err != nil {
+			sub.Close()
+			return nil, err
+		}
+		r := bufio.NewReaderSize(f, 1<<20)
+		for n := 0; ; n++ {
+			if n%4096 == 0 {
+				if err := ctx.Err(); err != nil {
+					f.Close()
+					sub.Close()
+					return nil, err
+				}
+				if p.OnProgress != nil {
+					p.OnProgress(done, total)
+				}
+			}
+			if _, err := io.ReadFull(r, buf); err != nil {
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				f.Close()
+				sub.Close()
+				return nil, fmt.Errorf("vobsub: reading %s: %w", v, err)
+			}
+			done += packSize
+			if vob, cell, elapsed, s, ok := navInfo(buf); ok {
+				start, found := starts[[2]int{vob, cell}]
+				base, ptm, known = start+elapsed, s, found
+				continue
+			}
+			id, pts, hasPTS, ok := spuInfo(buf)
+			if !ok || !want[id] {
+				continue
+			}
+			if hasPTS && known {
+				at := max(base+ptsDelta(pts, ptm), 0)
+				entries[id] = append(entries[id], entry{at: at, pos: subPos})
+			}
+			if _, err := w.Write(buf); err != nil {
+				f.Close()
+				sub.Close()
+				return nil, err
+			}
+			subPos += packSize
+		}
+		f.Close()
+	}
+	if err := w.Flush(); err != nil {
+		sub.Close()
+		return nil, err
+	}
+	if err := sub.Close(); err != nil {
+		return nil, err
+	}
+	if p.OnProgress != nil {
+		p.OnProgress(total, total)
+	}
+	res := &Result{IDX: filepath.Join(p.Dir, "subtitles.idx")}
+	var b strings.Builder
+	b.WriteString("# VobSub index file, v7 (do not modify this line!)\n# Created by zenvik\n")
+	fmt.Fprintf(&b, "size: %dx%d\n", p.Width, p.Height)
+	colors := make([]string, len(p.Palette))
+	for i, c := range p.Palette {
+		colors[i] = rgb(c)
+	}
+	fmt.Fprintf(&b, "palette: %s\n", strings.Join(colors, ", "))
+	b.WriteString("langidx: 0\n")
+	for _, s := range p.Streams {
+		es := entries[s.ID]
+		if len(es) == 0 {
+			continue
+		}
+		res.Streams = append(res.Streams, s)
+		lang := s.Language
+		if lang == "" {
+			lang = "--"
+		}
+		fmt.Fprintf(&b, "\nid: %s, index: %d\n", lang, s.ID)
+		for _, e := range es {
+			ms := e.at.Milliseconds()
+			fmt.Fprintf(&b, "timestamp: %02d:%02d:%02d:%03d, filepos: %09x\n", ms/3_600_000, ms/60_000%60, ms/1000%60, ms%1000, e.pos)
+		}
+	}
+	if err := os.WriteFile(res.IDX, []byte(b.String()), 0o644); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// navInfo reads a NAV pack: the DSI's VOB ID, cell ID and cell elapsed
+// time, and the PCI's VOBU start PTS.
+func navInfo(p []byte) (vob, cell int, elapsed time.Duration, ptm uint32, ok bool) {
+	if !packHeader(p) || p[0x0E] != 0 || p[0x0F] != 0 || p[0x10] != 1 || p[0x11] != 0xBB ||
+		p[0x26] != 0 || p[0x27] != 0 || p[0x28] != 1 || p[0x29] != 0xBF || p[0x2C] != 0x00 ||
+		p[0x400] != 0 || p[0x401] != 0 || p[0x402] != 1 || p[0x403] != 0xBF || p[0x406] != 0x01 {
+		return 0, 0, 0, 0, false
+	}
+	ptm = binary.BigEndian.Uint32(p[0x2D+12:])
+	dsi := p[0x407:]
+	return int(binary.BigEndian.Uint16(dsi[24:])), int(dsi[27]), bcdTime(dsi[28:32]), ptm, true
+}
+
+// spuInfo reports whether pack p carries a subpicture PES packet (private
+// stream 1, sub-stream 0x20–0x3F), its stream number, and its PTS if the
+// packet has one.
+func spuInfo(p []byte) (id int, pts uint32, hasPTS, ok bool) {
+	if !packHeader(p) {
+		return 0, 0, false, false
+	}
+	o := 14 + int(p[13]&7)
+	if o+9 > len(p) || p[o] != 0 || p[o+1] != 0 || p[o+2] != 1 || p[o+3] != 0xBD {
+		return 0, 0, false, false
+	}
+	hl := int(p[o+8])
+	if o+9+hl >= len(p) {
+		return 0, 0, false, false
+	}
+	sub := p[o+9+hl]
+	if sub&0xE0 != 0x20 {
+		return 0, 0, false, false
+	}
+	if p[o+7]&0x80 != 0 && hl >= 5 {
+		b := p[o+9 : o+14]
+		pts = uint32(b[0]>>1&7)<<30 | uint32(b[1])<<22 | uint32(b[2]>>1)<<15 | uint32(b[3])<<7 | uint32(b[4]>>1)
+		hasPTS = true
+	}
+	return int(sub & 0x1F), pts, hasPTS, true
+}
+
+func packHeader(p []byte) bool {
+	return len(p) == packSize && p[0] == 0 && p[1] == 0 && p[2] == 1 && p[3] == 0xBA && p[4]&0xC0 == 0x40
+}
+
+// ptsDelta returns pts − ref on the 33-bit 90 kHz clock, choosing the
+// shorter way around a wrap.
+func ptsDelta(pts, ref uint32) time.Duration {
+	const mod = int64(1) << 33
+	d := (int64(pts) - int64(ref)) % mod
+	if d < 0 {
+		d += mod
+	}
+	if d >= mod/2 {
+		d -= mod
+	}
+	return time.Duration(d) * time.Second / 90000
+}
+
+// bcdTime decodes a 4-byte BCD playback time, tolerating bad digits and
+// rates (they decode as zero or 30 fps).
+func bcdTime(b []byte) time.Duration {
+	dec := func(x byte) int {
+		hi, lo := int(x>>4), int(x&0x0F)
+		if hi > 9 || lo > 9 {
+			return 0
+		}
+		return hi*10 + lo
+	}
+	d := time.Duration(dec(b[0]))*time.Hour + time.Duration(dec(b[1]))*time.Minute + time.Duration(dec(b[2]))*time.Second
+	frames := time.Duration(dec(b[3] & 0x3F))
+	if b[3]>>6 == 1 {
+		return d + frames*40*time.Millisecond
+	}
+	return d + frames*1001*time.Second/30000
+}
+
+// rgb converts a palette entry (0x00YYCrCb, studio range) to "rrggbb"
+// with the BT.601 matrix.
+func rgb(c uint32) string {
+	y := float64(c>>16&0xFF) - 16
+	cr := float64(c>>8&0xFF) - 128
+	cb := float64(c&0xFF) - 128
+	clamp := func(v float64) int { return int(math.Max(0, math.Min(255, math.Round(v)))) }
+	r := clamp(1.164*y + 1.596*cr)
+	g := clamp(1.164*y - 0.813*cr - 0.391*cb)
+	b := clamp(1.164*y + 2.018*cb)
+	return fmt.Sprintf("%02x%02x%02x", r, g, b)
+}
+```
+
+Run: `go test -race ./internal/vobsub/`
+Expected: PASS. In `TestPaletteRGB`, `0x00515AF0` is pure blue in BT.601 studio range: Y 81, Cb 240, Cr 90. If it rounds to a neighbor such as `0000fe`, fix the expected value to what the formula yields and record that in the report. The formula is the requirement.
+
+- [ ] **Step 3: Extra mux inputs**
+
+In `internal/mux/args.go`, add:
+
+```go
+// Input is a further input file with its own output tracks.
+type Input struct {
+	Path   string
+	Tracks []Track // output tracks from this file, in output order
+}
+```
+
+Add `Extra []Input // more input files, after the main one (DVD subtitles)` to `Job`. Then restructure `Args` so that:
+- The per-track options and selection for the main input stay exactly where they are.
+- `--track-order` lists the main input's tracks as `0:id`, then each extra input's tracks as `<n>:id` (n = 1, 2, …).
+- After the main input or its `( … )` group, each extra input is emitted as its per-track options (`--language`, `--track-name`, `--default-track-flag`), then its selection (`--video-tracks`/`--no-video`, and so on, the same `selection` helper), then its path.
+
+Factor the per-track-option and selection building into a helper, `fileArgs(tracks []Track) []string`, used for every input, so the logic isn't duplicated. All existing `Args` tests must still pass unchanged.
+
+Add to `internal/mux/mux_test.go`:
+
+```go
+func TestArgsExtraInput(t *testing.T) {
+	got := Args(Job{Concat: []string{"a.vob"}, Output: "o.mkv",
+		Tracks: []Track{{ID: 0, Type: "video", Default: true}},
+		Extra:  []Input{{Path: "s.idx", Tracks: []Track{{ID: 0, Type: "subtitles", Language: "eng", Name: "Forced"}}}}})
+	want := []string{"-o", "o.mkv", "--default-track-flag", "0:yes",
+		"--video-tracks", "0", "--no-audio", "--no-subtitles", "--track-order", "0:0,1:0",
+		"(", "a.vob", ")",
+		"--language", "0:eng", "--track-name", "0:Forced", "--default-track-flag", "0:no",
+		"--no-video", "--no-audio", "--subtitle-tracks", "0", "s.idx"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Args =\n%q\nwant\n%q", got, want)
+	}
+}
+```
+
+- [ ] **Step 4: Carry the DVD data on the title**
+
+In `title.go`, add to `Title` (unexported, after `Rank`):
+
+```go
+	dvd *dvdInfo // DVD only: what ripping needs beyond the public fields
+```
+
+and append:
+
+```go
+// dvdInfo is what ripping a DVD title needs beyond its public fields.
+type dvdInfo struct {
+	cells         []vobsub.Cell     // angle-1 cells and their start times
+	palette       [16]uint32        // the PGC's subpicture palette
+	width, height int               // video size
+	subLang       map[uint16]string // subtitle PID → ISO 639-1 code from the IFO
+}
+```
+
+Import `github.com/chad3814/zenvik/internal/vobsub`.
+
+In `scan_dvd.go`:
+- Give `fillDVDTracks` a fourth parameter, `info *dvdInfo`. Inside its subpicture loop, record `info.subLang[pid] = s.Language` for each subtitle track it adds.
+- In `dvdTitle`, before calling `fillDVDTracks`, build:
+
+```go
+	info := &dvdInfo{palette: pgc.Palette, width: ts.vts.Video.Width, height: ts.vts.Video.Height, subLang: map[uint16]string{}}
+	for i, cl := range pgc.Cells {
+		if !cl.AngleBlock || cl.BlockMode == dvd.FirstInBlock || cl.BlockMode == dvd.NotInBlock {
+			info.cells = append(info.cells, vobsub.Cell{VOBID: cl.VOBID, CellID: cl.CellID, Start: starts[i]})
+		}
+	}
+	t.dvd = info
+```
+
+Then call `fillDVDTracks(t, ts.vts, pgc, info)`.
+
+- [ ] **Step 5: Extract in the rip**
+
+In `rip.go`:
+- Add `PhaseSubtitles Phase = 5 // extracting DVD subtitles (before scanning)` after `PhaseFinalizing`.
+- Add `case PhaseSubtitles: return "extracting subtitles"` to `Phase.String`.
+- Change the `dvdJob` call to pass `report`: `dvdJob(ctx, mk, root, t, partial, opts.DryRun, report)`.
+
+In `rip_dvd.go`:
+- Add the parameter `report func(Phase, float64)` to `dvdJob`.
+- Add the constant `subtitlePlaceholder = "<subtitles.idx>"`.
+- Add the helper below, and import `internal/vobsub`.
+
+```go
+// subtitleTracks are the mux tracks of a VobSub input whose streams are
+// subs, in .idx order: track i is subs[i]. None is default.
+func subtitleTracks(subs []SubtitleTrack) []mux.Track {
+	out := make([]mux.Track, len(subs))
+	for i, s := range subs {
+		lang, _ := normalizeLanguage(s.Language)
+		out[i] = mux.Track{ID: i, Type: "subtitles", Language: lang, Name: s.Description}
+	}
+	return out
+}
+```
+
+In `dvdJob`, after building `job` and before the chapter-file block, add:
+
+```go
+	if len(t.Subtitles) > 0 && t.dvd != nil {
+		if dryRun {
+			job.Extra = []mux.Input{{Path: subtitlePlaceholder, Tracks: subtitleTracks(t.Subtitles)}}
+		} else {
+			dir, err := os.MkdirTemp("", "zenvik-subtitles-")
+			if err != nil {
+				return mux.Job{}, nil, none, err
+			}
+			removeDir := func() { os.RemoveAll(dir) }
+			streams := make([]vobsub.Stream, len(t.Subtitles))
+			byID := map[int]SubtitleTrack{}
+			for i, s := range t.Subtitles {
+				id := int(s.PID - 0xBD20)
+				streams[i] = vobsub.Stream{ID: id, Language: t.dvd.subLang[s.PID]}
+				byID[id] = s
+			}
+			report(PhaseSubtitles, 0)
+			res, err := vobsub.Extract(ctx, vobsub.Params{
+				VOBs: inputs, Cells: t.dvd.cells, Streams: streams, Palette: t.dvd.palette,
+				Width: t.dvd.width, Height: t.dvd.height, Dir: dir,
+				OnProgress: func(done, total int64) {
+					if total > 0 {
+						report(PhaseSubtitles, float64(done)/float64(total))
+					}
+				},
+			})
+			if err != nil {
+				removeDir()
+				if ctx.Err() != nil {
+					return mux.Job{}, nil, none, ctx.Err()
+				}
+				return mux.Job{}, nil, none, err
+			}
+			var kept []SubtitleTrack
+			for _, s := range res.Streams {
+				kept = append(kept, byID[s.ID])
+			}
+			for _, s := range t.Subtitles {
+				if !slices.ContainsFunc(kept, func(k SubtitleTrack) bool { return k.PID == s.PID }) {
+					warnings = append(warnings, fmt.Sprintf("title %s: subtitle stream 0x%04X has no subtitles in this title; skipped", t.ID, s.PID))
+				}
+			}
+			if len(kept) > 0 {
+				job.Extra = []mux.Input{{Path: res.IDX, Tracks: subtitleTracks(kept)}}
+			}
+			cleanup = removeDir
+		}
+	}
+```
+
+Declare `cleanup := none` **before** this block (move it up from the chapter block). In the chapter block, wrap the existing cleanup so both run:
+
+```go
+			prev := cleanup
+			cleanup = func() { os.Remove(p); prev() }
+```
+
+Also route any error that happens after `cleanup` is set (the chapter file write) through `cleanup()` before returning. Add `slices` to the imports.
+
+- [ ] **Step 6: Update the rip tests**
+
+In `rip_dvd_test.go` `TestRipDVDDryRun`:
+- The last elements of the command are now `…, "(", in1, in2, ")", "--language", "0:eng", …, "<subtitles.idx>"`. Replace the inputs check so it finds `"("` and checks that `"--no-chapters"` precedes it, that the two VOB paths follow, and that `")"` follows them. Do not assume they are the last five elements.
+- Add the checks below. Track IDs for the `.idx` input restart at 0, so use `slices.Index` to locate the subtitle options after the `)`.
+
+```go
+	tail := cmd[slices.Index(cmd, ")")+1:]
+	if tail[len(tail)-1] != "<subtitles.idx>" || !hasPair(tail, "--language", "0:eng") || !hasPair(tail, "--language", "1:fre") ||
+		!hasPair(tail, "--track-name", "2:Forced") || !hasPair(tail, "--default-track-flag", "0:no") || !hasPair(tail, "--subtitle-tracks", "0,1,2") {
+		t.Errorf("subtitle input = %q", tail)
+	}
+	if !hasPair(cmd, "--track-order", "0:0,0:1,0:2,0:3,1:0,1:1,1:2") {
+		t.Errorf("track order missing in %q", cmd)
+	}
+```
+
+Add `slices` to that file's imports.
+
+Add to `rip_dvd_internal_test.go`:
+
+```go
+func TestSubtitleTracks(t *testing.T) {
+	got := subtitleTracks([]SubtitleTrack{{PID: 0xBD20, Language: "eng"}, {PID: 0xBD22, Language: "xx", Description: "Forced"}})
+	want := []mux.Track{{ID: 0, Type: "subtitles", Language: "eng"}, {ID: 1, Type: "subtitles", Name: "Forced"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("tracks = %+v", got)
+	}
+}
+```
+
+`"xx"` is not a valid 3-letter code, so its language is dropped.
+
+- [ ] **Step 7: Run and commit**
+
+Run: `go test -race ./...`
+Expected: PASS.
+
+Run the Global Constraints verification.
+
+```bash
+git add internal/vobsub internal/mux title.go scan_dvd.go rip.go rip_dvd.go rip_dvd_internal_test.go rip_dvd_test.go
+git commit -m "Extract DVD subtitles to VobSub and mux them with the title"
+```
+
 
 ---
 
@@ -3771,7 +4452,7 @@ git commit -m "CLI: add --title, show DVD sources in info, and add format to JSO
 **Interfaces:**
 - Consumes:
   - Task 1: `testdisc.AuthorDVD`.
-  - Tasks 5–7: the DVD Open/Rip path.
+  - Tasks 5–7 and 10: the DVD Open/Rip path, including the VobSub subtitles.
   - The existing integration helpers `identify`, `openDisc` and `assertDetached`.
 - Produces: `func ISOFromDir(dir string, opt udfimage.Options) ([]byte, error)`, plus CI coverage.
 
@@ -3888,6 +4569,28 @@ func chapterStarts(t *testing.T, path string) []time.Duration {
 	return starts
 }
 
+// firstTimestamp returns the first block timestamp of track tid in an MKV.
+func firstTimestamp(t *testing.T, path string, tid int) time.Duration {
+	t.Helper()
+	txt := filepath.Join(t.TempDir(), "ts.txt")
+	if out, err := exec.Command("mkvextract", path, "timestamps_v2", fmt.Sprintf("%d:%s", tid, txt)).CombinedOutput(); err != nil {
+		t.Fatalf("mkvextract timestamps: %v\n%s", err, out)
+	}
+	b, err := os.ReadFile(txt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("no timestamps for track %d:\n%s", tid, b)
+	}
+	var ms float64
+	if _, err := fmt.Sscanf(lines[1], "%g", &ms); err != nil {
+		t.Fatalf("timestamp line %q: %v", lines[1], err)
+	}
+	return time.Duration(ms * float64(time.Millisecond))
+}
+
 func assertDVDRipped(t *testing.T, out string, m *zenvik.Title) {
 	t.Helper()
 	id := identify(t, out)
@@ -3906,6 +4609,9 @@ func assertDVDRipped(t *testing.T, out string, m *zenvik.Title) {
 	}
 	if d := containerDuration(t, out); d < m.Duration-250*time.Millisecond || d > m.Duration+250*time.Millisecond {
 		t.Errorf("duration = %v, title says %v", d, m.Duration)
+	}
+	if first := firstTimestamp(t, out, 3); first < 1900*time.Millisecond || first > 2100*time.Millisecond {
+		t.Errorf("first subtitle at %v, want 2.0 s (spumux shows it from 2 s)", first)
 	}
 	starts := chapterStarts(t, out)
 	if len(starts) != len(m.Chapters) {
@@ -4050,7 +4756,7 @@ and forced subtitles are named, for example `AC-3 Stereo (Director's
 Commentary)` or `Forced`. Chapters come from the disc's program map.
 ````
 
-   Add a sentence about subtitle colors, taken from the Task 1 notes conclusion: either `DVD subtitles keep the disc's palette.` or `DVD subtitles may not keep the disc's exact colors (mkvmerge does not carry the palette from VOB files).`
+   Add the sentence: `DVD subtitles are extracted to VobSub (with the disc's palette) during the rip, so ripping a DVD title reads it once before muxing.`
 
 4. In the `info --json` description (or a new short paragraph), document:
    - `format` is `"bluray"` or `"dvd"`.
@@ -4085,7 +4791,8 @@ Change the status to `Implemented`. Edit the sections so they match the code, an
 - The JSON adds `format`, `unsupported`, `aspect_ratio` and `description`.
 - Dry run: like Blu-ray, it mounts ISOs (to identify tracks). The chapter file appears as the placeholder `<chapters.txt>`.
 - Integration ISOs are built by `internal/testdisc/udfimage` (UDF 1.02), or by `hdiutil makehybrid` if Task 8 recorded that deviation, not by `genisoimage`. Linux CI does not mount ISOs, as for Blu-ray.
-- The subtitle palette outcome from the Task 1 notes.
+- mkvmerge ignores DVD subpictures inside VOBs. zenvik extracts them to a temporary VobSub `.idx`/`.sub` (Task 10), with the IFO palette and NAV-pack-based timestamps, and muxes that file as a second input. The dry run shows `<subtitles.idx>`. This replaces §6.1's palette fallback.
+- Title VOBs are passed as mkvmerge's `( a.VOB b.VOB )` group, because mkvmerge chains sibling VOBs on its own and `+` duplicated content.
 - Every controller ruling passed in the dispatch.
 
 - [ ] **Step 4: Verify and commit**
