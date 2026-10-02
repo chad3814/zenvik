@@ -77,6 +77,9 @@ func (d *Disc) Rip(ctx context.Context, t *Title, opts RipOptions) (res *RipResu
 	if !slices.Contains(d.Titles, t) {
 		return nil, errors.New("zenvik: title does not belong to this disc")
 	}
+	if t.Unsupported != "" {
+		return nil, fmt.Errorf("%w: title %s %s", ErrUnsupportedTitle, t.ID, t.Unsupported)
+	}
 	if t.Encrypted {
 		return nil, fmt.Errorf("%w: title %s", ErrEncrypted, t.ID)
 	}

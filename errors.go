@@ -11,9 +11,9 @@ import (
 
 // Errors returned by Open; check them with errors.Is.
 var (
-	// ErrUnsupportedSource: the path is not a Blu-ray ISO image or BDMV folder.
+	// ErrUnsupportedSource: the path is not a Blu-ray or DVD ISO image or folder.
 	ErrUnsupportedSource = source.ErrUnsupported
-	// ErrEncrypted: every usable title on the disc is AACS-encrypted.
+	// ErrEncrypted: every usable title on the disc is AACS- or CSS-encrypted.
 	ErrEncrypted = errors.New("zenvik: disc is encrypted; zenvik only reads unencrypted discs")
 	// ErrNoTitles: the disc has no playlists.
 	ErrNoTitles = errors.New("zenvik: no playlists found")
@@ -29,4 +29,6 @@ var (
 	ErrOutputExists = errors.New("zenvik: output file already exists")
 	// ErrInvalidTemplate: a name template is malformed or renders an unsafe path.
 	ErrInvalidTemplate = naming.ErrTemplate
+	// ErrUnsupportedTitle: the title can't be ripped yet; Title.Unsupported says why.
+	ErrUnsupportedTitle = errors.New("zenvik: title is not supported")
 )
