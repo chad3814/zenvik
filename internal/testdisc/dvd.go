@@ -91,7 +91,8 @@ func (d *DVD) Files() map[string][]byte {
 // navigate writes a NAV pack at the first sector of every cell of every
 // PGC in vts (each such sector starts a VOBU) into data, the title set's
 // title VOBs back to back, and returns those VOBU starts in ascending
-// order. VOBU PTMs run in sector order; each VOBU lasts its cell's time.
+// order. VOBU PTMs run in sector order; each VOBU lasts its cell's time,
+// rounded to 90 kHz ticks (an NTSC frame is exactly 3003 ticks).
 func navigate(vts *dvd.VTS, data []byte) []uint32 {
 	byStart := map[uint32]dvd.Cell{}
 	for _, p := range vts.PGCs {
@@ -111,7 +112,7 @@ func navigate(vts *dvd.VTS, data []byte) []uint32 {
 	var ptm uint32
 	for _, s := range starts {
 		c := byStart[s]
-		ticks := uint32(c.Time.Duration() * 90000 / time.Second)
+		ticks := uint32((c.Time.Duration()*90000 + time.Second/2) / time.Second)
 		copy(data[int(s)*2048:], NAVPack(dvd.NAV{StartPTM: ptm, EndPTM: ptm + ticks, VOBID: c.VOBID, CellID: c.CellID}))
 		ptm += ticks
 	}

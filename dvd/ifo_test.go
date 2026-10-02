@@ -132,16 +132,64 @@ func TestParseCorrupt(t *testing.T) {
 }
 
 func TestTimeDuration(t *testing.T) {
+	// NTSC IFO times count frames at a nominal 30 fps; each lasts 1001/30000 s.
 	ntsc := dvd.Time{Hours: 1, Minutes: 2, Seconds: 3, Frames: 15, Rate: dvd.Rate30}
-	if got, want := ntsc.Duration(), 3723*time.Second+15*1001*time.Second/30000; got != want {
+	if got, want := ntsc.Duration(), time.Duration(3723*30+15)*1001*time.Second/30000; got != want {
 		t.Errorf("NTSC = %v, want %v", got, want)
+	}
+	if got, want := (dvd.Time{Seconds: 6, Rate: dvd.Rate30}).Duration(), 6006*time.Millisecond; got != want {
+		t.Errorf("NTSC 00:00:06:00 = %v, want %v (180 frames)", got, want)
+	}
+	if got, want := (dvd.Time{Seconds: 1, Rate: dvd.Rate30}).Duration(), 1001*time.Millisecond; got != want {
+		t.Errorf("NTSC 00:00:01:00 = %v, want %v", got, want)
+	}
+	if got, want := (dvd.Time{Hours: 99, Minutes: 59, Seconds: 59, Frames: 29, Rate: dvd.Rate30}).Duration(), time.Duration(10799999)*100100000/3; got != want {
+		t.Errorf("NTSC 99:59:59:29 = %v, want %v", got, want)
+	}
+	if got := (dvd.Time{}).Duration(); got != 0 {
+		t.Errorf("zero time = %v", got)
 	}
 	pal := dvd.Time{Seconds: 1, Frames: 24, Rate: dvd.Rate25}
 	if got := pal.Duration(); got != time.Second+960*time.Millisecond {
 		t.Errorf("PAL = %v", got)
 	}
-	if got := dvd.NewTime(3723*time.Second+500*time.Millisecond, dvd.Rate30); got != (dvd.Time{Hours: 1, Minutes: 2, Seconds: 3, Frames: 14, Rate: dvd.Rate30}) {
-		t.Errorf("NewTime = %+v", got)
+}
+
+func TestNewTime(t *testing.T) {
+	ntsc := func(h, m, s, f int) dvd.Time {
+		return dvd.Time{Hours: h, Minutes: m, Seconds: s, Frames: f, Rate: dvd.Rate30}
+	}
+	pal := func(h, m, s, f int) dvd.Time {
+		return dvd.Time{Hours: h, Minutes: m, Seconds: s, Frames: f, Rate: dvd.Rate25}
+	}
+	for _, tt := range []struct {
+		d    time.Duration
+		r    dvd.FrameRate
+		want dvd.Time
+	}{
+		{0, dvd.Rate30, ntsc(0, 0, 0, 0)},
+		{-time.Second, dvd.Rate30, ntsc(0, 0, 0, 0)},
+		{6006 * time.Millisecond, dvd.Rate30, ntsc(0, 0, 6, 0)}, // 180 frames
+		{6 * time.Second, dvd.Rate30, ntsc(0, 0, 6, 0)},         // 179.82 frames → 180
+		{time.Second, dvd.Rate30, ntsc(0, 0, 1, 0)},             // 29.97 frames → 30
+		{20 * time.Minute, dvd.Rate30, ntsc(0, 19, 58, 24)},     // 35964.04 frames
+		{24 * time.Minute, dvd.Rate30, ntsc(0, 23, 58, 17)},     // 43156.84 → 43157 frames
+		{(3723*30 + 15) * 1001 * time.Second / 30000, dvd.Rate30, ntsc(1, 2, 3, 15)},
+		{100 * time.Hour, dvd.Rate30, ntsc(99, 54, 0, 11)}, // 10789210.79 frames
+		{360400 * time.Second, dvd.Rate30, ntsc(99, 59, 59, 29)},
+		{time.Second + 979*time.Millisecond, dvd.Rate25, pal(0, 0, 1, 24)}, // 49.475 frames → 49
+		{time.Second + 980*time.Millisecond, dvd.Rate25, pal(0, 0, 2, 0)},  // 49.5 frames → 50
+		{100 * time.Hour, dvd.Rate25, pal(99, 59, 59, 24)},
+	} {
+		if got := dvd.NewTime(tt.d, tt.r); got != tt.want {
+			t.Errorf("NewTime(%v, %d) = %+v, want %+v", tt.d, tt.r, got, tt.want)
+		}
+	}
+	for _, d := range []time.Duration{time.Second, 20 * time.Minute, 24 * time.Minute, 100 * time.Minute, 7581 * time.Second} {
+		got := dvd.NewTime(d, dvd.Rate30).Duration()
+		if diff := got - d; diff < -1001*time.Second/60000 || diff > 1001*time.Second/60000 {
+			t.Errorf("NewTime(%v).Duration() = %v, more than half a frame away", d, got)
+		}
 	}
 }
 
@@ -206,7 +254,7 @@ func TestReservedCountBytesIgnored(t *testing.T) {
 func TestTimeTolerance(t *testing.T) {
 	parse := func(minutes, frameByte byte) dvd.Time {
 		b := testdisc.VTSFile(sampleVTS())
-		b[firstPGCAt+5], b[firstPGCAt+7] = minutes, frameByte
+		b[firstPGCAt+5], b[firstPGCAt+6], b[firstPGCAt+7] = minutes, 0, frameByte
 		v, err := dvd.ParseVTS(b)
 		if err != nil {
 			t.Fatal(err)

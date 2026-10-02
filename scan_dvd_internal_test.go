@@ -8,6 +8,10 @@ import (
 	"github.com/chad3814/zenvik/dvd"
 )
 
+// ntsc is the duration of d as an NTSC IFO time: rounded to a whole
+// 1001/30000 s frame, as cell stores it.
+func ntsc(d time.Duration) time.Duration { return dvd.NewTime(d, dvd.Rate30).Duration() }
+
 func cell(first, last uint32, d time.Duration) dvd.Cell {
 	return dvd.Cell{FirstSector: first, LastSector: last, Time: dvd.NewTime(d, dvd.Rate30)}
 }
@@ -63,14 +67,14 @@ func TestRemapChapters(t *testing.T) {
 	pgc := &dvd.PGC{Cells: []dvd.Cell{cell(2, 25, 24*m), cell(26, 49, 24*m), cell(0, 1, time.Second)}, Programs: []int{1, 2, 3}}
 	ptts := []dvd.PartOfTitle{{PGC: 1, Program: 1}, {PGC: 1, Program: 2}, {PGC: 1, Program: 3}}
 	got := titleChapters(pgc, ptts, map[int]bool{2: true})
-	want := []Chapter{{Number: 1, Start: 0}, {Number: 2, Start: 24 * m}}
+	want := []Chapter{{Number: 1, Start: 0}, {Number: 2, Start: ntsc(24 * m)}}
 	if !slices.Equal(got, want) {
 		t.Errorf("chapters = %v, want %v", got, want)
 	}
 	// A dropped leading cell moves its chapter to the next kept cell; duplicates collapse.
 	pgc2 := &dvd.PGC{Cells: []dvd.Cell{cell(48, 49, time.Second), cell(0, 20, m), cell(21, 30, m)}, Programs: []int{1, 2, 3}}
 	got = titleChapters(pgc2, ptts, map[int]bool{0: true})
-	want = []Chapter{{Number: 1, Start: 0}, {Number: 2, Start: m}}
+	want = []Chapter{{Number: 1, Start: 0}, {Number: 2, Start: ntsc(m)}}
 	if !slices.Equal(got, want) {
 		t.Errorf("leading drop: chapters = %v, want %v", got, want)
 	}

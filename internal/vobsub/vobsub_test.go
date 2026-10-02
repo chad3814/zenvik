@@ -18,7 +18,8 @@ func pack() []byte {
 }
 
 // navPack builds a NAV pack for VOB vob, cell cell, cell elapsed time
-// elapsed (whole seconds, 30 fps) and VOBU start PTS ptm.
+// elapsed (whole IFO seconds at NTSC: 30 frames of 1001/30000 s, so 3 is
+// 3.003 s) and VOBU start PTS ptm.
 func navPack(vob, cell, elapsed int, ptm uint32) []byte {
 	p := pack()
 	copy(p[0x0E:], []byte{0, 0, 1, 0xBB, 0x00, 0x12})
@@ -71,8 +72,8 @@ func TestExtract(t *testing.T) {
 	vob1 = append(vob1, spuPack(0, nil)...)                // continuation of that packet
 	vob1 = append(vob1, videoPack()...)
 	vob1 = append(vob1, spuPack(2, u32(900000))...) // stream 2 is not requested
-	vob2 = append(vob2, navPack(1, 2, 3, 0)...)     // cell 2 (starts at 25 min), 3 s in, PTS reset to 0
-	vob2 = append(vob2, spuPack(1, u32(45000))...)  // stream 1 at 0.5 s → 25:03.500
+	vob2 = append(vob2, navPack(1, 2, 3, 0)...)     // cell 2 (starts at 25 min), 00:00:03:00 = 3.003 s in, PTS reset to 0
+	vob2 = append(vob2, spuPack(1, u32(45000))...)  // stream 1 at 0.5 s → 25:03.503
 	p1, p2 := filepath.Join(dir, "VTS_01_1.VOB"), filepath.Join(dir, "VTS_01_2.VOB")
 	if err := os.WriteFile(p1, vob1, 0o644); err != nil {
 		t.Fatal(err)
@@ -104,7 +105,7 @@ func TestExtract(t *testing.T) {
 		"size: 720x480\n",
 		"palette: 000000, ffffff, 000000,",
 		"id: en, index: 0\ntimestamp: 00:00:02:000, filepos: 000000000\n",
-		"id: fr, index: 1\ntimestamp: 00:25:03:500, filepos: 000001000\n",
+		"id: fr, index: 1\ntimestamp: 00:25:03:503, filepos: 000001000\n",
 	} {
 		if !strings.Contains(string(idx), want) {
 			t.Errorf("idx lacks %q:\n%s", want, idx)

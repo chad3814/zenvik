@@ -9,7 +9,7 @@ import (
 )
 
 func TestNAVRoundTrip(t *testing.T) {
-	want := dvd.NAV{StartPTM: 900000, EndPTM: 945045, VOBID: 3, CellID: 7, CellElapsed: 12*time.Second + 15*1001*time.Second/30000}
+	want := dvd.NAV{StartPTM: 900000, EndPTM: 945045, VOBID: 3, CellID: 7, CellElapsed: time.Duration(12*30+15) * 1001 * time.Second / 30000} // 00:00:12:15, 375 NTSC frames
 	got, ok := dvd.ParseNAV(testdisc.NAVPack(want))
 	if !ok || got != want {
 		t.Errorf("ParseNAV = %+v, %v; want %+v", got, ok, want)

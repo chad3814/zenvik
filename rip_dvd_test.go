@@ -110,7 +110,8 @@ func TestDVDCutDryRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := res.Command
-	if !hasPair(cmd, "--split", "parts:00:30:00.000000000-00:50:00.000000000") {
+	// 20-minute cells are 35964 NTSC frames, 1199.9988 s; the margins are half that.
+	if !hasPair(cmd, "--split", "parts:00:29:59.998200000-00:49:59.997000000") {
 		t.Errorf("no split in %q", cmd)
 	}
 	i := slices.Index(cmd, "(")

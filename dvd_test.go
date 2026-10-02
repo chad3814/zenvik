@@ -14,6 +14,7 @@ import (
 
 	"github.com/chad3814/zenvik"
 	"github.com/chad3814/zenvik/bluray"
+	"github.com/chad3814/zenvik/dvd"
 	"github.com/chad3814/zenvik/internal/testdisc"
 	"github.com/chad3814/zenvik/internal/testdisc/udfimage"
 )
@@ -27,8 +28,13 @@ func writeDVD(t *testing.T, d *testdisc.DVD) string {
 	return root
 }
 
+// ntsc is the duration of d as an NTSC IFO time, the way the fixtures
+// store it: rounded to a whole 1001/30000 s frame.
+func ntsc(d time.Duration) time.Duration { return dvd.NewTime(d, dvd.Rate30).Duration() }
+
 func checkSampleDVD(t *testing.T, d *zenvik.Disc, vob1, vob2 string) {
 	t.Helper()
+	ch25 := ntsc(25 * time.Minute)
 	if got, want := ids(d.Titles), []string{"01", "06", "03", "04", "05", "08", "02", "07"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("titles = %v, want %v", got, want)
 	}
@@ -36,13 +42,13 @@ func checkSampleDVD(t *testing.T, d *zenvik.Disc, vob1, vob2 string) {
 	if m == nil || m.ID != "01" {
 		t.Fatalf("Main = %+v", m)
 	}
-	if m.Duration != 100*time.Minute || m.Size != 70*2048 || m.Angles != 1 || m.Encrypted || m.Unsupported != "" {
+	if m.Duration != ntsc(4*ch25) || m.Size != 70*2048 || m.Angles != 1 || m.Encrypted || m.Unsupported != "" {
 		t.Errorf("main = duration %v, size %d, angles %d, encrypted %v, unsupported %q", m.Duration, m.Size, m.Angles, m.Encrypted, m.Unsupported)
 	}
 	if want := []zenvik.Clip{{ID: vob1}, {ID: vob2}}; !reflect.DeepEqual(m.Clips, want) {
 		t.Errorf("clips = %+v, want %+v", m.Clips, want)
 	}
-	wantCh := []zenvik.Chapter{{Number: 1, Start: 0}, {Number: 2, Start: 25 * time.Minute}, {Number: 3, Start: 50 * time.Minute}, {Number: 4, Start: 75 * time.Minute}}
+	wantCh := []zenvik.Chapter{{Number: 1, Start: 0}, {Number: 2, Start: ch25}, {Number: 3, Start: 2 * ch25}, {Number: 4, Start: 3 * ch25}}
 	if !reflect.DeepEqual(m.Chapters, wantCh) {
 		t.Errorf("chapters = %v", m.Chapters)
 	}
@@ -81,14 +87,14 @@ func checkSampleDVD(t *testing.T, d *zenvik.Disc, vob1, vob2 string) {
 		t.Errorf("08 copies its 15 angle-1 sectors: size %d", ang.Size)
 	}
 	all := mustTitle(t, d, "06")
-	if all.Unsupported != "" || all.Duration != time.Hour || len(all.Clips) != 2 || len(all.Chapters) != 3 || all.Chapters[2].Start != 40*time.Minute {
+	if all.Unsupported != "" || all.Duration != ntsc(3*ntsc(20*time.Minute)) || len(all.Clips) != 2 || len(all.Chapters) != 3 || all.Chapters[2].Start != 2*ntsc(20*time.Minute) {
 		t.Errorf("06 = %+v", all)
 	}
 	if ex := mustTitle(t, d, "07"); !ex.Rank.Filtered || !slices.Contains(ex.Rank.Reasons, "shorter than 2m0s") {
 		t.Errorf("07 rank = %+v", ex.Rank)
 	}
 	ang := mustTitle(t, d, "08")
-	if ang.Angles != 2 || len(ang.Chapters) != 3 || ang.Chapters[1].Start != 2*time.Minute || ang.Chapters[2].Start != 5*time.Minute {
+	if ang.Angles != 2 || len(ang.Chapters) != 3 || ang.Chapters[1].Start != ntsc(2*time.Minute) || ang.Chapters[2].Start != ntsc(2*time.Minute)+ntsc(3*time.Minute) {
 		t.Errorf("08 = angles %d, chapters %v", ang.Angles, ang.Chapters)
 	}
 }
@@ -197,18 +203,19 @@ func TestRipUnsupportedDVDTitle(t *testing.T) {
 
 func TestOpenStrayCellDVD(t *testing.T) {
 	d := openDisc(t, writeDVD(t, testdisc.StrayCellDVD()))
+	ch24, sec := ntsc(24*time.Minute), ntsc(time.Second)
 	cut := mustTitle(t, d, "01")
-	if cut.RipMethod != "cut" || cut.Duration != 48*time.Minute || cut.Size != 48*2048 {
+	if cut.RipMethod != "cut" || cut.Duration != ntsc(2*ch24+sec)-sec || cut.Size != 48*2048 {
 		t.Errorf("01 = method %q, duration %v, size %d", cut.RipMethod, cut.Duration, cut.Size)
 	}
-	if want := []zenvik.SkippedCell{{Cell: 3, Duration: time.Second, FirstSector: 0, LastSector: 1}}; !reflect.DeepEqual(cut.SkippedCells, want) {
+	if want := []zenvik.SkippedCell{{Cell: 3, Duration: sec, FirstSector: 0, LastSector: 1}}; !reflect.DeepEqual(cut.SkippedCells, want) {
 		t.Errorf("01 skipped = %+v", cut.SkippedCells)
 	}
-	if want := []zenvik.Chapter{{Number: 1, Start: 0}, {Number: 2, Start: 24 * time.Minute}}; !reflect.DeepEqual(cut.Chapters, want) {
+	if want := []zenvik.Chapter{{Number: 1, Start: 0}, {Number: 2, Start: ch24}}; !reflect.DeepEqual(cut.Chapters, want) {
 		t.Errorf("01 chapters = %v", cut.Chapters)
 	}
 	cp := mustTitle(t, d, "02")
-	if cp.RipMethod != "copy" || len(cp.SkippedCells) != 0 || len(cp.Chapters) != 3 || cp.Chapters[2].Start != 24*time.Minute+time.Second {
+	if cp.RipMethod != "copy" || len(cp.SkippedCells) != 0 || len(cp.Chapters) != 3 || cp.Chapters[2].Start != ch24+sec {
 		t.Errorf("02 = method %q, skipped %v, chapters %v", cp.RipMethod, cp.SkippedCells, cp.Chapters)
 	}
 	if f := mustTitle(t, d, "03"); f.RipMethod != "files" {

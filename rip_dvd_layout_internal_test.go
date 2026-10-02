@@ -38,16 +38,27 @@ func sampleTitle(t *testing.T, disc *testdisc.DVD, id string) (*Disc, *Title, []
 	return d, ti, paths
 }
 
+// ticks90k converts 90 kHz ticks to a duration, as planCut does.
+func ticks90k(n uint64) time.Duration { return time.Duration(n) * time.Second / 90000 }
+
+// Synthetic VOBUs are whole cells, each its IFO time's NTSC frames × 3003 ticks.
+const (
+	vobu20 = 35964 * 3003 // a 20-minute cell: 35964 frames
+	vobu24 = 43157 * 3003 // a 24-minute cell: 43157 frames
+	vobu1  = 30 * 3003    // a 1-second cell: 00:00:01:00, 30 frames
+)
+
 func TestCutPoints(t *testing.T) {
+	half := ticks90k(vobu20) / 2
 	for _, tt := range []struct {
 		id         string
 		group      []string
 		start, end time.Duration
 	}{
 		// Synthetic VOBUs are whole 20-minute cells, so the half-VOBU margins are 10 minutes.
-		{"03", []string{"VTS_02_1.VOB"}, 0, 10 * time.Minute},
-		{"04", []string{"VTS_02_1.VOB", "VTS_02_2.VOB"}, 10 * time.Minute, 30 * time.Minute},
-		{"05", []string{"VTS_02_1.VOB", "VTS_02_2.VOB"}, 30 * time.Minute, 50 * time.Minute}, // VTS_02_2 starts mid-VOBU
+		{"03", []string{"VTS_02_1.VOB"}, 0, ticks90k(vobu20) - half},
+		{"04", []string{"VTS_02_1.VOB", "VTS_02_2.VOB"}, ticks90k(vobu20) - half, ticks90k(2*vobu20) - half},
+		{"05", []string{"VTS_02_1.VOB", "VTS_02_2.VOB"}, ticks90k(2*vobu20) - half, ticks90k(3*vobu20) - half}, // VTS_02_2 starts mid-VOBU
 	} {
 		_, ti, paths := sampleTitle(t, testdisc.SampleDVD(), tt.id)
 		var names []string
@@ -63,9 +74,10 @@ func TestCutPoints(t *testing.T) {
 		}
 	}
 	_, ti, paths := sampleTitle(t, testdisc.StrayCellDVD(), "01")
-	// start₀ 1 s, m_s = min(1 s, 24 min)/2; end₀ 48m1s, m_e = 24 min/2; one VOB-ID change (A→B), 10 ms ≪ margins.
-	if start, end, err := cutPoints(ti.dvd, paths); err != nil || start != 500*time.Millisecond || end != 36*time.Minute+time.Second {
-		t.Errorf("stray 01: cut %v–%v (%v)", start, end, err)
+	// start₀ 1.001 s, m_s = min(1.001 s, 24 min)/2; end₀ = start₀ + 2 × 24 min, m_e = 24 min/2; one VOB-ID change (A→B), 10 ms ≪ margins.
+	wantStart, wantEnd := ticks90k(vobu1)-ticks90k(vobu1)/2, ticks90k(vobu1+2*vobu24)-ticks90k(vobu24)/2
+	if start, end, err := cutPoints(ti.dvd, paths); err != nil || start != wantStart || end != wantEnd {
+		t.Errorf("stray 01: cut %v–%v (%v), want %v–%v", start, end, err, wantStart, wantEnd)
 	}
 }
 
@@ -185,14 +197,15 @@ esac
 		t.Fatal(err)
 	}
 	defer cleanup()
-	if len(job.Split) != 1 || job.Split[0] != (mux.TimeRange{Start: 30 * time.Minute, End: 50 * time.Minute}) {
+	half := ticks90k(vobu20) / 2
+	if len(job.Split) != 1 || job.Split[0] != (mux.TimeRange{Start: ticks90k(2*vobu20) - half, End: ticks90k(3*vobu20) - half}) {
 		t.Errorf("split = %v", job.Split)
 	}
 	b, err := os.ReadFile(job.ChapterFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(string(b), "CHAPTER01=00:40:00.000\n") {
+	if !strings.HasPrefix(string(b), "CHAPTER01=00:39:59.997\n") { // start₀ = 2 × 35964 frames = 2399.9976 s
 		t.Errorf("chapter file:\n%s", b)
 	}
 }

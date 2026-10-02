@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/chad3814/zenvik/dvd"
 	"github.com/chad3814/zenvik/internal/testdisc"
 	"github.com/chad3814/zenvik/internal/testdisc/udfimage"
 )
@@ -146,9 +148,10 @@ func TestInfoSkippedCells(t *testing.T) {
 	if err := json.Unmarshal([]byte(js), &disc); err != nil {
 		t.Fatal(err)
 	}
+	sec := dvd.NewTime(time.Second, dvd.Rate30).Duration().Seconds() // 00:00:01:00, 1.001 s
 	for _, ti := range disc.Titles {
 		if ti.ID == "01" && (ti.RipMethod != "cut" || len(ti.SkippedCells) != 1 || ti.SkippedCells[0].Cell != 3 ||
-			ti.SkippedCells[0].DurationSeconds != 1 || ti.SkippedCells[0].LastSector != 1) {
+			ti.SkippedCells[0].DurationSeconds != sec || ti.SkippedCells[0].LastSector != 1) {
 			t.Errorf("01 = %+v", ti)
 		}
 	}

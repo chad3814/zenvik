@@ -20,40 +20,48 @@ type Time struct {
 	Rate                            FrameRate // 0 only for an all-zero time
 }
 
-// Duration converts t to a time.Duration. NTSC frames last 1001/30000 s.
+// Duration converts t to a time.Duration. NTSC times count frames at a
+// nominal 30 fps (dvdauthor writes 00:00:06:00 for 180 frames), and each
+// frame lasts 1001/30000 s, so 00:00:06:00 is 6.006 s. PAL times are exact.
 func (t Time) Duration() time.Duration {
-	d := time.Duration(t.Hours)*time.Hour + time.Duration(t.Minutes)*time.Minute + time.Duration(t.Seconds)*time.Second
+	secs := int64(t.Hours)*3600 + int64(t.Minutes)*60 + int64(t.Seconds)
 	switch t.Rate {
 	case Rate25:
-		d += time.Duration(t.Frames) * 40 * time.Millisecond
+		return time.Duration(secs)*time.Second + time.Duration(t.Frames)*40*time.Millisecond
 	case Rate30:
-		d += time.Duration(t.Frames) * 1001 * time.Second / 30000
+		// frames × 1001 s / 30000, reduced by 10⁴ so 99:59:59:29 doesn't overflow.
+		return time.Duration(secs*30+int64(t.Frames)) * 100100000 / 3
 	}
-	return d
+	return time.Duration(secs) * time.Second
 }
 
-// NewTime returns the Time for d at rate r, rounding down to a whole frame.
-// Durations of 100 hours or more are clamped to 99:59:59.
+// NewTime returns the Time for d at rate r, rounded to the nearest frame.
+// It inverts Duration. Durations past the last frame of 99:59:59 are
+// clamped to that frame.
 func NewTime(d time.Duration, r FrameRate) Time {
 	if d < 0 {
 		d = 0
 	}
-	if d >= 100*time.Hour {
-		d = 100*time.Hour - time.Second
-	}
 	t := Time{Rate: r}
-	t.Hours = int(d / time.Hour)
-	d -= time.Duration(t.Hours) * time.Hour
-	t.Minutes = int(d / time.Minute)
-	d -= time.Duration(t.Minutes) * time.Minute
-	t.Seconds = int(d / time.Second)
-	d -= time.Duration(t.Seconds) * time.Second
+	var frames, fps int64
 	switch r {
 	case Rate25:
-		t.Frames = int(d / (40 * time.Millisecond))
+		fps = 25
+		frames = int64((d + 20*time.Millisecond) / (40 * time.Millisecond))
 	case Rate30:
-		t.Frames = int(d * 30000 / (1001 * time.Second))
+		// (d × 30000 + 1001 s/2) / 1001 s, reduced by 10⁴ so it can't overflow.
+		fps = 30
+		frames = int64((d*3 + 50050000) / 100100000)
+	default:
+		s := min(int64(d/time.Second), 100*3600-1)
+		t.Hours, t.Minutes, t.Seconds = int(s/3600), int(s/60%60), int(s%60)
+		return t
 	}
+	frames = min(frames, (100*3600)*fps-1)
+	t.Hours = int(frames / (fps * 3600))
+	t.Minutes = int(frames / (fps * 60) % 60)
+	t.Seconds = int(frames / fps % 60)
+	t.Frames = int(frames % fps)
 	return t
 }
 
