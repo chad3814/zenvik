@@ -99,6 +99,9 @@ func notes(t *zenvik.Title) string {
 	if t.Rank.Ambiguous {
 		n = append(n, "ambiguous")
 	}
+	if k := len(t.SkippedCells); k > 0 {
+		n = append(n, fmt.Sprintf("skipped %d short cell(s)", k))
+	}
 	if t.Rank.Filtered {
 		var why []string
 		for _, r := range t.Rank.Reasons {
@@ -141,10 +144,19 @@ type jsonTitle struct {
 	Angles          int            `json:"angles"`
 	Encrypted       bool           `json:"encrypted"`
 	Unsupported     string         `json:"unsupported,omitempty"`
+	RipMethod       string         `json:"rip_method,omitempty"`
+	SkippedCells    []jsonSkipped  `json:"skipped_cells,omitempty"`
 	Video           []jsonVideo    `json:"video"`
 	Audio           []jsonAudio    `json:"audio"`
 	Subtitles       []jsonSubtitle `json:"subtitles"`
 	Rank            jsonRank       `json:"rank"`
+}
+
+type jsonSkipped struct {
+	Cell            int     `json:"cell"`
+	DurationSeconds float64 `json:"duration_seconds"`
+	FirstSector     uint32  `json:"first_sector"`
+	LastSector      uint32  `json:"last_sector"`
 }
 
 type jsonVideo struct {
@@ -230,6 +242,7 @@ func toJSONTitle(t *zenvik.Title) jsonTitle {
 		Angles:          t.Angles,
 		Encrypted:       t.Encrypted,
 		Unsupported:     t.Unsupported,
+		RipMethod:       t.RipMethod,
 		Video:           make([]jsonVideo, 0, len(t.Video)),
 		Audio:           make([]jsonAudio, 0, len(t.Audio)),
 		Subtitles:       make([]jsonSubtitle, 0, len(t.Subtitles)),
@@ -241,6 +254,10 @@ func toJSONTitle(t *zenvik.Title) jsonTitle {
 			DuplicateOf: t.Rank.DuplicateOf,
 			Reasons:     append([]string{}, t.Rank.Reasons...),
 		},
+	}
+	for _, sc := range t.SkippedCells {
+		jt.SkippedCells = append(jt.SkippedCells, jsonSkipped{Cell: sc.Cell, DurationSeconds: sc.Duration.Seconds(),
+			FirstSector: sc.FirstSector, LastSector: sc.LastSector})
 	}
 	for _, c := range t.Chapters {
 		jt.Chapters = append(jt.Chapters, c.Start.Seconds())

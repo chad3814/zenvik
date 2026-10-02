@@ -46,6 +46,7 @@ func TestInfoDVDJSON(t *testing.T) {
 		Titles             []struct {
 			ID          string
 			Unsupported string
+			RipMethod   string `json:"rip_method"`
 			Video       []struct {
 				AspectRatio string `json:"aspect_ratio"`
 			}
@@ -65,8 +66,12 @@ func TestInfoDVDJSON(t *testing.T) {
 				t.Errorf("01 = %+v", ti)
 			}
 		case "03":
-			if ti.Unsupported != "" {
-				t.Errorf("03 unsupported = %q", ti.Unsupported)
+			if ti.Unsupported != "" || ti.RipMethod != "cut" {
+				t.Errorf("03 = %+v, want rippable by cut", ti)
+			}
+		case "08":
+			if ti.RipMethod != "copy" {
+				t.Errorf("08 rip_method = %q", ti.RipMethod)
 			}
 		}
 	}
@@ -93,10 +98,11 @@ func TestInfoDVDISO(t *testing.T) {
 
 func TestRipDVDTitleFlag(t *testing.T) {
 	root := writeDVD(t)
-	if err := os.Remove(filepath.Join(root, "VIDEO_TS", "VTS_03_0.IFO")); err != nil {
+	bad := writeDVD(t)
+	if err := os.Remove(filepath.Join(bad, "VIDEO_TS", "VTS_03_0.IFO")); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, errOut := runCLI("rip", "--title", "7", "-d", t.TempDir(), root); code != 1 || !strings.Contains(errOut, "missing VTS_03_0.IFO") {
+	if code, _, errOut := runCLI("rip", "--title", "7", "-d", t.TempDir(), bad); code != 1 || !strings.Contains(errOut, "missing VTS_03_0.IFO") {
 		t.Errorf("unsupported title: code %d, stderr %q", code, errOut)
 	}
 	if code, _, errOut := runCLI("rip", "--title", "1", "--playlist", "01", root); code != 2 || !strings.Contains(errOut, "not both") {
@@ -106,5 +112,58 @@ func TestRipDVDTitleFlag(t *testing.T) {
 	code, out, _ := runCLI("rip", "-t", "1", "-d", t.TempDir(), root)
 	if code != 4 || !strings.Contains(out, "Ripping 01") {
 		t.Errorf("rip -t 1 without mkvmerge: code %d, out %q", code, out)
+	}
+}
+
+func writeStrayDVD(t *testing.T) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "STRAY")
+	if err := testdisc.StrayCellDVD().WriteDir(root); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func TestInfoSkippedCells(t *testing.T) {
+	root := writeStrayDVD(t)
+	_, out, _ := runCLI("info", "--all", root)
+	if row := titleRow(out, " 01 "); !strings.Contains(row, "skipped 1 short cell(s)") {
+		t.Errorf("01 row = %q", row)
+	}
+	_, js, _ := runCLI("info", "--json", root)
+	var disc struct {
+		Titles []struct {
+			ID           string
+			RipMethod    string `json:"rip_method"`
+			SkippedCells []struct {
+				Cell            int     `json:"cell"`
+				DurationSeconds float64 `json:"duration_seconds"`
+				FirstSector     uint32  `json:"first_sector"`
+				LastSector      uint32  `json:"last_sector"`
+			} `json:"skipped_cells"`
+		}
+	}
+	if err := json.Unmarshal([]byte(js), &disc); err != nil {
+		t.Fatal(err)
+	}
+	for _, ti := range disc.Titles {
+		if ti.ID == "01" && (ti.RipMethod != "cut" || len(ti.SkippedCells) != 1 || ti.SkippedCells[0].Cell != 3 ||
+			ti.SkippedCells[0].DurationSeconds != 1 || ti.SkippedCells[0].LastSector != 1) {
+			t.Errorf("01 = %+v", ti)
+		}
+	}
+}
+
+func TestRipVia(t *testing.T) {
+	root := writeStrayDVD(t)
+	t.Setenv("PATH", t.TempDir())
+	if _, out, _ := runCLI("rip", "-t", "1", "-d", t.TempDir(), root); !strings.Contains(out, "  via: cut\n") {
+		t.Errorf("cut: %q", out)
+	}
+	if _, out, _ := runCLI("rip", "-t", "2", "-d", t.TempDir(), root); !strings.Contains(out, "  via: copy (100.0 KiB temporary file)\n") {
+		t.Errorf("copy: %q", out)
+	}
+	if _, out, _ := runCLI("rip", "-t", "3", "-d", t.TempDir(), root); strings.Contains(out, "via:") {
+		t.Errorf("whole files print no via line: %q", out)
 	}
 }

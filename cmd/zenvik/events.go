@@ -30,6 +30,8 @@ type startEvent struct {
 	DurationSeconds float64  `json:"duration_seconds"`
 	SizeBytes       int64    `json:"size_bytes"`
 	Output          string   `json:"output"`
+	RipMethod       string   `json:"rip_method,omitempty"`
+	TempBytes       int64    `json:"temp_bytes,omitempty"`
 	Auto            bool     `json:"auto"`
 	Ambiguous       bool     `json:"ambiguous"`
 	Reasons         []string `json:"reasons"`

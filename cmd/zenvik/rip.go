@@ -113,12 +113,22 @@ directory.`,
 				if err != nil {
 					return err
 				}
-				ev.start(startEvent{Source: source, Kind: kindName(d.Kind), Format: formatName(d.Format), Title: t.ID,
+				start := startEvent{Source: source, Kind: kindName(d.Kind), Format: formatName(d.Format), Title: t.ID,
 					DurationSeconds: t.Duration.Seconds(), SizeBytes: t.Size, Output: opts.OutputPath,
-					Auto: auto, Ambiguous: t.Rank.Ambiguous, Reasons: t.Rank.Reasons})
+					RipMethod: t.RipMethod, Auto: auto, Ambiguous: t.Rank.Ambiguous, Reasons: t.Rank.Reasons}
+				if t.RipMethod == "copy" {
+					start.TempBytes = t.Size
+				}
+				ev.start(start)
 				opts.OnProgress = ev.progress
 			} else {
 				fmt.Fprintf(stdout, "Ripping %s (%s) → %s\n", t.ID, formatDuration(t.Duration), out)
+				switch t.RipMethod {
+				case "cut":
+					fmt.Fprintln(stdout, "  via: cut")
+				case "copy":
+					fmt.Fprintf(stdout, "  via: copy (%s temporary file)\n", formatSize(t.Size))
+				}
 				if auto && len(t.Rank.Reasons) > 0 {
 					fmt.Fprintf(stdout, "  chosen because: %s\n", strings.Join(t.Rank.Reasons, "; "))
 				}

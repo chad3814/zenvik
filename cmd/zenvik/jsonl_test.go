@@ -152,3 +152,16 @@ func TestEventWriterProgressThrottle(t *testing.T) {
 		t.Errorf("bytes = %v", evs[1])
 	}
 }
+
+func TestRipJSONLRipMethod(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "STRAY")
+	if err := testdisc.StrayCellDVD().WriteDir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	_, out, _ := runCLI("rip", "--jsonl", "-t", "2", "-d", t.TempDir(), root)
+	start := events(t, out)[0]
+	if start["event"] != "start" || start["rip_method"] != "copy" || start["temp_bytes"] != float64(50*2048) {
+		t.Errorf("start = %v", start)
+	}
+}
