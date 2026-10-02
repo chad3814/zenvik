@@ -31,6 +31,8 @@ type Candidate struct {
 	Chapters       int
 	Languages      int // distinct audio and subtitle languages
 	HasVideo       bool
+	HasAudio       bool
+	Size           int64 // bytes of distinct stream data; 0 if unknown (skips the data-rate check)
 	Encrypted      bool
 	PlayedByTitle1 bool
 	// Problem, when non-empty, filters the candidate with this reason
@@ -60,6 +62,11 @@ type Weights struct {
 	LanguageCap     int           // languages beyond this count earn nothing
 	Title1Bonus     float64       // bonus when HDMV title 1 plays the playlist
 	AmbiguityMargin float64       // runner-up within this many points makes the choice ambiguous
+	// MinRateFraction filters candidates whose data rate (Size / Duration)
+	// is below this fraction of the highest rate among candidates that pass
+	// the other filters. Decoy playlists loop tiny clips for hours, so their
+	// rate is a sliver of the real feature's.
+	MinRateFraction float64
 }
 
 // DefaultWeights are the initial weights from the design spec.
@@ -74,6 +81,7 @@ var DefaultWeights = Weights{
 	LanguageCap:     10,
 	Title1Bonus:     15,
 	AmbiguityMargin: 5,
+	MinRateFraction: 0.01,
 }
 
 // Rank scores cands. infos[i] belongs to cands[i]; order lists candidate
@@ -82,6 +90,7 @@ var DefaultWeights = Weights{
 func Rank(cands []Candidate, minDuration time.Duration, w Weights) (order []int, infos []Info) {
 	infos = make([]Info, len(cands))
 	filter(cands, infos, minDuration)
+	filterLowRate(cands, infos, w.MinRateFraction)
 	dedupe(cands, infos)
 	var longest time.Duration
 	for i, c := range cands {
@@ -124,11 +133,56 @@ func filter(cands []Candidate, infos []Info, minDuration time.Duration) {
 		case !c.HasVideo:
 			in.Filtered = true
 			in.Reasons = append(in.Reasons, "no video stream")
+		case !c.HasAudio:
+			in.Filtered = true
+			in.Reasons = append(in.Reasons, "no audio stream")
 		}
 		if c.Encrypted {
 			in.Reasons = append(in.Reasons, "encrypted")
 		}
 	}
+}
+
+// filterLowRate filters unfiltered candidates whose data rate is below
+// fraction of the highest rate among unfiltered candidates. Candidates with
+// an unknown size or no duration are left alone.
+func filterLowRate(cands []Candidate, infos []Info, fraction float64) {
+	rate := func(c Candidate) float64 {
+		if c.Size <= 0 || c.Duration <= 0 {
+			return 0
+		}
+		return float64(c.Size) / c.Duration.Seconds()
+	}
+	var best float64
+	for i, c := range cands {
+		if !infos[i].Filtered {
+			best = max(best, rate(c))
+		}
+	}
+	if best == 0 || fraction <= 0 {
+		return
+	}
+	for i, c := range cands {
+		r := rate(c)
+		if infos[i].Filtered || r == 0 || r >= fraction*best {
+			continue
+		}
+		infos[i].Filtered = true
+		infos[i].Reasons = append(infos[i].Reasons, fmt.Sprintf("data rate %s is under %g%% of the disc's highest (likely a decoy playlist)",
+			formatRate(r), fraction*100))
+	}
+}
+
+// formatRate renders bytes per second as bits per second.
+func formatRate(bytesPerSec float64) string {
+	bits := bytesPerSec * 8
+	switch {
+	case bits >= 1e6:
+		return fmt.Sprintf("%.1f Mbit/s", bits/1e6)
+	case bits >= 1e3:
+		return fmt.Sprintf("%.0f kbit/s", bits/1e3)
+	}
+	return fmt.Sprintf("%.0f bit/s", bits)
 }
 
 // dedupe marks candidates whose clip sequence (IDs and IN/OUT times)

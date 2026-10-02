@@ -145,6 +145,8 @@ func loadTitle(fsys fs.FS, f playlistFile, clips *clipCache, playedByTitle1 bool
 	c.Chapters = len(t.Chapters)
 	c.Languages = countLanguages(t)
 	c.HasVideo = len(t.Video) > 0
+	c.HasAudio = len(t.Audio) > 0
+	c.Size = t.Size
 	c.Encrypted = t.Encrypted
 	return t, c
 }

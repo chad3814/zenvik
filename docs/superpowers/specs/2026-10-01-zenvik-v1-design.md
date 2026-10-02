@@ -119,7 +119,7 @@ Blu-ray M2TS clips are stored in 6144-byte aligned units of 32 × 192-byte packe
 
 ## 4. Main-feature detection (`internal/rank`)
 
-**Pass 1: filter.** Mark titles `Filtered` (with a reason) if their duration is below `min_duration` (default 2m) or they have no video stream. Encrypted titles stay listed but are flagged.
+**Pass 1: filter.** Mark titles `Filtered` (with a reason) if their duration is below `min_duration` (default 2m), they have no video stream, or they have no audio stream. Then filter decoy playlists: a title whose data rate (the bytes of its distinct stream files divided by its duration) is below 1% of the highest rate among the remaining titles. Some UHD discs carry hours-long playlists that loop a few tiny clips, often without audio, to defeat "longest title" detection. Encrypted titles stay listed but are flagged.
 
 **Pass 2: dedupe.** Titles with identical clip sequences and identical in/out times are duplicates. The lowest ID is kept; the others get `DuplicateOf`.
 

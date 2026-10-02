@@ -18,13 +18,13 @@ func seq(first, n int, each time.Duration) []Clip {
 	return out
 }
 
-// movie builds a candidate with video, three languages and one chapter per clip.
+// movie builds a candidate with video, audio, three languages and one chapter per clip.
 func movie(id string, clips []Clip) Candidate {
 	var d time.Duration
 	for _, c := range clips {
 		d += c.Out - c.In
 	}
-	return Candidate{ID: id, Clips: clips, Duration: d, Chapters: len(clips), Languages: 3, HasVideo: true}
+	return Candidate{ID: id, Clips: clips, Duration: d, Chapters: len(clips), Languages: 3, HasVideo: true, HasAudio: true}
 }
 
 func mainOf(t *testing.T, cands []Candidate, order []int, infos []Info) (string, Info) {
@@ -253,4 +253,80 @@ func TestRankNoMain(t *testing.T) {
 	if order, infos := Rank(nil, 2*time.Minute, DefaultWeights); len(order) != 0 || len(infos) != 0 {
 		t.Error("empty input should give empty output")
 	}
+}
+
+func TestRankFiltersNoAudio(t *testing.T) {
+	silent := movie("00030", seq(1, 30, 30*time.Minute))
+	silent.HasAudio = false
+	cands := []Candidate{silent, movie("00800", seq(100, 20, 5*time.Minute))}
+	order, infos := Rank(cands, 2*time.Minute, DefaultWeights)
+	if id, _ := mainOf(t, cands, order, infos); id != "00800" {
+		t.Errorf("main = %q, want 00800", id)
+	}
+	if in := infos[0]; !in.Filtered || !slices.Contains(in.Reasons, "no audio stream") {
+		t.Errorf("00030 = %+v", in)
+	}
+}
+
+// TestRankDecoyPlaylists mirrors a UHD disc that hides its feature among
+// decoys: a 15-hour playlist looping a tiny clip with no audio, a 3-hour
+// looping playlist with audio, and two near-identical cuts of the movie.
+func TestRankDecoyPlaylists(t *testing.T) {
+	const mbit = 1_000_000 / 8 // bytes per second at 1 Mbit/s
+	sized := func(c Candidate, bytesPerSec float64) Candidate {
+		c.Size = int64(bytesPerSec * c.Duration.Seconds())
+		return c
+	}
+	loop := func(id, clip string, n int, each time.Duration) Candidate {
+		clips := make([]Clip, n)
+		for i := range clips {
+			clips[i] = Clip{ID: clip, Out: each}
+		}
+		return movie(id, clips)
+	}
+	silentLoop := sized(loop("00030", "00173", 900, time.Minute), 0.028*mbit)
+	silentLoop.HasAudio = false
+	audioLoop := sized(loop("00149", "00175", 252, 45*time.Second), 0.33*mbit)
+	cut1 := sized(movie("00800", seq(1, 21, 291*time.Second)), 80.9*mbit)
+	cut1.Languages = 12
+	cut2 := sized(movie("01262", seq(30, 21, 291*time.Second-266*time.Millisecond)), 80.9*mbit)
+	cut2.Languages = 10
+	extra := sized(movie("01266", seq(60, 2, 3*time.Minute)), 5*mbit)
+	cands := []Candidate{silentLoop, cut1, cut2, audioLoop, extra}
+	order, infos := Rank(cands, 2*time.Minute, DefaultWeights)
+	if id, _ := mainOf(t, cands, order, infos); id != "00800" {
+		t.Fatalf("main = %q, want 00800 (order %v)", id, ids(cands, order))
+	}
+	if in := infos[0]; !in.Filtered || !slices.Contains(in.Reasons, "no audio stream") {
+		t.Errorf("00030 = %+v", in)
+	}
+	if in := infos[3]; !in.Filtered || !hasPrefix(in.Reasons, "data rate 330 kbit/s is under 1% of the disc's highest") {
+		t.Errorf("00149 = %+v", in)
+	}
+	if in := infos[4]; in.Filtered {
+		t.Errorf("a 5 Mbit/s extra must not be filtered: %+v", in)
+	}
+	if in := infos[1]; !slices.Contains(in.Reasons, "100% of the longest title") {
+		t.Errorf("00800 = %+v", in)
+	}
+}
+
+func TestRankRateCheckSkipsUnknownSize(t *testing.T) {
+	known := movie("00800", seq(1, 20, 5*time.Minute))
+	known.Size = 50_000_000_000
+	unknown := movie("00801", seq(40, 10, 5*time.Minute)) // Size 0: no data
+	cands := []Candidate{known, unknown}
+	_, infos := Rank(cands, 2*time.Minute, DefaultWeights)
+	if infos[1].Filtered {
+		t.Errorf("unknown size was rate-filtered: %+v", infos[1])
+	}
+}
+
+func hasPrefix(reasons []string, prefix string) bool {
+	for _, r := range reasons {
+		if strings.HasPrefix(r, prefix) {
+			return true
+		}
+	}
+	return false
 }
