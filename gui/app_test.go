@@ -280,3 +280,74 @@ func TestReloadConfigUpdatesDefaultNames(t *testing.T) {
 		t.Errorf("name = %q", s.Titles[0].DefaultName)
 	}
 }
+
+func TestBoundMethodsWaitForInit(t *testing.T) {
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	a := NewApp(Deps{
+		StatePath: filepath.Join(t.TempDir(), "zenvik", "gui-queue.json"),
+		LoadSettings: func() (config.Settings, error) {
+			return config.Settings{OutputDir: ".", Template: config.DefaultTemplate}, nil
+		},
+		FindMkvmerge: func(context.Context, string) error { return nil },
+		Ripper:       func(discs.Opener, func() string) queue.Ripper { return blockRipper{release} },
+		Home:         t.TempDir(),
+		GOOS:         "linux",
+	})
+	dir := sampleDisc(t, "SAMPLE_MOVIE")
+	done := make(chan string, 2)
+	go func() { a.Ready(); done <- "ready" }()
+	go func() { a.AddPaths([]string{dir}); done <- "add" }()
+	select {
+	case m := <-done:
+		t.Fatalf("%s returned before init", m)
+	case <-time.After(100 * time.Millisecond):
+	}
+	sh := &fakeShell{confirm: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	if err := a.init(ctx, sh); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { a.shutdown(ctx) })
+	for range 2 {
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("bound methods still blocked after init")
+		}
+	}
+	if sh.last("discs:changed") == nil || sh.last("queue:changed") == nil {
+		t.Errorf("no snapshots emitted: discs=%v queue=%v", sh.last("discs:changed"), sh.last("queue:changed"))
+	}
+	if sh.last("discs:select") != dir {
+		t.Errorf("select = %v", sh.last("discs:select"))
+	}
+}
+
+func TestFailedInitReleasesCallers(t *testing.T) {
+	a := NewApp(Deps{
+		StatePath: t.TempDir(), // a directory, so the queue can't open
+		LoadSettings: func() (config.Settings, error) {
+			return config.Settings{OutputDir: ".", Template: config.DefaultTemplate}, nil
+		},
+		FindMkvmerge: func(context.Context, string) error { return nil },
+		Ripper:       func(discs.Opener, func() string) queue.Ripper { return nil },
+	})
+	if err := a.init(context.Background(), &fakeShell{}); err == nil {
+		t.Skip("queue.Open accepted a directory as its state path")
+	}
+	done := make(chan struct{})
+	go func() {
+		a.Ready()
+		a.AddPaths([]string{"/x"})
+		a.Enqueue("/x", nil, nil)
+		a.SetPaused(true)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("bound methods block after a failed init")
+	}
+}

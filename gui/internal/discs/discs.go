@@ -179,6 +179,14 @@ func (l *List) Configure(cfg Config) {
 	l.changed(s)
 }
 
+// Emit re-sends the current snapshot through the changed callback, in order
+// with the other changes (the window calls it once it is listening).
+func (l *List) Emit() {
+	l.emitMu.Lock()
+	defer l.emitMu.Unlock()
+	l.changed(l.Summaries())
+}
+
 // Summaries returns every disc's summary in list order.
 func (l *List) Summaries() []Summary {
 	l.mu.Lock()

@@ -315,3 +315,19 @@ func TestListOutputDirAndConfigure(t *testing.T) {
 		t.Errorf("name after Configure = %q", a.Titles[0].DefaultName)
 	}
 }
+
+func TestListEmitResendsCurrentSnapshot(t *testing.T) {
+	l, r := newList(t, opener)
+	dir := writeBluray(t, testdisc.SampleMovie(), "SAMPLE_MOVIE")
+	l.Add([]string{dir})
+	waitFor(t, "ready", func() bool { return readyState(r, dir) })
+	before := len(r.all())
+	l.Emit()
+	ev := r.all()
+	if len(ev) != before+1 {
+		t.Fatalf("%d events after Emit, want %d", len(ev), before+1)
+	}
+	if got := ev[len(ev)-1]; len(got) != 1 || got[0].Path != dir || got[0].State != "ready" {
+		t.Errorf("emitted %+v", got)
+	}
+}

@@ -277,6 +277,14 @@ func (q *Queue) Snapshot() Snapshot {
 	return q.snapshotLocked()
 }
 
+// Emit re-sends the current snapshot through Hooks.Changed, in order with the
+// other changes. It saves and wakes nothing.
+func (q *Queue) Emit() {
+	q.emitMu.Lock()
+	defer q.emitMu.Unlock()
+	q.hooks.Changed(q.Snapshot())
+}
+
 // update runs f under the lock. When f reports a change, the queue is saved,
 // Hooks.Changed gets a snapshot, and the runner is woken.
 //

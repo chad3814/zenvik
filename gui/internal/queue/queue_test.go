@@ -234,3 +234,19 @@ func TestConcurrentUpdatesEndOnTheFinalState(t *testing.T) {
 		t.Errorf("last event has %d entries, queue has %d", len(last.Entries), len(want.Entries))
 	}
 }
+
+func TestEmitResendsCurrentSnapshot(t *testing.T) {
+	q, h, _ := newQueue(t)
+	q.Add([]NewEntry{{"/d", "01", abs("a.mkv")}})
+	before := h.count()
+	q.Emit()
+	if h.count() != before+1 {
+		t.Fatalf("%d events after Emit, want %d", h.count(), before+1)
+	}
+	h.mu.Lock()
+	got := h.snaps[len(h.snaps)-1]
+	h.mu.Unlock()
+	if len(got.Entries) != 1 || got.Entries[0].TitleID != "01" {
+		t.Errorf("emitted %+v", got)
+	}
+}

@@ -18,6 +18,10 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+const msgNotStarted = "Zenvik didn't start"
+
+var errNotStarted = errors.New(msgNotStarted)
+
 // Deps are App's outside dependencies, replaced in tests.
 type Deps struct {
 	StatePath    string
@@ -44,13 +48,25 @@ type App struct {
 	discs *discs.List
 	queue *queue.Queue
 
+	// ready is closed when init finishes, successfully or not. Wails runs
+	// OnStartup in its own goroutine while the page loads, so bound methods
+	// may be called first; they wait here.
+	ready chan struct{}
+
 	mu       sync.Mutex
 	settings config.Settings
 	banners  []Banner
 }
 
 // NewApp returns an App; Wails calls startup once the window exists.
-func NewApp(deps Deps) *App { return &App{deps: deps} }
+func NewApp(deps Deps) *App { return &App{deps: deps, ready: make(chan struct{})} }
+
+// wait blocks until init has finished and reports whether it succeeded;
+// bound methods do nothing when it didn't.
+func (a *App) wait() bool {
+	<-a.ready
+	return a.queue != nil
+}
 
 func (a *App) startup(ctx context.Context) {
 	if err := a.init(ctx, wailsShell{ctx}); err != nil {
@@ -60,6 +76,7 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) init(ctx context.Context, sh Shell) error {
+	defer close(a.ready)
 	a.ctx, a.shell = ctx, sh
 	a.reloadSettings()
 	// The discs and queue callbacks run with those packages' emit locks held,
@@ -84,7 +101,7 @@ func (a *App) init(ctx context.Context, sh Shell) error {
 	if w := q.Warning(); w != "" {
 		a.setBanner(Banner{ID: "queue", Message: w})
 	}
-	a.RecheckMkvmerge()
+	a.recheckMkvmerge()
 	q.Start(ctx)
 	return nil
 }
@@ -166,8 +183,11 @@ func (a *App) emitBanners() {
 
 // Ready re-sends every snapshot; the frontend calls it once it is listening.
 func (a *App) Ready() {
-	a.shell.Emit("discs:changed", a.discs.Summaries())
-	a.shell.Emit("queue:changed", a.queue.Snapshot())
+	if !a.wait() {
+		return
+	}
+	a.discs.Emit()
+	a.queue.Emit()
 	a.emitBanners()
 }
 
@@ -176,6 +196,9 @@ func (a *App) Version() string { return version }
 
 // AddPaths adds discs (dropped or picked) and selects the last one.
 func (a *App) AddPaths(paths []string) {
+	if !a.wait() {
+		return
+	}
 	if abs := a.discs.Add(paths); len(abs) > 0 {
 		a.shell.Emit("discs:select", abs[len(abs)-1])
 	}
@@ -183,6 +206,9 @@ func (a *App) AddPaths(paths []string) {
 
 // PickISOs lets the user choose disc images to add.
 func (a *App) PickISOs() error {
+	if !a.wait() {
+		return errNotStarted
+	}
 	paths, err := a.shell.PickFiles("Add disc images", "Disc images (*.iso)", "*.iso")
 	if err != nil {
 		return err
@@ -193,6 +219,9 @@ func (a *App) PickISOs() error {
 
 // PickFolder lets the user choose a disc folder to add.
 func (a *App) PickFolder() error {
+	if !a.wait() {
+		return errNotStarted
+	}
 	dir, err := a.shell.PickDir("Add a disc folder")
 	if err != nil || dir == "" {
 		return err
@@ -202,10 +231,17 @@ func (a *App) PickFolder() error {
 }
 
 // RemoveDisc closes a disc; its queue entries stay.
-func (a *App) RemoveDisc(path string) { a.discs.Remove(path) }
+func (a *App) RemoveDisc(path string) {
+	if a.wait() {
+		a.discs.Remove(path)
+	}
+}
 
 // PickOutputDir lets the user choose where a disc's MKVs go.
 func (a *App) PickOutputDir(path string) error {
+	if !a.wait() {
+		return errNotStarted
+	}
 	dir, err := a.shell.PickDir("Choose the output folder")
 	if err != nil || dir == "" {
 		return err
@@ -218,6 +254,9 @@ func (a *App) PickOutputDir(path string) error {
 // titles list. It returns nil on success, or a message per title ("" where it
 // was fine) and queues nothing.
 func (a *App) Enqueue(path string, titleIDs []string, names []string) []string {
+	if !a.wait() {
+		return slices.Repeat([]string{msgNotStarted}, len(titleIDs))
+	}
 	msgs := make([]string, len(titleIDs))
 	s, ok := a.discs.Summary(path)
 	if !ok || s.State != "ready" || len(titleIDs) != len(names) {
@@ -253,6 +292,9 @@ func rippable(s discs.Summary, id string) bool {
 
 // Rename gives a waiting entry a new file name in the same folder.
 func (a *App) Rename(id, name string) string {
+	if !a.wait() {
+		return msgNotStarted
+	}
 	if msg := fileNameError(name); msg != "" {
 		return msg
 	}
@@ -265,25 +307,55 @@ func (a *App) Rename(id, name string) string {
 }
 
 // Move puts a queue entry at index.
-func (a *App) Move(id string, index int) { a.queue.Move(id, index) }
+func (a *App) Move(id string, index int) {
+	if a.wait() {
+		a.queue.Move(id, index)
+	}
+}
 
 // Remove drops a queue entry that isn't ripping.
-func (a *App) Remove(id string) { a.queue.Remove(id) }
+func (a *App) Remove(id string) {
+	if a.wait() {
+		a.queue.Remove(id)
+	}
+}
 
 // Cancel stops the running rip.
-func (a *App) Cancel(id string) { a.queue.Cancel(id) }
+func (a *App) Cancel(id string) {
+	if a.wait() {
+		a.queue.Cancel(id)
+	}
+}
 
 // Retry queues a failed or canceled entry again.
-func (a *App) Retry(id string) { a.queue.Retry(id) }
+func (a *App) Retry(id string) {
+	if a.wait() {
+		a.queue.Retry(id)
+	}
+}
 
 // ClearFinished drops done, failed and canceled entries.
-func (a *App) ClearFinished() { a.queue.ClearFinished() }
+func (a *App) ClearFinished() {
+	if a.wait() {
+		a.queue.ClearFinished()
+	}
+}
 
 // SetPaused pauses or resumes the queue.
-func (a *App) SetPaused(paused bool) { a.queue.SetPaused(paused) }
+func (a *App) SetPaused(paused bool) {
+	if a.wait() {
+		a.queue.SetPaused(paused)
+	}
+}
 
 // RecheckMkvmerge looks for mkvmerge again; the queue only runs once found.
 func (a *App) RecheckMkvmerge() {
+	if a.wait() {
+		a.recheckMkvmerge()
+	}
+}
+
+func (a *App) recheckMkvmerge() {
 	err := a.deps.FindMkvmerge(a.ctx, a.mkvmergePath())
 	switch {
 	case err == nil:
@@ -301,6 +373,9 @@ func (a *App) RecheckMkvmerge() {
 // ReloadConfig re-reads zenvik's config (the frontend calls it when the
 // window regains focus) and re-renders default names and folders.
 func (a *App) ReloadConfig() {
+	if !a.wait() {
+		return
+	}
 	a.reloadSettings()
 	a.discs.Configure(a.discConfig())
 }
@@ -308,6 +383,9 @@ func (a *App) ReloadConfig() {
 // Reveal shows a finished entry's file in the file manager; it returns "" or
 // what went wrong.
 func (a *App) Reveal(id string) string {
+	if !a.wait() {
+		return msgNotStarted
+	}
 	for _, e := range a.queue.Snapshot().Entries {
 		if e.ID == id {
 			if err := reveal(a.deps.GOOS, e.OutputPath); err != nil {
