@@ -21,12 +21,14 @@ func TestMapDVDTracks(t *testing.T) {
 		},
 		Subtitles: []SubtitleTrack{{PID: 0xBD20, Codec: CodingVobSub, Language: "eng", Description: "Forced"}},
 	}
-	// mkvmerge reports no subtitle tracks for VOBs; Task 10 adds them from a VobSub file.
+	// mkvmerge reports no subtitle tracks for VOBs today; if a future one does,
+	// they are skipped: subtitles come from the extracted VobSub file.
 	id := &mux.Identification{Tracks: []mux.IdentifiedTrack{
 		{ID: 0, Type: "video", StreamID: 0xE0},
 		{ID: 1, Type: "audio", StreamID: 0xBD, SubStreamID: 0x80, Channels: 6},
 		{ID: 2, Type: "audio", StreamID: 0xBD, SubStreamID: 0x81, Channels: 2},
 		{ID: 3, Type: "audio", StreamID: 0xBD, SubStreamID: 0x82, Channels: 2},
+		{ID: 4, Type: "subtitles", StreamID: 0xBD, SubStreamID: 0x20},
 	}}
 	tracks, warnings := mapDVDTracks(ti, id)
 	want := []mux.Track{
@@ -38,7 +40,8 @@ func TestMapDVDTracks(t *testing.T) {
 	if !reflect.DeepEqual(tracks, want) {
 		t.Errorf("tracks =\n%+v\nwant\n%+v", tracks, want)
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "not described by the IFO") {
+	if len(warnings) != 2 || !strings.Contains(warnings[0], "not described by the IFO") ||
+		warnings[1] != "title 01: mkvmerge track 4 (subtitles) skipped; DVD subtitles come from the extracted VobSub file" {
 		t.Errorf("warnings = %q", warnings)
 	}
 }

@@ -19,6 +19,16 @@ type progressPrinter struct {
 	lastPct   int
 }
 
+// phaseWidth is the length of the longest phase name, so a shorter phase
+// redrawn over it with \r leaves no residue.
+var phaseWidth = func() int {
+	w := 0
+	for p := zenvik.PhaseMounting; p <= zenvik.PhaseSubtitles; p++ {
+		w = max(w, len(p.String()))
+	}
+	return w
+}()
+
 func newProgressPrinter(w io.Writer, tty bool) *progressPrinter {
 	return &progressPrinter{w: w, tty: tty, lastPct: -1}
 }
@@ -27,8 +37,8 @@ func (p *progressPrinter) update(pr zenvik.Progress) {
 	pct := int(pr.Fraction*100 + 0.5)
 	if p.tty {
 		filled := pct / 5
-		fmt.Fprintf(p.w, "\r[%s%s] %3d%% %-10s %s / %s", strings.Repeat("#", filled), strings.Repeat(".", 20-filled),
-			pct, pr.Phase, formatSize(pr.BytesDone), formatSize(pr.BytesTotal))
+		fmt.Fprintf(p.w, "\r[%s%s] %3d%% %-*s %s / %s", strings.Repeat("#", filled), strings.Repeat(".", 20-filled),
+			pct, phaseWidth, pr.Phase, formatSize(pr.BytesDone), formatSize(pr.BytesTotal))
 		p.drawn = true
 		return
 	}

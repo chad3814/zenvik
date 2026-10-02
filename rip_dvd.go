@@ -178,11 +178,16 @@ func mapDVDTracks(t *Title, id *mux.Identification) ([]mux.Track, []string) {
 		add(a.PID, "audio", a.Language, name)
 	}
 	for _, it := range id.Tracks {
-		if !used[it.ID] {
-			used[it.ID] = true
-			tracks = append(tracks, mux.Track{ID: it.ID, Type: it.Type})
-			warnings = append(warnings, fmt.Sprintf("title %s: mkvmerge track %d (%s) is not described by the IFO; kept without a language", t.ID, it.ID, it.Type))
+		if used[it.ID] {
+			continue
 		}
+		used[it.ID] = true
+		if it.Type == "subtitles" {
+			warnings = append(warnings, fmt.Sprintf("title %s: mkvmerge track %d (subtitles) skipped; DVD subtitles come from the extracted VobSub file", t.ID, it.ID))
+			continue
+		}
+		tracks = append(tracks, mux.Track{ID: it.ID, Type: it.Type})
+		warnings = append(warnings, fmt.Sprintf("title %s: mkvmerge track %d (%s) is not described by the IFO; kept without a language", t.ID, it.ID, it.Type))
 	}
 	return tracks, warnings
 }

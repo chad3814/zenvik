@@ -33,6 +33,19 @@ func TestProgressTTY(t *testing.T) {
 	}
 }
 
+func TestProgressTTYRedrawLeavesNoResidue(t *testing.T) {
+	var b bytes.Buffer
+	p := newProgressPrinter(&b, true)
+	p.update(zenvik.Progress{Phase: zenvik.PhaseSubtitles, Fraction: 0.5, BytesDone: 1, BytesTotal: 2})
+	long := b.String()
+	b.Reset()
+	p.update(zenvik.Progress{Phase: zenvik.PhaseMuxing, Fraction: 0.5, BytesDone: 1, BytesTotal: 2})
+	short := b.String()
+	if len(short) != len(long) {
+		t.Errorf("redraw is %d bytes, previous line %d; the shorter would leave residue:\n%q\n%q", len(short), len(long), short, long)
+	}
+}
+
 func TestShellQuote(t *testing.T) {
 	got := shellQuote([]string{"/usr/bin/mkvmerge", "-o", "/out dir/Bob's.mkv", "--language", "1:jpn"})
 	want := `/usr/bin/mkvmerge -o '/out dir/Bob'\''s.mkv' --language 1:jpn`

@@ -21,8 +21,8 @@ func newInfoCmd() *cobra.Command {
 		Long: `List the titles (playlists or DVD titles) on a Blu-ray or DVD disc image or folder, ranked so
 the likely main feature (★) comes first. Duplicates, encrypted titles and
 multi-angle titles are noted; very short or unusable titles are hidden
-unless --all is given. DVD titles that zenvik can't rip yet are noted with
-the reason.`,
+unless --all is given. DVD titles that zenvik can't rip yet are hidden too;
+--all shows them with the reason.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageError{fmt.Errorf("info needs exactly one path, got %d", len(args))}

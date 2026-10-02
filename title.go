@@ -11,7 +11,7 @@ import (
 type Title struct {
 	ID        string // playlist number, e.g. "00800", or DVD title number, e.g. "01"
 	Duration  time.Duration
-	Size      int64 // bytes of the referenced stream files, each distinct clip counted once
+	Size      int64 // bytes of the referenced stream files (Blu-ray: distinct clips counted once; DVD: the angle-1 cells' sectors)
 	Clips     []Clip
 	Chapters  []Chapter
 	Video     []VideoTrack

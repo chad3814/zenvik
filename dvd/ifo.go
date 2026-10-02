@@ -396,6 +396,7 @@ func parsePGCI(t []byte) ([]*PGC, error) {
 	}
 	out := make([]*PGC, n)
 	seen := map[int64]*PGC{} // search pointers may alias one PGC
+	cells := 0               // cells claimed by the distinct PGCs so far
 	for i := 0; i < n; i++ {
 		off := int64(be32(t, 8+8*i+4))
 		if p, ok := seen[off]; ok {
@@ -404,6 +405,12 @@ func parsePGCI(t []byte) ([]*PGC, error) {
 		}
 		if off < int64(8+8*n) || off+0xEC > int64(len(t)) {
 			return nil, corrupt("PGC %d at byte %d is outside its table", i+1, off)
+		}
+		// Real PGCs don't overlap, so their cell tables (24 bytes a cell)
+		// fit in the table together. Hostile pointers 24 bytes apart each
+		// claim 255 cells; stop before parsing them all.
+		if cells += int(t[off+3]); cells*24 > len(t) {
+			return nil, corrupt("PGC table claims %d cells, more than fit in %d bytes", cells, len(t))
 		}
 		p, err := parsePGC(t[off:])
 		if err != nil {

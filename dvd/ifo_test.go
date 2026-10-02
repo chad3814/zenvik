@@ -1,8 +1,10 @@
 package dvd_test
 
 import (
+	"encoding/binary"
 	"errors"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -250,5 +252,46 @@ func TestPTTQuirks(t *testing.T) {
 	b[2048+8+4], b[2048+8+5], b[2048+8+6], b[2048+8+7] = 0, 0, 0, 4
 	if _, err = dvd.ParseVTS(b); !errors.Is(err, dvd.ErrCorrupt) {
 		t.Errorf("err = %v, want ErrCorrupt", err)
+	}
+}
+
+// TestOverlappingPGCsRejectedCheaply builds a PGC table whose search pointers
+// sit 24 bytes apart, so each one parses as a distinct 255-cell chain
+// overlapping the others. ParseVTS must refuse it without parsing them all.
+func TestOverlappingPGCsRejectedCheaply(t *testing.T) {
+	const n = 8000
+	base := 8 + 8*n // a multiple of 24, so the repeating pattern stays aligned
+	if base%24 != 0 {
+		t.Fatalf("base %d is not a multiple of 24", base)
+	}
+	var pattern [24]byte
+	pattern[3] = 255                                   // ncell (nprog stays 0)
+	copy(pattern[4:8], []byte{0x00, 0x00, 0x01, 0xC0}) // a valid BCD time
+	binary.BigEndian.PutUint16(pattern[14:], 0xF0)     // 0xE6: program map
+	binary.BigEndian.PutUint16(pattern[16:], 0xF0)     // 0xE8: cell playback table
+	binary.BigEndian.PutUint16(pattern[18:], 0xF0)     // 0xEA: cell position table
+	tbl := make([]byte, base+24*n+0x1000)
+	binary.BigEndian.PutUint16(tbl[0:], n)
+	binary.BigEndian.PutUint32(tbl[4:], uint32(len(tbl)-1))
+	for i := 0; i < n; i++ {
+		binary.BigEndian.PutUint32(tbl[8+8*i+4:], uint32(base+24*i))
+	}
+	for o := base; o < len(tbl); o++ {
+		tbl[o] = pattern[(o-base)%24]
+	}
+	b := testdisc.VTSFile(sampleVTS())
+	sector := int(binary.BigEndian.Uint32(b[0xCC:]))
+	b = append(b[:sector*2048], tbl...)
+	b = append(b, 0) // the table's end address must fall inside the file
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, err := dvd.ParseVTS(b)
+	runtime.ReadMemStats(&after)
+	if !errors.Is(err, dvd.ErrCorrupt) {
+		t.Fatalf("err = %v, want ErrCorrupt", err)
+	}
+	if got := after.TotalAlloc - before.TotalAlloc; got > 64<<20 {
+		t.Errorf("ParseVTS allocated %d MiB on a hostile table", got>>20)
 	}
 }
