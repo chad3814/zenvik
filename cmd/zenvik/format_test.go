@@ -49,7 +49,7 @@ func TestJoinLanguages(t *testing.T) {
 }
 
 func TestKindName(t *testing.T) {
-	for k, want := range map[zenvik.SourceKind]string{zenvik.ISO: "iso", zenvik.BDMVDir: "bdmv", 0: "unknown"} {
+	for k, want := range map[zenvik.SourceKind]string{zenvik.ISO: "iso", zenvik.BDMVDir: "bdmv", zenvik.VideoTSDir: "video_ts", zenvik.FlatBDMVDir: "bdmv_flat", 0: "unknown"} {
 		if got := kindName(k); got != want {
 			t.Errorf("kindName(%v) = %q, want %q", k, got, want)
 		}

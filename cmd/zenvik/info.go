@@ -202,6 +202,8 @@ func kindName(k zenvik.SourceKind) string {
 		return "bdmv"
 	case zenvik.VideoTSDir:
 		return "video_ts"
+	case zenvik.FlatBDMVDir:
+		return "bdmv_flat"
 	}
 	return "unknown"
 }

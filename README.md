@@ -76,12 +76,16 @@ To stop a rip, send SIGINT or SIGTERM. zenvik removes the partial file and unmou
 mounted, then ends with an `error` event that has `"canceled": true`.
 
 `<path>` is a Blu-ray or DVD ISO image, a folder containing `BDMV` or `VIDEO_TS`, a `BDMV`
-folder, or a `VIDEO_TS` folder. `--title` (`-t`) and `--playlist` (`-p`) are the same option;
-passing both is a usage error.
+folder, or a `VIDEO_TS` folder. A flattened Blu-ray folder also works: one whose playlists,
+clip information files and streams (`00001.mpls`, `00001.clpi`, `00001.m2ts`, with `BACKUP`
+copies named `00001.1.mpls`) sit at its top level instead of under `BDMV/PLAYLIST`,
+`BDMV/CLIPINF` and `BDMV/STREAM`. zenvik reads it in place; to rip, it links the files into a
+temporary `BDMV` tree for mkvmerge and removes it afterwards. `--title` (`-t`) and
+`--playlist` (`-p`) are the same option; passing both is a usage error.
 
-`info --json` prints `format` (`"bluray"` or `"dvd"`) and `kind` (`"iso"`, `"bdmv"` or
-`"video_ts"`) for the disc. For each title, `unsupported` (why zenvik can't rip it) appears
-when set. Video tracks add `aspect_ratio` (`"4:3"` or `"16:9"`), and audio and subtitle tracks
+`info --json` prints `format` (`"bluray"` or `"dvd"`) and `kind` (`"iso"`, `"bdmv"`,
+`"bdmv_flat"` or `"video_ts"`) for the disc. For each title, `unsupported` (why zenvik can't
+rip it) appears when set. Video tracks add `aspect_ratio` (`"4:3"` or `"16:9"`), and audio and subtitle tracks
 add `description` (for example `Director's Commentary` or `Forced`), when present. DVD titles
 also have `rip_method` (`"files"`, `"cut"` or `"copy"`, as above) and, when cells were
 skipped, `skipped_cells`: `[{cell, duration_seconds, first_sector, last_sector}]`, with `cell`

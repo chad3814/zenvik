@@ -177,8 +177,12 @@ func (d *Disc) Rip(ctx context.Context, t *Title, opts RipOptions) (res *RipResu
 }
 
 // mountRoot returns the directory that holds BDMV or VIDEO_TS for mkvmerge to read,
-// mounting an ISO image if needed, and a function that releases it.
+// mounting an ISO image or linking a flattened folder's files into a
+// temporary tree if needed, and a function that releases it.
 func (d *Disc) mountRoot(ctx context.Context, report func(Phase, float64)) (string, func() error, error) {
+	if d.src.Kind == FlatBDMVDir {
+		return linkTree(d.src.Files())
+	}
 	if d.src.Kind != ISO {
 		return d.src.Path, func() error { return nil }, nil
 	}

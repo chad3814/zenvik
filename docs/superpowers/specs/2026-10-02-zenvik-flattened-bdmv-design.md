@@ -1,7 +1,7 @@
 # zenvik — flattened BDMV folders
 
 - **Date:** 2026-10-02
-- **Status:** Draft
+- **Status:** Implemented
 - **Extends:** [zenvik v1 design](2026-10-01-zenvik-v1-design.md). Everything there still applies unless this document says otherwise.
 
 ## 1. Purpose and scope

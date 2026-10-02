@@ -16,9 +16,10 @@ type SourceKind = source.Kind
 
 // Source kinds.
 const (
-	ISO        = source.ISO
-	BDMVDir    = source.BDMVDir
-	VideoTSDir = source.VideoTSDir
+	ISO         = source.ISO
+	BDMVDir     = source.BDMVDir
+	VideoTSDir  = source.VideoTSDir
+	FlatBDMVDir = source.FlatBDMVDir // BDMV files moved to the folder's top level
 )
 
 // Format is the disc format.
@@ -55,7 +56,7 @@ type Disc struct {
 }
 
 // Open reads the disc at path (an ISO image, a folder containing BDMV or
-// VIDEO_TS, or a BDMV or VIDEO_TS folder), ranks its titles and detects
+// VIDEO_TS, a BDMV or VIDEO_TS folder, or a flattened BDMV folder), ranks its titles and detects
 // encryption. Options customize the scanning and ranking behavior; the
 // default minimum duration is 2 minutes.
 func Open(ctx context.Context, path string, opts ...OpenOption) (*Disc, error) {

@@ -291,3 +291,22 @@ func shortOnlyDisc() *testdisc.Disc {
 	d.AddClipsFor()
 	return d
 }
+
+func TestOpenFlattened(t *testing.T) {
+	normal := openDisc(t, writeDisc(t, testdisc.SampleMovie()))
+	root := writeDisc(t, testdisc.SampleMovie())
+	if err := testdisc.Flatten(root); err != nil {
+		t.Fatal(err)
+	}
+	flat := openDisc(t, root)
+	if flat.Kind != zenvik.FlatBDMVDir || flat.Format != zenvik.Bluray || flat.Label != "SAMPLE_MOVIE" {
+		t.Errorf("Kind %v, Format %v, Label %q", flat.Kind, flat.Format, flat.Label)
+	}
+	checkSample(t, flat)
+	if !reflect.DeepEqual(flat.Meta, normal.Meta) {
+		t.Errorf("Meta = %+v, want %+v", flat.Meta, normal.Meta)
+	}
+	if !reflect.DeepEqual(flat.Titles, normal.Titles) {
+		t.Errorf("titles differ:\n%v\nwant\n%v", ids(flat.Titles), ids(normal.Titles))
+	}
+}
