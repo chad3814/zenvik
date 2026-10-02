@@ -17,7 +17,7 @@ var yearRE = regexp.MustCompile(`^\d{4}$`)
 
 func newRipCmd() *cobra.Command {
 	var playlist, titleID, outDir, outFile, name, year, template, preset string
-	var overwrite, dryRun bool
+	var overwrite, dryRun, jsonl bool
 	cmd := &cobra.Command{
 		Use:   "rip <path>",
 		Short: "Remux a title (the main feature by default) to MKV",
@@ -39,6 +39,10 @@ directory.`,
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			stdout, stderr := cmd.OutOrStdout(), cmd.ErrOrStderr()
+			var ev *eventWriter
+			if jsonl {
+				ev = newEventWriter(stdout)
+			}
 			if year != "" && !yearRE.MatchString(year) {
 				return usageError{fmt.Errorf("--year must be four digits, got %q", year)}
 			}
@@ -82,7 +86,11 @@ directory.`,
 			}
 			auto := id == ""
 			if auto && t.Rank.Ambiguous {
-				fmt.Fprintf(stderr, "warning: the main title is a close call (%s) — pass --title to choose\n", closeSecond(t))
+				if ev != nil {
+					ev.warning(fmt.Sprintf("the main title is a close call (%s)", closeSecond(t)))
+				} else {
+					fmt.Fprintf(stderr, "warning: the main title is a close call (%s) — pass --title to choose\n", closeSecond(t))
+				}
 			}
 			var out string
 			if useOutFile {
@@ -96,24 +104,54 @@ directory.`,
 				}
 				out = filepath.Join(s.OutputDir, rel)
 			}
-			fmt.Fprintf(stdout, "Ripping %s (%s) → %s\n", t.ID, formatDuration(t.Duration), out)
-			if auto && len(t.Rank.Reasons) > 0 {
-				fmt.Fprintf(stdout, "  chosen because: %s\n", strings.Join(t.Rank.Reasons, "; "))
+			opts := zenvik.RipOptions{OutputPath: out, Overwrite: overwrite, DryRun: dryRun, MkvmergePath: s.MkvmergePath}
+			if ev != nil {
+				if opts.OutputPath, err = filepath.Abs(out); err != nil {
+					return err
+				}
+				source, err := filepath.Abs(args[0])
+				if err != nil {
+					return err
+				}
+				ev.start(startEvent{Source: source, Kind: kindName(d.Kind), Format: formatName(d.Format), Title: t.ID,
+					DurationSeconds: t.Duration.Seconds(), SizeBytes: t.Size, Output: opts.OutputPath,
+					Auto: auto, Ambiguous: t.Rank.Ambiguous, Reasons: t.Rank.Reasons})
+				opts.OnProgress = ev.progress
+			} else {
+				fmt.Fprintf(stdout, "Ripping %s (%s) → %s\n", t.ID, formatDuration(t.Duration), out)
+				if auto && len(t.Rank.Reasons) > 0 {
+					fmt.Fprintf(stdout, "  chosen because: %s\n", strings.Join(t.Rank.Reasons, "; "))
+				}
 			}
-			prog := newProgressPrinter(stdout, isTerminal(stdout))
-			res, err := d.Rip(cmd.Context(), t, zenvik.RipOptions{OutputPath: out, Overwrite: overwrite, DryRun: dryRun, MkvmergePath: s.MkvmergePath, OnProgress: prog.update})
-			prog.done()
+			var prog *progressPrinter
+			if ev == nil {
+				prog = newProgressPrinter(stdout, isTerminal(stdout))
+				opts.OnProgress = prog.update
+			}
+			res, err := d.Rip(cmd.Context(), t, opts)
+			if prog != nil {
+				prog.done()
+			}
 			if err != nil {
 				return withHint(err)
 			}
 			for _, w := range res.Warnings {
-				fmt.Fprintf(stderr, "warning: %s\n", w)
+				if ev != nil {
+					ev.warning(w)
+				} else {
+					fmt.Fprintf(stderr, "warning: %s\n", w)
+				}
 			}
-			if dryRun {
+			switch {
+			case ev != nil && dryRun:
+				ev.dryRun(res.OutputPath, res.Command)
+			case ev != nil:
+				ev.done(res.OutputPath, res.Duration.Seconds())
+			case dryRun:
 				fmt.Fprintln(stdout, shellQuote(res.Command))
-				return nil
+			default:
+				fmt.Fprintf(stdout, "Done: %s\n", res.OutputPath)
 			}
-			fmt.Fprintf(stdout, "Done: %s\n", res.OutputPath)
 			return nil
 		},
 	}
@@ -127,6 +165,7 @@ directory.`,
 	cmd.Flags().StringVar(&preset, "preset", "", "config preset to apply (empty for none)")
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "replace an existing output file")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the output path and mkvmerge command without ripping")
+	cmd.Flags().BoolVar(&jsonl, "jsonl", false, "write JSON Lines events (start, progress, warning, done, dry_run, error) to stdout and nothing to stderr")
 	return cmd
 }
 

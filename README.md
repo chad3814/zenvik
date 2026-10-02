@@ -37,6 +37,7 @@ zenvik rip -p 00801 -d ~/Movies <path> # a specific playlist, into ~/Movies
 zenvik rip -o "/srv/rips/My Film.mkv" <path>  # this exact path (no template)
 zenvik rip --title 3 <path>           # a specific title (DVD title number or Blu-ray playlist)
 zenvik rip --dry-run <path>           # show the output path and mkvmerge command
+zenvik rip --jsonl <path>             # machine-readable events (see below)
 zenvik rip --name "Big Buck Bunny" --year 2008 <path>   # → ./Big Buck Bunny (2008).mkv
 zenvik rip --preset plex <path>                          # use a config preset
 zenvik doctor                                            # check mkvmerge, mounting, config, leftovers
@@ -49,6 +50,30 @@ and no `.mkv` added. A path starting with `/` (on Windows: a drive letter, `\` o
 absolute; any other path is inside the output directory and may leave it with `..`. A leading
 `~` is your home directory. `--output-file` can't be combined with `--template`, `--name` or
 `--year`.
+
+### Driving `rip` from another program
+
+`zenvik rip --jsonl …` writes [JSON Lines](https://jsonlines.org/) to stdout, one event per line,
+and nothing to stderr. The exit code is the same as without `--jsonl`. Paths in events are
+absolute. Every event has an `"event"` field:
+
+| event | when | fields |
+|---|---|---|
+| `start` | the title and output path are resolved | `version` (schema version, 1), `source`, `kind`, `format`, `title`, `duration_seconds`, `size_bytes`, `output`, `auto` (main feature picked automatically), `ambiguous`, `reasons` |
+| `progress` | a phase starts, at each whole percent, and at its end | `phase` (`mounting`, `extracting subtitles`, `scanning`, `muxing`, `finalizing`), `fraction` (0–1), `bytes_done`, `bytes_total` |
+| `warning` | anything `rip` would print as a warning | `message` |
+| `done` | the MKV is written | `output`, `duration_seconds` |
+| `dry_run` | instead of `done` with `--dry-run` | `output`, `command` (the mkvmerge program and arguments, as an array) |
+| `error` | last line of any failure, including bad flags | `message`, `exit_code`, `canceled` (`true` after SIGINT/SIGTERM) |
+
+```
+{"event":"start","version":1,"source":"/discs/MOVIE","kind":"bdmv","format":"bluray","title":"00800",…}
+{"event":"progress","phase":"scanning","fraction":0.5,"bytes_done":5670912,"bytes_total":11341824}
+{"event":"done","output":"/rips/movie.mkv","duration_seconds":6}
+```
+
+To stop a rip, send SIGINT or SIGTERM. zenvik removes the partial file and unmounts anything it
+mounted, then ends with an `error` event that has `"canceled": true`.
 
 `<path>` is a Blu-ray or DVD ISO image, a folder containing `BDMV` or `VIDEO_TS`, a `BDMV`
 folder, or a `VIDEO_TS` folder. `--title` (`-t`) and `--playlist` (`-p`) are the same option;

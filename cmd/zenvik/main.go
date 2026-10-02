@@ -49,8 +49,34 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if !strings.HasPrefix(msg, "zenvik:") { // library errors already carry the prefix
 		msg = "zenvik: " + msg
 	}
+	code := exitCode(err)
+	if jsonlRequested(root, args) {
+		newEventWriter(stdout).fail(msg, code, errors.Is(err, context.Canceled))
+		return code
+	}
 	fmt.Fprintln(stderr, msg)
-	return exitCode(err)
+	return code
+}
+
+// jsonlRequested reports whether a rip invocation asked for --jsonl, even
+// when flag parsing failed before the flag was read.
+func jsonlRequested(root *cobra.Command, args []string) bool {
+	c, _, err := root.Find(args)
+	if err != nil || c.Name() != "rip" {
+		return false
+	}
+	if f := c.Flags().Lookup("jsonl"); f != nil && f.Changed {
+		return f.Value.String() == "true"
+	}
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+		if a == "--jsonl" || a == "--jsonl=true" {
+			return true
+		}
+	}
+	return false
 }
 
 // exitCode maps an error to the exit codes in the design spec.
