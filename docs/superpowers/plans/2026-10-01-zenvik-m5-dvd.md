@@ -2159,6 +2159,7 @@ git commit -m "Recognize VIDEO_TS folders and DVD images as sources"
   - Task 2: the `dvd` parsers and `dvd.Language6392`.
   - Task 3: `testdisc.SampleDVD`, `DVD.WriteDir` and `DVD.ISO`.
   - Task 4: `source.Format`, `source.DVD`, `source.VideoTSDir`, `Source.VideoTS` and `source.FindName`.
+- Also consumes `rank.Candidate.HasAudio` and `rank.Candidate.Size` from the decoy-playlist fix, which is on `main` before M5 starts. DVD candidates set both, so titles without audio and decoy-rate titles are filtered the same way as on Blu-ray.
 - Produces:
   - `zenvik.Format`, a type alias of `source.Format`, with the constants `zenvik.Bluray` and `zenvik.DVD`.
   - The constant `zenvik.VideoTSDir`.
@@ -2814,6 +2815,8 @@ func dvdTitle(num int, e dvd.TitleEntry, ts *titleSet) (*Title, rank.Candidate) 
 	c.Chapters = len(t.Chapters)
 	c.Languages = countLanguages(t)
 	c.HasVideo = true
+	c.HasAudio = len(t.Audio) > 0
+	c.Size = t.Size
 	c.Encrypted = t.Encrypted
 	return t, c
 }
