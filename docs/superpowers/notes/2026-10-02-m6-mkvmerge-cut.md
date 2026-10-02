@@ -1,6 +1,10 @@
 # M6: mkvmerge cutting and copying DVD titles (verified 2026-10-02)
 
-**Gate result: still BLOCKED, on one assertion.** Under the controller's margin ruling, every cut check passes except one: blue's container duration is 6.042 s against the IFO's 6 s, outside the ±34 ms tolerance. Blue's video track is exact (180 frames, 6.005 s). The extra length is audio that mkvmerge lays down back to back across the VOB ID boundaries (see "Remaining failure").
+**Gate result: PASS** under the controller's two rulings. The first sets half-VOBU cut margins with a drift guard. The second makes the duration checks measure the video track. Checks (1), (3), (4) and (5) pass, and check (2) holds once the margins are applied.
+
+History:
+- The first run, at the raw summed VOBU times, was BLOCKED on (1)–(3).
+- The margin ruling fixed the cuts, but blue's *container* duration stayed 42 ms over the IFO time. The cause is audio drift (see "Audio drift across VOB IDs"), not the cut.
 
 - Tools: mkvmerge v102.0 ('Little Houses') 64-bit, ffmpeg 9.0.2, dvdauthor/spumux 0.7.2, OS macOS 27.0 (26A428).
 - Fixture: `testdisc.AuthorEpisodesDVD`.
@@ -10,7 +14,7 @@
 
 The test asserts:
 - **(1)** For each episode cut:
-  - The container duration (`mkvmerge -J` `container.properties.duration`) is within 34 ms of the IFO PGC time.
+  - The **video track** duration (`videoDuration`) is within 34 ms of the IFO PGC time. `videoDuration` takes mkvextract `timestamps_v2` of track 0 and computes last frame − first frame + 1001/30000 s.
   - The first frame has that episode's colour, and so does the frame 0.5 s before the end.
   - The drift guard is not tripped.
 - **(3)** After the green cut with a group-timeline chapter file and a VobSub `.idx`:
@@ -18,7 +22,9 @@ The test asserts:
   - The first subtitle is at 1.0 s ± 100 ms.
   - The drift guard is not tripped.
 - **(4)** The output exists under the exact `-o` name.
-- **(5)** The out-of-order temp VOB (blue then red) is within 68 ms of the summed IFO times, with blue first and red last.
+- **(5)** The out-of-order temp VOB (blue then red) has a video track duration within 34 ms of the two IFO times summed, with blue first and red last.
+
+The container duration and the audio start offset (`audioOffset`, the first audio timestamp minus the first video timestamp) are logged as observations and not asserted.
 
 The test does not assert (2); it only logs the VOB IDs. Everything in the "Observed by hand" sections was measured with mkvmerge, mkvextract, ffprobe and ffmpeg on the same fixture, and none of it is asserted.
 
@@ -88,7 +94,7 @@ For a run of sectors R0..R1 on the group timeline:
 
 In the test these are `planCut` and `cutPlan.driftTripped`.
 
-## Results under the ruling
+## Results under the first ruling (container duration asserted then)
 
 | episode | start₀ | end₀ | m_s | m_e | cut | VOB ID changes | guard | duration (IFO 6 s) | first / last |
 |---|---|---|---|---|---|---|---|---|---|
@@ -101,27 +107,67 @@ The other checks under the ruling:
 - **(4)** The output is written under the given name. Pass.
 - **(5)** The copy is 12.032 s (want 12 s), blue first and red last. Pass.
 
-### Remaining failure (observed by hand, not asserted)
+### Failure under the first ruling: container duration (observed by hand; resolved by the second ruling)
 
 The ruling cuts the video exactly. Each of the three cuts has a 180-frame video track of 6.005 s and holds only its own colour. The failing number is the container duration, which runs to the end of the audio:
 
-| cut | video timestamps (ms) | audio timestamps (ms) | audio track duration | container |
+| cut | video timestamps (ms; the last value is the end-time line) | audio timestamps (ms) | audio track duration | container |
 |---|---|---|---|---|
 | red | 1 … 6006.37 | 7 … 6023 | 6.016 s | 6.022 s |
 | green | 1 … 6006.37 | 17 … 6033 | 6.016 s | 6.032 s |
 | blue | 1 … 6006.37 | 27 … 6043 | 6.016 s | 6.042 s |
 
 - Each segment's AC-3 is 10 ms longer than its video, and mkvmerge appends each segment's audio straight after the previous segment's audio.
-- So on the group timeline the audio falls about 10 ms further behind the video at each VOB ID change: audio starts 7, 17 and 27 ms after the video in the three cuts.
-- In blue's cut the audio starts 27 ms after the video and runs 6.016 s. It ends at about 6.043 s, past the video's 6.006 s, so the container is 6.042 s.
+- So on the group timeline the audio falls about 10 ms further behind the video at each VOB ID change: the first audio timestamps are 7, 17 and 27 ms in the three cuts, while the first video timestamp is 1 ms. That is 6, 16 and 26 ms after the video.
+- In blue's cut the audio starts at 27 ms and runs 6.016 s. It ends at about 6.043 s, past the video's 6.006 s, so the container is 6.042 s.
 
 This is not a cut error. It does show two things:
 - A container-duration check against the IFO time picks up audio drift that builds up per VOB ID.
-- mkvmerge's group mux leaves the audio behind the video by about (audio length − video length) for each preceding VOB ID. Here that is 27 ms at blue.
+- mkvmerge's group mux leaves the audio behind the video by about (audio length − video length) for each preceding VOB ID. Here that is 26 ms at blue.
 
-The tolerance was not loosened. Two options are left for the controller, neither applied:
-- Assert on the video track's duration (the `DURATION` tag or frame timestamps), since the cut is a video-keyframe cut.
-- Make the fixture's audio match its video length more closely. AC-3 can only get within one 32 ms frame.
+The tolerance was not loosened. The controller resolved this with the second ruling: assert the video track's duration.
+
+## Second ruling: duration checks use the video track (controller, 2026-10-02)
+
+- The algorithm under test is the cut, and the cut is frame-exact on video.
+- The container duration also includes the fixture's audio overhang and the way mkvmerge appends audio after audio at VOB ID changes. That appending happens in any multi-VOB-ID group, including the M5 whole-file path, and is not specific to cutting.
+- So (1) and (5) assert the video track's duration within ±1 frame of the IFO time. All other assertions and tolerances are unchanged.
+
+### Results under both rulings (asserted unless marked "observed")
+
+| run | video duration | IFO | colours | observed: container | observed: audio starts after video |
+|---|---|---|---|---|---|
+| red | 6.005366666 s ✓ | 6 s | red / red ✓ | 6.022 s | 6 ms |
+| green | 6.005366666 s ✓ | 6 s | green / green ✓ | 6.032 s | 16 ms |
+| blue | 6.005366666 s ✓ | 6 s | blue / blue ✓ | 6.042 s | 26 ms |
+| copy (blue + red) | 12.012366666 s ✓ | 12 s | blue / red ✓ | 12.032 s | −5 ms |
+
+The other results:
+- Cut times, margins and VOB ID changes are as in the table above. The drift guard is not tripped.
+- (3): chapters at [5 ms, 3.005 s] and first subtitle at 1.005 s ✓.
+- (4): ✓.
+
+`TestEpisodeCutting` PASSES.
+
+### Audio drift across VOB IDs (observed, not asserted)
+
+- **Size:** about +10 ms of audio lag for each earlier VOB ID in the group.
+  - The audio starts 6, 16 and 26 ms after the video in the red, green and blue cuts, with 1, 2 and 3 VOB ID changes before them.
+  - The absolute first audio timestamps are 7, 17 and 27 ms.
+- **Cause:**
+  - Each segment's AC-3 is 188 frames = 6.016 s, while its video is 180 frames = 6.006 s. ffmpeg rounds 6 s of audio up to whole 32 ms frames.
+  - mkvmerge, muxing a `( … )` group across PTS resets, appends each VOB ID's audio straight after the previous audio. Each segment's 10 ms overhang therefore pushes the next segment's audio later than its video.
+- **Effect on duration:** the container duration then runs to the end of the audio, for example 6.042 s for blue.
+- **Not a cut-path issue.** It shows up the same way in a whole-group mux. The copy run, which has its own two-segment group, shows the audio 5 ms *before* the video at the start.
+- **On real discs:** the drift per VOB ID is set by how much each VOB's audio and video lengths differ (at most about one audio frame). Whether that matters for M5/M6 output is a separate question; it is recorded here only as an observation.
+
+### mkvextract timestamps_v2 detail (observed)
+
+For video track 0, mkvextract writes one more value than there are frames. The final line is the end time of the last frame:
+- 181 values for the 180 frames of an episode cut, ending at 6006.366666 after a last frame at 5973.
+- 556 values for the 555 frames of the whole-group mux.
+
+`videoDuration` drops that last value before computing last − first + one frame. Without dropping it, the duration counts one frame twice (6.0387 s).
 
 ## Conclusion for Tasks 4/6
 
@@ -134,4 +180,6 @@ The tolerance was not loosened. Two options are left for the controller, neither
 4. Otherwise pass `--split parts:<start₀ − m_s>-<end₀ − m_e>` with a single range, which keeps the given output name.
 5. Write chapters and VobSub timestamps on the group timeline (from start₀). mkvmerge shifts them by the keyframe it actually cut at.
 
-On this fixture that algorithm gives frame-exact video for every episode. The one open item is how Task 4's tests should treat the audio drift above, which is up to about 10 ms per earlier VOB ID here.
+On this fixture that algorithm gives frame-exact video for every episode.
+
+**Integration duration checks (Tasks 4 and 6) must use the video track** (`videoDuration`: mkvextract `timestamps_v2` of track 0, dropping the trailing end-time line, then last − first + one frame), and not the container duration. The container duration includes per-VOB-ID audio drift of about 10 ms per earlier VOB ID on this fixture.

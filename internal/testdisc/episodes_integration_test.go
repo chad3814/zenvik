@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -181,6 +182,50 @@ func firstTimestamp(t *testing.T, path string, tid int) time.Duration {
 	return time.Duration(ms * float64(time.Millisecond))
 }
 
+// trackTimestamps returns the sorted timestamps of track tid in path.
+func trackTimestamps(t *testing.T, path string, tid int) []time.Duration {
+	t.Helper()
+	txt := filepath.Join(t.TempDir(), "ts.txt")
+	if out, err := exec.Command("mkvextract", path, "timestamps_v2", fmt.Sprintf("%d:%s", tid, txt)).CombinedOutput(); err != nil {
+		t.Fatalf("mkvextract timestamps: %v\n%s", err, out)
+	}
+	b, _ := os.ReadFile(txt)
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("no timestamps:\n%s", b)
+	}
+	var out []time.Duration
+	for _, l := range lines[1:] {
+		ms, err := strconv.ParseFloat(strings.TrimSpace(l), 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, time.Duration(ms*float64(time.Millisecond)))
+	}
+	slices.Sort(out)
+	return out
+}
+
+// ntscFrame is one NTSC frame, 1001/30000 s.
+const ntscFrame = 1001 * time.Second / 30000
+
+// videoDuration is the span from the first to the last frame of video
+// track 0, plus one frame. mkvextract's timestamps_v2 output ends with one
+// extra line, the end time of the last frame (181 lines for 180 frames on
+// the episode cuts), so that line is dropped before measuring.
+func videoDuration(t *testing.T, path string) time.Duration {
+	t.Helper()
+	ts := trackTimestamps(t, path, 0)
+	ts = ts[:len(ts)-1]
+	return ts[len(ts)-1] - ts[0] + ntscFrame
+}
+
+// audioOffset is how far audio track 1 starts after video track 0.
+func audioOffset(t *testing.T, path string) time.Duration {
+	t.Helper()
+	return trackTimestamps(t, path, 1)[0] - trackTimestamps(t, path, 0)[0]
+}
+
 const frame = 34 * time.Millisecond
 
 func near(a, b, tol time.Duration) bool { return math.Abs(float64(a-b)) <= float64(tol) }
@@ -216,7 +261,7 @@ func TestEpisodeCutting(t *testing.T) {
 		}
 		out := filepath.Join(t.TempDir(), color+".mkv")
 		runMkvmerge(t, "-o", out, "--split", "parts:"+mkvTime(cp.start)+"-"+mkvTime(cp.end), "(", vob, ")")
-		got, want := duration(t, out), pgc.Time.Duration()
+		got, want := videoDuration(t, out), pgc.Time.Duration()
 		var colours [2][3]byte
 		for j, fromEnd := range []bool{false, true} {
 			rgb, err := FrameColor(ctx, out, fromEnd)
@@ -228,10 +273,10 @@ func TestEpisodeCutting(t *testing.T) {
 				t.Errorf("%s (fromEnd=%v): frame colour %v", color, fromEnd, rgb)
 			}
 		}
-		t.Logf("%s: sectors %d–%d, start₀ %v, end₀ %v, m_s %v, m_e %v, cut %v–%v, VOB ID changes %d, duration %v (IFO %v), first %v last %v",
-			color, r0, r1, cp.start0, cp.end0, cp.ms, cp.me, cp.start, cp.end, cp.changes, got, want, colours[0], colours[1])
+		t.Logf("%s: sectors %d–%d, start₀ %v, end₀ %v, m_s %v, m_e %v, cut %v–%v, VOB ID changes %d, video duration %v (IFO %v), first %v last %v; observed: container %v, audio starts %v after video",
+			color, r0, r1, cp.start0, cp.end0, cp.ms, cp.me, cp.start, cp.end, cp.changes, got, want, colours[0], colours[1], duration(t, out), audioOffset(t, out))
 		if !near(got, want, frame) {
-			t.Errorf("%s: duration %v, IFO says %v", color, got, want)
+			t.Errorf("%s: video duration %v, IFO says %v", color, got, want)
 		}
 	}
 
@@ -300,10 +345,10 @@ func TestEpisodeCutting(t *testing.T) {
 	out = filepath.Join(t.TempDir(), "copy.mkv")
 	runMkvmerge(t, "-o", out, "(", tv, ")")
 	want := vts.PGCs[vts.Titles[3][0].PGC-1].Time.Duration() + vts.PGCs[vts.Titles[1][0].PGC-1].Time.Duration()
-	got := duration(t, out)
-	t.Logf("copy: duration %v, want %v", got, want)
-	if !near(got, want, 2*frame) {
-		t.Errorf("copy duration %v, want %v", got, want)
+	got := videoDuration(t, out)
+	t.Logf("copy: video duration %v, want %v; observed: container %v, audio starts %v after video", got, want, duration(t, out), audioOffset(t, out))
+	if !near(got, want, frame) {
+		t.Errorf("copy video duration %v, want %v", got, want)
 	}
 	first, _ := FrameColor(ctx, out, false)
 	last, _ := FrameColor(ctx, out, true)
