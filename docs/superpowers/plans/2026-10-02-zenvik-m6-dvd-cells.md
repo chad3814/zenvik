@@ -1315,6 +1315,13 @@ git commit -m "Classify DVD title cell layouts, skip short stray cells, and rema
   - DVD rips for all three methods.
   - A dry run of a copy title shows `<title.vob>`.
 
+**Cut points (Task 1 ruling, see the M6 notes file).** `start = start₀ − m_s` and `end = end₀ − m_e`, where:
+- start₀ is the summed VOBU durations before the run, and end₀ adds the run's VOBUs;
+- m_s is half the shorter of the last VOBU before the run and the run's first VOBU, or 0 when start₀ is 0;
+- m_e is half the run's last VOBU.
+
+A drift guard fails the cut when (VOB ID changes from the group start to R1) × 10 ms reaches a non-zero margin.
+
 **Cut group rule.** The `( … )` group starts at the latest title VOB, at or before the first file the run touches, whose first sector is a VOBU start. `VTS_nn_1` always qualifies. The group ends at the last file the run touches. Real discs split their VOB files at about 1 GB, which can fall in the middle of a VOBU, and mkvmerge must start reading on a VOBU boundary.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1413,9 +1420,10 @@ func TestCutPoints(t *testing.T) {
 		group      []string
 		start, end time.Duration
 	}{
-		{"03", []string{"VTS_02_1.VOB"}, 0, 20 * time.Minute},
-		{"04", []string{"VTS_02_1.VOB", "VTS_02_2.VOB"}, 20 * time.Minute, 40 * time.Minute},
-		{"05", []string{"VTS_02_1.VOB", "VTS_02_2.VOB"}, 40 * time.Minute, 60 * time.Minute}, // VTS_02_2 starts mid-VOBU
+		// Synthetic VOBUs are whole 20-minute cells, so the half-VOBU margins are 10 minutes.
+		{"03", []string{"VTS_02_1.VOB"}, 0, 10 * time.Minute},
+		{"04", []string{"VTS_02_1.VOB", "VTS_02_2.VOB"}, 10 * time.Minute, 30 * time.Minute},
+		{"05", []string{"VTS_02_1.VOB", "VTS_02_2.VOB"}, 30 * time.Minute, 50 * time.Minute}, // VTS_02_2 starts mid-VOBU
 	} {
 		_, ti, paths := sampleTitle(t, testdisc.SampleDVD(), tt.id)
 		var names []string
@@ -1431,8 +1439,24 @@ func TestCutPoints(t *testing.T) {
 		}
 	}
 	_, ti, paths := sampleTitle(t, testdisc.StrayCellDVD(), "01")
-	if start, end, err := cutPoints(ti.dvd, paths); err != nil || start != time.Second || end != 48*time.Minute+time.Second {
+	// start₀ 1 s, m_s = min(1 s, 24 min)/2; end₀ 48m1s, m_e = 24 min/2; one VOB-ID change (A→B), 10 ms ≪ margins.
+	if start, end, err := cutPoints(ti.dvd, paths); err != nil || start != 500*time.Millisecond || end != 36*time.Minute+time.Second {
 		t.Errorf("stray 01: cut %v–%v (%v)", start, end, err)
+	}
+}
+
+func TestCutDriftGuard(t *testing.T) {
+	if err := cutDriftGuard(3, 250*time.Millisecond, 300*time.Millisecond); err != nil {
+		t.Errorf("3 changes under 250 ms margins: %v", err)
+	}
+	if err := cutDriftGuard(25, 250*time.Millisecond, 300*time.Millisecond); err == nil || !strings.Contains(err.Error(), "25 VOB ID changes") {
+		t.Errorf("25 changes × 10 ms ≥ 250 ms: err = %v", err)
+	}
+	if err := cutDriftGuard(40, 0, 300*time.Millisecond); err == nil {
+		t.Error("a zero margin is ignored (no start cut), but 400 ms ≥ 300 ms must fail")
+	}
+	if err := cutDriftGuard(1, 0, 300*time.Millisecond); err != nil {
+		t.Errorf("start at 0 has no margin to guard: %v", err)
 	}
 }
 
@@ -1541,7 +1565,7 @@ func TestDVDCutDryRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := res.Command
-	if !hasPair(cmd, "--split", "parts:00:40:00.000000000-01:00:00.000000000") {
+	if !hasPair(cmd, "--split", "parts:00:30:00.000000000-00:50:00.000000000") {
 		t.Errorf("no split in %q", cmd)
 	}
 	i := slices.Index(cmd, "(")
@@ -1776,9 +1800,31 @@ func byteSpans(ranges []sectorRange, files []vobFile, paths []string) []vobsub.S
 	return out
 }
 
-// cutPoints returns where a cut title's run starts and ends on the
-// timeline of its cut group: the summed VOBU durations (from each VOBU's
-// NAV pack) before the run, and through its end.
+// driftPerVOBID bounds how far summed VOBU durations can run ahead of
+// mkvmerge's timeline at each VOB ID change (observed: 4.67 ms of padding
+// per VOB ID on authored discs; see docs/superpowers/notes/2026-10-02-m6-mkvmerge-cut.md).
+const driftPerVOBID = 10 * time.Millisecond
+
+// cutDriftGuard fails when changes VOB ID changes could drift the cut by at
+// least the smallest non-zero margin, so mkvmerge might snap to the wrong
+// keyframe.
+func cutDriftGuard(changes int, margins ...time.Duration) error {
+	drift := time.Duration(changes) * driftPerVOBID
+	for _, m := range margins {
+		if m > 0 && drift >= m {
+			return fmt.Errorf("%d VOB ID changes before the cut could shift it by %v, more than the %v margin", changes, drift, m)
+		}
+	}
+	return nil
+}
+
+// cutPoints returns the --split times for a cut title on the timeline of
+// its cut group. mkvmerge cuts at the first keyframe at or after each time,
+// and summed VOBU durations (from the NAV packs) run slightly ahead of its
+// timeline at VOB ID changes, so each point is moved back by half a VOBU:
+// start = (VOBUs before the run) − half the shorter of the VOBU before the
+// run and the run's first VOBU (no margin at 0); end = start₀ + (the run's
+// VOBUs) − half the run's last VOBU.
 func cutPoints(info *dvdInfo, paths []string) (start, end time.Duration, err error) {
 	if len(info.vobus) == 0 {
 		return 0, 0, errors.New("the IFO has no VOBU address map")
@@ -1793,8 +1839,9 @@ func cutPoints(info *dvdInfo, paths []string) (start, end time.Duration, err err
 		}
 	}()
 	buf := make([]byte, 2048)
-	var before, during uint64
+	var before, during, lastBefore, firstRun, lastRun uint64
 	sawStart := false
+	changes, prevVOB := 0, -1
 	for _, s := range info.vobus {
 		sec := int64(s)
 		if sec < g0 || sec > r1 {
@@ -1823,19 +1870,37 @@ func cutPoints(info *dvdInfo, paths []string) (start, end time.Duration, err err
 		if !ok {
 			return 0, 0, fmt.Errorf("no NAV pack at VOBU sector %d", sec)
 		}
-		d := uint64(nav.EndPTM - nav.StartPTM)
-		if sec < r0 {
-			before += d
-		} else {
-			during += d
+		if prevVOB >= 0 && nav.VOBID != prevVOB {
+			changes++
 		}
-		sawStart = sawStart || sec == r0
+		prevVOB = nav.VOBID
+		d := uint64(nav.EndPTM - nav.StartPTM)
+		switch {
+		case sec < r0:
+			before += d
+			lastBefore = d
+		default:
+			if sec == r0 {
+				sawStart = true
+				firstRun = d
+			}
+			during += d
+			lastRun = d
+		}
 	}
 	if !sawStart {
 		return 0, 0, fmt.Errorf("no VOBU starts at the title's first sector %d", r0)
 	}
 	ticks := func(n uint64) time.Duration { return time.Duration(n) * time.Second / 90000 }
-	return ticks(before), ticks(before + during), nil
+	var ms time.Duration
+	if before > 0 {
+		ms = ticks(min(lastBefore, firstRun)) / 2
+	}
+	me := ticks(lastRun) / 2
+	if err := cutDriftGuard(changes, ms, me); err != nil {
+		return 0, 0, err
+	}
+	return ticks(before) - ms, ticks(before+during) - me, nil
 }
 
 // copyTitle copies title t's kept cells, in play order, into a temporary
@@ -2436,8 +2501,10 @@ package zenvik_test
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -2447,6 +2514,29 @@ import (
 )
 
 const oneFrame = 34 * time.Millisecond
+
+// videoDuration is the video track's span (first to last frame timestamp,
+// plus one NTSC frame). The container duration also counts audio, which
+// mkvmerge appends after audio at VOB ID changes (Task 1 notes).
+func videoDuration(t *testing.T, path string) time.Duration {
+	t.Helper()
+	txt := filepath.Join(t.TempDir(), "v.txt")
+	if out, err := exec.Command("mkvextract", path, "timestamps_v2", "0:"+txt).CombinedOutput(); err != nil {
+		t.Fatalf("mkvextract: %v\n%s", err, out)
+	}
+	b, _ := os.ReadFile(txt)
+	var ts []float64
+	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n")[1:] {
+		if v, err := strconv.ParseFloat(strings.TrimSpace(l), 64); err == nil {
+			ts = append(ts, v)
+		}
+	}
+	if len(ts) == 0 {
+		t.Fatalf("no video timestamps in %s", path)
+	}
+	slices.Sort(ts)
+	return time.Duration((ts[len(ts)-1]-ts[0])*float64(time.Millisecond)) + 1001*time.Second/30000
+}
 
 func episodesDisc(t *testing.T) string {
 	t.Helper()
@@ -2495,7 +2585,7 @@ func TestRipDVDCut(t *testing.T) {
 		t.Fatalf("03 method %q", ti.RipMethod)
 	}
 	out, _ := ripTo(t, d, "03")
-	if got := containerDuration(t, out); got < ti.Duration-oneFrame || got > ti.Duration+oneFrame {
+	if got := videoDuration(t, out); got < ti.Duration-oneFrame || got > ti.Duration+oneFrame {
 		t.Errorf("duration %v, title %v", got, ti.Duration)
 	}
 	if a, z := colours(t, out); a != "green" || z != "green" {
@@ -2525,7 +2615,7 @@ func TestRipDVDCutSkipsStray(t *testing.T) {
 	if !slices.ContainsFunc(res.Warnings, func(w string) bool { return strings.Contains(w, "skipped cell") }) {
 		t.Errorf("warnings = %q", res.Warnings)
 	}
-	if got := containerDuration(t, out); got < ti.Duration-oneFrame || got > ti.Duration+oneFrame {
+	if got := videoDuration(t, out); got < ti.Duration-oneFrame || got > ti.Duration+oneFrame {
 		t.Errorf("duration %v, title %v", got, ti.Duration)
 	}
 	if a, z := colours(t, out); a != "red" || z != "red" {
@@ -2540,7 +2630,7 @@ func TestRipDVDCopy(t *testing.T) {
 		t.Fatalf("06 method %q", ti.RipMethod)
 	}
 	out, _ := ripTo(t, d, "06")
-	if got := containerDuration(t, out); got < ti.Duration-2*oneFrame || got > ti.Duration+2*oneFrame {
+	if got := videoDuration(t, out); got < ti.Duration-2*oneFrame || got > ti.Duration+2*oneFrame {
 		t.Errorf("duration %v, title %v", got, ti.Duration)
 	}
 	if a, z := colours(t, out); a != "blue" || z != "red" {
@@ -2615,7 +2705,7 @@ The run must show all of the following:
 - The `start` event has `"rip_method":"cut"` and `"title":"01"`.
 - A `warning` reads `title 01: skipped cell 22 (1.0 s at sectors 0–438, out of order)`.
 - The run ends with a `done` event.
-- The duration is 7573.13 s ± 0.05 (2:06:14.13 minus the 1 s cell).
+- The video track's duration is 7573.13 s ± 0.05 (2:06:14.13 minus the 1 s cell); measure it from `mkvextract … timestamps_v2 0:…`. Also record the container duration.
 - There are 19 chapters.
 - The tracks are video, two or three audio tracks (eng, spa) and the English subtitle tracks.
 - No mounts are left.
