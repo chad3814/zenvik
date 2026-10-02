@@ -19,7 +19,16 @@ import (
 // ripped yet (M5 spec section 5.1).
 const reasonMultiPGC = "spans several program chains (not supported yet)"
 
+// reasonOutsideVOBs is why a DVD title whose kept cells address sectors
+// past the title set's VOBs can't be ripped.
+const reasonOutsideVOBs = "cells point outside the title VOBs"
+
 type sectorRange struct{ first, last int64 }
+
+// insideVOBs reports whether cell c's sectors lie within the title VOBs.
+func insideVOBs(c dvd.Cell, vobs []vobFile) bool {
+	return len(vobs) > 0 && int64(c.FirstSector) >= vobs[0].first && int64(c.LastSector) <= vobs[len(vobs)-1].last
+}
 
 // vobFile is one title VOB of a title set. Sectors are relative to the
 // start of the set's first title VOB, as cell addresses are.
@@ -177,6 +186,11 @@ func dvdTitle(num int, e dvd.TitleEntry, ts *titleSet) (*Title, rank.Candidate) 
 		t.Duration -= cl.Time.Duration()
 	}
 	slices.SortFunc(t.SkippedCells, func(a, b SkippedCell) int { return a.Cell - b.Cell })
+	for k, cl := range cells {
+		if !drop[play[k]] && !insideVOBs(cl, ts.vobs) {
+			return unsupported(reasonOutsideVOBs)
+		}
+	}
 	t.RipMethod = method
 	t.Chapters = titleChapters(pgc, ptts, drop)
 

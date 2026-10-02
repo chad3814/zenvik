@@ -26,6 +26,7 @@ const (
 	PhaseMuxing     Phase = 3 // mkvmerge writing the output
 	PhaseFinalizing Phase = 4 // renaming the finished file
 	PhaseSubtitles  Phase = 5 // extracting DVD subtitles (before scanning)
+	PhaseCopying    Phase = 6 // copying a DVD title's cells to a temporary file
 )
 
 func (p Phase) String() string {
@@ -40,6 +41,8 @@ func (p Phase) String() string {
 		return "finalizing"
 	case PhaseSubtitles:
 		return "extracting subtitles"
+	case PhaseCopying:
+		return "copying"
 	}
 	return "unknown"
 }

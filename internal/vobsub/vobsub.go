@@ -34,13 +34,20 @@ type Stream struct {
 
 // Params describe an extraction.
 type Params struct {
-	VOBs          []string // the title's VOB files, in order
-	Cells         []Cell   // the title's angle-1 cells
-	Streams       []Stream // streams to extract, in output order
+	Spans         []Span        // the title's VOB data, in order
+	TimeOffset    time.Duration // added to every timestamp (a cut title's place on the mkvmerge timeline)
+	Cells         []Cell        // the title's angle-1 cells
+	Streams       []Stream      // streams to extract, in output order
 	Palette       [16]uint32
 	Width, Height int
 	Dir           string                  // where subtitles.idx and subtitles.sub are written
 	OnProgress    func(done, total int64) // optional: bytes read so far
+}
+
+// Span is a byte range of a VOB file; Length 0 means to the end of the file.
+type Span struct {
+	Path           string
+	Offset, Length int64
 }
 
 // Result is a finished extraction.
@@ -66,15 +73,20 @@ func Extract(ctx context.Context, p Params) (*Result, error) {
 		starts[[2]int{c.VOBID, c.CellID}] = c.Start
 	}
 	var total int64
-	for _, v := range p.VOBs {
-		st, err := os.Stat(v)
+	spans := make([]Span, len(p.Spans))
+	for i, sp := range p.Spans {
+		st, err := os.Stat(sp.Path)
 		if err != nil {
 			return nil, err
 		}
-		if st.Size()%packSize != 0 {
-			return nil, fmt.Errorf("vobsub: %s is not a whole number of 2048-byte packs", v)
+		if sp.Length == 0 {
+			sp.Length = st.Size() - sp.Offset
 		}
-		total += st.Size()
+		if sp.Offset < 0 || sp.Length < 0 || sp.Offset%packSize != 0 || sp.Length%packSize != 0 || sp.Offset+sp.Length > st.Size() {
+			return nil, fmt.Errorf("vobsub: %s: span %d+%d is not whole 2048-byte packs inside the file", sp.Path, sp.Offset, sp.Length)
+		}
+		spans[i] = sp
+		total += sp.Length
 	}
 	subPath := filepath.Join(p.Dir, "subtitles.sub")
 	sub, err := os.Create(subPath)
@@ -88,13 +100,18 @@ func Extract(ctx context.Context, p Params) (*Result, error) {
 	var ptm uint64 // vobu_s_ptm of the current VOBU
 	known := false
 	buf := make([]byte, packSize)
-	for _, v := range p.VOBs {
-		f, err := os.Open(v)
+	for _, sp := range spans {
+		f, err := os.Open(sp.Path)
 		if err != nil {
 			sub.Close()
 			return nil, err
 		}
-		r := bufio.NewReaderSize(f, 1<<20)
+		if _, err := f.Seek(sp.Offset, io.SeekStart); err != nil {
+			f.Close()
+			sub.Close()
+			return nil, err
+		}
+		r := bufio.NewReaderSize(io.LimitReader(f, sp.Length), 1<<20)
 		for n := 0; ; n++ {
 			if n%4096 == 0 {
 				if err := ctx.Err(); err != nil {
@@ -112,7 +129,7 @@ func Extract(ctx context.Context, p Params) (*Result, error) {
 				}
 				f.Close()
 				sub.Close()
-				return nil, fmt.Errorf("vobsub: reading %s: %w", v, err)
+				return nil, fmt.Errorf("vobsub: reading %s: %w", sp.Path, err)
 			}
 			done += packSize
 			if nav, ok := dvd.ParseNAV(buf); ok {
@@ -125,7 +142,7 @@ func Extract(ctx context.Context, p Params) (*Result, error) {
 				continue
 			}
 			if hasPTS && known {
-				at := max(base+ptsDelta(pts, ptm), 0)
+				at := max(base+ptsDelta(pts, ptm), 0) + p.TimeOffset
 				entries[id] = append(entries[id], entry{at: at, pos: subPos})
 			}
 			if _, err := w.Write(buf); err != nil {

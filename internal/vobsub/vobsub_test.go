@@ -84,7 +84,7 @@ func TestExtract(t *testing.T) {
 	palette[0], palette[1] = 0x00108080, 0x00EB8080
 	out := t.TempDir()
 	res, err := Extract(context.Background(), Params{
-		VOBs:    []string{p1, p2},
+		Spans:   []Span{{Path: p1}, {Path: p2}},
 		Cells:   []Cell{{VOBID: 1, CellID: 1, Start: 0}, {VOBID: 1, CellID: 2, Start: 25 * time.Minute}},
 		Streams: []Stream{{ID: 0, Language: "en"}, {ID: 1, Language: "fr"}, {ID: 3, Language: "de"}},
 		Palette: palette, Width: 720, Height: 480, Dir: out,
@@ -127,7 +127,7 @@ func TestExtractRejectsPartialPack(t *testing.T) {
 	if err := os.WriteFile(p, make([]byte, 3000), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Extract(context.Background(), Params{VOBs: []string{p}, Streams: []Stream{{ID: 0}}, Width: 720, Height: 480, Dir: t.TempDir()}); err == nil {
+	if _, err := Extract(context.Background(), Params{Spans: []Span{{Path: p}}, Streams: []Stream{{ID: 0}}, Width: 720, Height: 480, Dir: t.TempDir()}); err == nil {
 		t.Error("want an error for a VOB that is not a whole number of packs")
 	}
 }
@@ -149,5 +149,29 @@ func TestPTSDelta(t *testing.T) {
 	}
 	if got := ptsDelta(0, 90000); got != -time.Second {
 		t.Errorf("backward = %v", got)
+	}
+}
+
+func TestExtractSpanAndOffset(t *testing.T) {
+	dir := t.TempDir()
+	var vob []byte
+	vob = append(vob, videoPack()...)                   // sector 0: outside the span
+	vob = append(vob, spuPack(0, u32(900000))...)       // sector 1: outside the span
+	vob = append(vob, navPack(1, 1, 0, 900000)...)      // sector 2: span starts here
+	vob = append(vob, spuPack(0, u32(900000+90000))...) // 1 s into cell 1
+	p := filepath.Join(dir, "v.vob")
+	if err := os.WriteFile(p, vob, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Extract(context.Background(), Params{
+		Spans: []Span{{Path: p, Offset: 2 * 2048, Length: 2 * 2048}}, TimeOffset: 10 * time.Minute,
+		Cells: []Cell{{VOBID: 1, CellID: 1}}, Streams: []Stream{{ID: 0, Language: "en"}}, Width: 720, Height: 480, Dir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx, _ := os.ReadFile(res.IDX)
+	if !strings.Contains(string(idx), "timestamp: 00:10:01:000, filepos: 000000000\n") || strings.Count(string(idx), "timestamp:") != 1 {
+		t.Errorf("idx:\n%s", idx)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseVersion(t *testing.T) {
@@ -193,6 +194,16 @@ func TestArgsExtraInput(t *testing.T) {
 		"(", "a.vob", ")",
 		"--language", "0:eng", "--track-name", "0:Forced", "--default-track-flag", "0:no",
 		"--no-video", "--no-audio", "--subtitle-tracks", "0", "s.idx"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Args =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestArgsSplit(t *testing.T) {
+	got := Args(Job{Concat: []string{"a.vob"}, Output: "o.mkv", Split: []TimeRange{{Start: 20 * time.Minute, End: 40*time.Minute + 1500*time.Millisecond}},
+		Tracks: []Track{{ID: 0, Type: "video", Default: true}}})
+	want := []string{"-o", "o.mkv", "--split", "parts:00:20:00.000000000-00:40:01.500000000", "--default-track-flag", "0:yes",
+		"--video-tracks", "0", "--no-audio", "--no-subtitles", "--track-order", "0:0", "(", "a.vob", ")"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Args =\n%q\nwant\n%q", got, want)
 	}

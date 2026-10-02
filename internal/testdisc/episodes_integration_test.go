@@ -303,7 +303,7 @@ func TestEpisodeCutting(t *testing.T) {
 			cells = append(cells, vobsub.Cell{VOBID: c.VOBID, CellID: c.CellID, Start: groupTime(navs, c.FirstSector)})
 		}
 	}
-	res, err := vobsub.Extract(ctx, vobsub.Params{VOBs: []string{vob}, Cells: cells, Streams: []vobsub.Stream{{ID: 0, Language: "en"}},
+	res, err := vobsub.Extract(ctx, vobsub.Params{Spans: []vobsub.Span{{Path: vob}}, Cells: cells, Streams: []vobsub.Stream{{ID: 0, Language: "en"}},
 		Palette: pgc.Palette, Width: 720, Height: 480, Dir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)

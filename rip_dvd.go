@@ -4,13 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/chad3814/zenvik/internal/mux"
-	"github.com/chad3814/zenvik/internal/source"
 	"github.com/chad3814/zenvik/internal/vobsub"
 )
 
@@ -22,62 +20,101 @@ const chapterPlaceholder = "<chapters.txt>"
 // run, which extracts nothing.
 const subtitlePlaceholder = "<subtitles.idx>"
 
-// dvdJob builds the mux job for DVD title t from the files under root.
-// The returned cleanup removes the chapter file and the extracted
-// subtitles; call it after muxing. report receives subtitle-extraction
-// progress.
+// dvdJob builds the mux job for DVD title t from the files under root,
+// using the title's rip method (whole files, a cut, or a temporary copy).
+// The returned cleanup removes every temporary file; call it after muxing.
 func dvdJob(ctx context.Context, mk *mux.Mkvmerge, root string, t *Title, output string, dryRun bool, report func(Phase, float64)) (mux.Job, []string, func(), error) {
 	none := func() {}
-	fsys := os.DirFS(root)
-	dir := source.FindName(fsys, ".", "VIDEO_TS", true)
-	if dir == "" {
-		return mux.Job{}, nil, none, fmt.Errorf("zenvik: no VIDEO_TS folder under %s", root)
+	if t.dvd == nil {
+		return mux.Job{}, nil, none, fmt.Errorf("zenvik: title %s has no DVD layout", t.ID)
 	}
-	var inputs []string
-	for _, c := range t.Clips {
-		n := source.FindName(fsys, dir, c.ID, false)
-		if n == "" {
-			return mux.Job{}, nil, none, fmt.Errorf("zenvik: %s is missing from %s", c.ID, filepath.Join(root, dir))
-		}
-		inputs = append(inputs, filepath.Join(root, dir, n))
-	}
-	if len(inputs) == 0 {
-		return mux.Job{}, nil, none, fmt.Errorf("%w: title %s has no VOB files", ErrMuxFailed, t.ID)
-	}
-	ident, err := mk.Identify(ctx, inputs[0])
+	info := t.dvd
+	paths, err := resolveVOBs(root, info.files)
 	if err != nil {
+		return mux.Job{}, nil, none, err
+	}
+	var warnings []string
+	for _, sc := range t.SkippedCells {
+		warnings = append(warnings, skipWarning(t.ID, sc))
+	}
+	cleanup := none
+	fail := func(err error) (mux.Job, []string, func(), error) {
+		cleanup()
 		if ctx.Err() != nil {
 			return mux.Job{}, nil, none, ctx.Err()
 		}
 		return mux.Job{}, nil, none, err
 	}
-	tracks, warnings := mapDVDTracks(t, ident)
+	job := mux.Job{Output: output}
+	var subSpans []vobsub.Span
+	var offset time.Duration
+	identifyPath := paths[touchedFiles(info.ranges, info.files)[0]]
+	switch info.method {
+	case "files":
+		for _, i := range touchedFiles(info.ranges, info.files) {
+			job.Concat = append(job.Concat, paths[i])
+			subSpans = append(subSpans, vobsub.Span{Path: paths[i]})
+		}
+	case "cut":
+		for _, i := range cutGroup(info) {
+			job.Concat = append(job.Concat, paths[i])
+		}
+		identifyPath = job.Concat[0]
+		start0, start, end, err := planCut(info, paths)
+		if err != nil {
+			return fail(fmt.Errorf("zenvik: title %s: cannot compute cut points: %w", t.ID, err))
+		}
+		job.Split = []mux.TimeRange{{Start: start, End: end}}
+		offset = start0
+		subSpans = byteSpans(info.ranges, info.files, paths)
+	case "copy":
+		if dryRun {
+			job.Concat = []string{titleVOBPlaceholder}
+			break
+		}
+		tmp, err := copyTitle(ctx, t, paths, output, report)
+		if err != nil {
+			return fail(err)
+		}
+		cleanup = func() { os.Remove(tmp) }
+		job.Concat = []string{tmp}
+		identifyPath = tmp
+		subSpans = []vobsub.Span{{Path: tmp}}
+	default:
+		return fail(fmt.Errorf("zenvik: title %s has unknown rip method %q", t.ID, info.method))
+	}
+	ident, err := mk.Identify(ctx, identifyPath)
+	if err != nil {
+		return fail(err)
+	}
+	tracks, more := mapDVDTracks(t, ident)
+	warnings = append(warnings, more...)
 	warnings = append(warnings, ident.Warnings...)
 	if len(tracks) == 0 {
-		return mux.Job{}, nil, none, fmt.Errorf("%w: mkvmerge found no tracks in title %s", ErrMuxFailed, t.ID)
+		return fail(fmt.Errorf("%w: mkvmerge found no tracks in title %s", ErrMuxFailed, t.ID))
 	}
-	job := mux.Job{Concat: inputs, Output: output, Tracks: tracks}
-	cleanup := none
-	if len(t.Subtitles) > 0 && t.dvd != nil {
+	job.Tracks = tracks
+	if len(t.Subtitles) > 0 {
 		if dryRun {
 			job.Extra = []mux.Input{{Path: subtitlePlaceholder, Tracks: subtitleTracks(t.Subtitles)}}
 		} else {
 			dir, err := os.MkdirTemp("", "zenvik-subtitles-")
 			if err != nil {
-				return mux.Job{}, nil, none, err
+				return fail(err)
 			}
-			removeDir := func() { os.RemoveAll(dir) }
+			prev := cleanup
+			cleanup = func() { os.RemoveAll(dir); prev() }
 			streams := make([]vobsub.Stream, len(t.Subtitles))
 			byID := map[int]SubtitleTrack{}
 			for i, s := range t.Subtitles {
 				id := int(s.PID - 0xBD20)
-				streams[i] = vobsub.Stream{ID: id, Language: t.dvd.subLang[s.PID]}
+				streams[i] = vobsub.Stream{ID: id, Language: info.subLang[s.PID]}
 				byID[id] = s
 			}
 			report(PhaseSubtitles, 0)
 			res, err := vobsub.Extract(ctx, vobsub.Params{
-				VOBs: inputs, Cells: t.dvd.cells, Streams: streams, Palette: t.dvd.palette,
-				Width: t.dvd.width, Height: t.dvd.height, Dir: dir,
+				Spans: subSpans, TimeOffset: offset, Cells: info.cells, Streams: streams, Palette: info.palette,
+				Width: info.width, Height: info.height, Dir: dir,
 				OnProgress: func(done, total int64) {
 					if total > 0 {
 						report(PhaseSubtitles, float64(done)/float64(total))
@@ -85,11 +122,7 @@ func dvdJob(ctx context.Context, mk *mux.Mkvmerge, root string, t *Title, output
 				},
 			})
 			if err != nil {
-				removeDir()
-				if ctx.Err() != nil {
-					return mux.Job{}, nil, none, ctx.Err()
-				}
-				return mux.Job{}, nil, none, err
+				return fail(err)
 			}
 			var kept []SubtitleTrack
 			for _, s := range res.Streams {
@@ -103,20 +136,22 @@ func dvdJob(ctx context.Context, mk *mux.Mkvmerge, root string, t *Title, output
 			if len(kept) > 0 {
 				job.Extra = []mux.Input{{Path: res.IDX, Tracks: subtitleTracks(kept)}}
 			}
-			cleanup = removeDir
 		}
 	}
 	if len(t.Chapters) > 0 {
 		job.ChapterFile = chapterPlaceholder
 		if !dryRun {
-			p, err := writeChapterFile(t.Chapters)
-			if err != nil {
-				cleanup()
-				return mux.Job{}, nil, none, err
+			shifted := make([]Chapter, len(t.Chapters))
+			for i, c := range t.Chapters {
+				shifted[i] = Chapter{Number: c.Number, Start: c.Start + offset}
 			}
-			job.ChapterFile = p
+			p, err := writeChapterFile(shifted)
+			if err != nil {
+				return fail(err)
+			}
 			prev := cleanup
 			cleanup = func() { os.Remove(p); prev() }
+			job.ChapterFile = p
 		}
 	}
 	return job, warnings, cleanup, nil

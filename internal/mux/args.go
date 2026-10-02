@@ -1,8 +1,10 @@
 package mux
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Track is one output track of a mux job.
@@ -20,19 +22,30 @@ type Input struct {
 	Tracks []Track // output tracks from this file, in output order
 }
 
+// TimeRange is a span of the input timeline.
+type TimeRange struct{ Start, End time.Duration }
+
 // Job describes one remux.
 type Job struct {
-	Input       string   // the input file (a playlist, .mpls); ignored when Concat is set
-	Concat      []string // files mkvmerge reads as one input, passed as "( a b … )" (DVD title VOBs)
-	ChapterFile string   // chapters to use instead of the inputs' own; "" keeps the inputs' chapters
-	Output      string   // output file path
-	Tracks      []Track  // output tracks, in output order
-	Extra       []Input  // more input files, after the main one (DVD subtitles)
+	Input       string      // the input file (a playlist, .mpls); ignored when Concat is set
+	Concat      []string    // files mkvmerge reads as one input, passed as "( a b … )" (DVD title VOBs)
+	ChapterFile string      // chapters to use instead of the inputs' own; "" keeps the inputs' chapters
+	Output      string      // output file path
+	Tracks      []Track     // output tracks, in output order
+	Extra       []Input     // more input files, after the main one (DVD subtitles)
+	Split       []TimeRange // keep only these ranges ("--split parts:"); nil keeps everything
 }
 
 // Args returns mkvmerge's arguments for job (without --gui-mode): output, the chapter file, the main input's per-track options and track selection, the track order, the main input (a "( … )" group for Concat), then each extra input's per-track options, selection and path.
 func Args(job Job) []string {
 	args := []string{"-o", job.Output}
+	if len(job.Split) > 0 {
+		parts := make([]string, len(job.Split))
+		for i, r := range job.Split {
+			parts[i] = timestamp(r.Start) + "-" + timestamp(r.End)
+		}
+		args = append(args, "--split", "parts:"+strings.Join(parts, ","))
+	}
 	if job.ChapterFile != "" {
 		args = append(args, "--chapters", job.ChapterFile)
 	}
@@ -64,6 +77,12 @@ func Args(job Job) []string {
 		args = append(args, in.Path)
 	}
 	return args
+}
+
+// timestamp formats d as mkvmerge's HH:MM:SS.nnnnnnnnn.
+func timestamp(d time.Duration) string {
+	ns := d.Nanoseconds()
+	return fmt.Sprintf("%02d:%02d:%02d.%09d", ns/3_600_000_000_000, ns/60_000_000_000%60, ns/1_000_000_000%60, ns%1_000_000_000)
 }
 
 // fileArgs returns the per-track options and the track selection that

@@ -79,3 +79,86 @@ esac
 		t.Error("dry run wrote a partial file")
 	}
 }
+
+// layoutStub answers --version, -J (one video and one AC-3 track), and
+// fails anything else (a mux), so non-dry-run rips stop after the job is built.
+func layoutStub(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the mkvmerge stub is a shell script")
+	}
+	stub := filepath.Join(t.TempDir(), "mkvmerge")
+	script := `#!/bin/sh
+case "$1" in
+--version) echo "mkvmerge v90.0 ('Stub') 64-bit" ;;
+-J) printf '%s\n' '{"tracks":[{"id":0,"type":"video","codec":"MPEG-1/2","properties":{"stream_id":224}},{"id":1,"type":"audio","codec":"AC-3","properties":{"stream_id":189,"sub_stream_id":128,"audio_channels":2}}]}' ;;
+*) exit 2 ;;
+esac
+`
+	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return stub
+}
+
+func TestDVDCutDryRun(t *testing.T) {
+	t.Setenv("PATH", "")
+	stub := layoutStub(t)
+	d := openDisc(t, writeDVD(t, testdisc.SampleDVD()))
+	res, err := d.Rip(context.Background(), mustTitle(t, d, "05"), zenvik.RipOptions{OutputPath: filepath.Join(t.TempDir(), "ep.mkv"), DryRun: true, MkvmergePath: stub})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := res.Command
+	if !hasPair(cmd, "--split", "parts:00:30:00.000000000-00:50:00.000000000") {
+		t.Errorf("no split in %q", cmd)
+	}
+	i := slices.Index(cmd, "(")
+	if i < 0 || len(cmd) < i+4 || !strings.HasSuffix(cmd[i+1], "VTS_02_1.VOB") || !strings.HasSuffix(cmd[i+2], "VTS_02_2.VOB") || cmd[i+3] != ")" {
+		t.Errorf("group = %q", cmd[max(0, i):])
+	}
+}
+
+func TestDVDCopyDryRun(t *testing.T) {
+	t.Setenv("PATH", "")
+	stub := layoutStub(t)
+	d := openDisc(t, writeDVD(t, testdisc.SampleDVD()))
+	out := filepath.Join(t.TempDir(), "angle.mkv")
+	res, err := d.Rip(context.Background(), mustTitle(t, d, "08"), zenvik.RipOptions{OutputPath: out, DryRun: true, MkvmergePath: stub})
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.Index(res.Command, "(")
+	if i < 0 || res.Command[i+1] != "<title.vob>" || res.Command[i+2] != ")" {
+		t.Errorf("command = %q", res.Command)
+	}
+	if ents, _ := os.ReadDir(filepath.Dir(out)); len(ents) != 0 {
+		t.Errorf("dry run wrote %v", ents)
+	}
+}
+
+func TestDVDCopyRemovesTempOnMuxFailure(t *testing.T) {
+	t.Setenv("PATH", "")
+	stub := layoutStub(t)
+	d := openDisc(t, writeDVD(t, testdisc.SampleDVD()))
+	out := filepath.Join(t.TempDir(), "angle.mkv")
+	if _, err := d.Rip(context.Background(), mustTitle(t, d, "08"), zenvik.RipOptions{OutputPath: out, MkvmergePath: stub}); err == nil {
+		t.Fatal("the stub fails the mux; Rip must fail")
+	}
+	if ents, _ := os.ReadDir(filepath.Dir(out)); len(ents) != 0 {
+		t.Errorf("failed copy rip left %v", ents)
+	}
+}
+
+func TestDVDSkipWarning(t *testing.T) {
+	t.Setenv("PATH", "")
+	stub := layoutStub(t)
+	d := openDisc(t, writeDVD(t, testdisc.StrayCellDVD()))
+	res, err := d.Rip(context.Background(), mustTitle(t, d, "01"), zenvik.RipOptions{OutputPath: filepath.Join(t.TempDir(), "x.mkv"), DryRun: true, MkvmergePath: stub})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(res.Warnings, "title 01: skipped cell 3 (1.0 s at sectors 0–1, out of order)") {
+		t.Errorf("warnings = %q", res.Warnings)
+	}
+}

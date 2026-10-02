@@ -215,3 +215,20 @@ func TestOpenStrayCellDVD(t *testing.T) {
 		t.Errorf("03 method %q", f.RipMethod)
 	}
 }
+
+func TestOpenDVDCellsOutsideVOBs(t *testing.T) {
+	disc := testdisc.SampleDVD()
+	disc.TitleSets[2].VTS.PGCs[0].Cells[0].LastSector = 12 // VTS_03_1.VOB has sectors 0–9
+	d := openDisc(t, writeDVD(t, disc))
+	const reason = "cells point outside the title VOBs"
+	ex := mustTitle(t, d, "07")
+	if ex.Unsupported != reason || !ex.Rank.Filtered || !slices.Contains(ex.Rank.Reasons, reason) {
+		t.Errorf("07: unsupported %q, rank %+v", ex.Unsupported, ex.Rank)
+	}
+	if _, err := d.Rip(context.Background(), ex, zenvik.RipOptions{OutputPath: filepath.Join(t.TempDir(), "x.mkv")}); !errors.Is(err, zenvik.ErrUnsupportedTitle) {
+		t.Errorf("rip: err = %v", err)
+	}
+	if m := mustTitle(t, d, "01"); m.Unsupported != "" {
+		t.Errorf("01: unsupported %q", m.Unsupported)
+	}
+}

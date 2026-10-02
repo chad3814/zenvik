@@ -23,7 +23,7 @@ type progressPrinter struct {
 // redrawn over it with \r leaves no residue.
 var phaseWidth = func() int {
 	w := 0
-	for p := zenvik.PhaseMounting; p <= zenvik.PhaseSubtitles; p++ {
+	for p := zenvik.PhaseMounting; p <= zenvik.PhaseCopying; p++ {
 		w = max(w, len(p.String()))
 	}
 	return w
