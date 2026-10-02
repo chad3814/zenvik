@@ -58,11 +58,11 @@ func VTSFile(v *dvd.VTS) []byte {
 	mat := make([]byte, 2048)
 	copy(mat, "DVDVIDEO-VTS")
 	encodeVideo(mat[0x200:], v.Video)
-	put16(mat, 0x202, len(v.Audio))
+	mat[0x203] = byte(len(v.Audio))
 	for i, a := range v.Audio {
 		encodeAudio(mat[0x204+8*i:], a)
 	}
-	put16(mat, 0x254, len(v.Subpictures))
+	mat[0x255] = byte(len(v.Subpictures))
 	for i, s := range v.Subpictures {
 		encodeSubpicture(mat[0x256+6*i:], s)
 	}

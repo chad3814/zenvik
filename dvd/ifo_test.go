@@ -3,6 +3,7 @@ package dvd_test
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,8 +99,19 @@ func TestParseCorrupt(t *testing.T) {
 			return testdisc.VTSFile(v)
 		}),
 		"vts bad bcd minutes": vts(func(_ *dvd.VTS, b []byte) []byte { b[firstPGC+5] = 0x6A; return b }),
-		"vts frame rate 2":    vts(func(_ *dvd.VTS, b []byte) []byte { b[firstPGC+7] = 0x80; return b }),
-		"vts truncated":       vts(func(_ *dvd.VTS, b []byte) []byte { return b[:pgc+20] }),
+		"vts pgc offset outside table": vts(func(_ *dvd.VTS, b []byte) []byte {
+			b[pgc+8+4], b[pgc+8+5] = 0x00, 0xFF
+			return b
+		}),
+		"vts cell table outside pgc": vts(func(_ *dvd.VTS, b []byte) []byte {
+			b[firstPGC+0xE8], b[firstPGC+0xE9] = 0xFF, 0xF0
+			return b
+		}),
+		"vts position table outside pgc": vts(func(_ *dvd.VTS, b []byte) []byte {
+			b[firstPGC+0xEA], b[firstPGC+0xEB] = 0xFF, 0xF0
+			return b
+		}),
+		"vts truncated": vts(func(_ *dvd.VTS, b []byte) []byte { return b[:pgc+20] }),
 	}
 	for name, b := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -131,9 +143,112 @@ func TestTimeDuration(t *testing.T) {
 }
 
 func TestLanguage6392(t *testing.T) {
-	for in, want := range map[string]string{"en": "eng", "FR": "fre", "de": "ger", "iw": "heb", "zh": "chi", "xx": "", "": ""} {
+	for in, want := range map[string]string{"en": "eng", "FR": "fre", "de": "ger", "iw": "heb", "zh": "chi", "sh": "scr", "mo": "rum", "xx": "", "": ""} {
 		if got := dvd.Language6392(in); got != want {
 			t.Errorf("Language6392(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+const (
+	pgcSector  = 2 * 2048
+	firstPGCAt = pgcSector + 8 + 8*2
+)
+
+func TestErrorMessagesStartWithDvd(t *testing.T) {
+	b := testdisc.VTSFile(sampleVTS())
+	b[firstPGC0()+5] = 0x6A // bad BCD minutes in PGC 1
+	_, err := dvd.ParseVTS(b)
+	if err == nil || !errors.Is(err, dvd.ErrCorrupt) {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.HasPrefix(err.Error(), "dvd: corrupt IFO: ") || strings.Count(err.Error(), "dvd:") != 1 {
+		t.Errorf("message = %q", err.Error())
+	}
+	// A cell error too.
+	b = testdisc.VTSFile(sampleVTS())
+	b[firstPGC0()+0xEC+2+3*0+0+24*0+4+1] = 0x6A // cell 1 time minutes
+	_, err = dvd.ParseVTS(b)
+	if err == nil || !strings.HasPrefix(err.Error(), "dvd: ") || strings.Count(err.Error(), "dvd:") != 1 {
+		t.Errorf("cell message = %v", err)
+	}
+}
+
+func firstPGC0() int { return firstPGCAt }
+
+func TestAliasedPGCPointersShare(t *testing.T) {
+	b := testdisc.VTSFile(sampleVTS())
+	copy(b[pgcSector+8+8+4:pgcSector+8+8+8], b[pgcSector+8+4:pgcSector+8+8])
+	v, err := dvd.ParseVTS(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.PGCs) != 2 || v.PGCs[0] != v.PGCs[1] {
+		t.Errorf("PGCs not shared: %p %p", v.PGCs[0], v.PGCs[1])
+	}
+}
+
+func TestReservedCountBytesIgnored(t *testing.T) {
+	b := testdisc.VTSFile(sampleVTS())
+	b[0x202], b[0x254] = 0xFF, 0xFF
+	v, err := dvd.ParseVTS(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Audio) != 2 || len(v.Subpictures) != 1 {
+		t.Errorf("audio %d subpictures %d", len(v.Audio), len(v.Subpictures))
+	}
+}
+
+func TestTimeTolerance(t *testing.T) {
+	parse := func(minutes, frameByte byte) dvd.Time {
+		b := testdisc.VTSFile(sampleVTS())
+		b[firstPGCAt+5], b[firstPGCAt+7] = minutes, frameByte
+		v, err := dvd.ParseVTS(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v.PGCs[0].Time
+	}
+	if got := parse(0x30, 0x00); got != (dvd.Time{Minutes: 30, Rate: dvd.Rate30}) {
+		t.Errorf("rate bits 0: %+v", got)
+	}
+	if got := parse(0x30, 0x80); got != (dvd.Time{Minutes: 30, Rate: dvd.Rate30}) {
+		t.Errorf("rate bits 2: %+v", got)
+	}
+	if got := parse(0x30, 0xC0|0x35); got.Frames != 29 || got.Rate != dvd.Rate30 {
+		t.Errorf("30 fps clamp: %+v", got)
+	}
+	if got := parse(0x30, 0x40|0x30); got.Frames != 24 || got.Rate != dvd.Rate25 {
+		t.Errorf("25 fps clamp: %+v", got)
+	}
+}
+
+func TestPTTQuirks(t *testing.T) {
+	// Title 2's offset points past the end of the table: no chapters, no error.
+	b := testdisc.VTSFile(sampleVTS())
+	b[2048+8+6] = 0x10
+	v, err := dvd.ParseVTS(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Titles) != 2 || len(v.Titles[1]) != 0 {
+		t.Errorf("titles = %+v", v.Titles)
+	}
+	// A span that is not a multiple of 4 keeps only whole entries.
+	b = testdisc.VTSFile(sampleVTS())
+	b[2048+7] = 29 // table end: title 2 now spans 6 bytes
+	v, err = dvd.ParseVTS(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []dvd.PartOfTitle{{PGC: 2, Program: 1}}; !reflect.DeepEqual(v.Titles[1], want) {
+		t.Errorf("title 2 = %+v, want %+v", v.Titles[1], want)
+	}
+	// An offset inside the header area is still corrupt.
+	b = testdisc.VTSFile(sampleVTS())
+	b[2048+8+4], b[2048+8+5], b[2048+8+6], b[2048+8+7] = 0, 0, 0, 4
+	if _, err = dvd.ParseVTS(b); !errors.Is(err, dvd.ErrCorrupt) {
+		t.Errorf("err = %v, want ErrCorrupt", err)
 	}
 }

@@ -18,7 +18,7 @@ or:ori os:oss pa:pan pi:pli pl:pol ps:pus pt:por qu:que rm:roh rn:run ro:rum ru:
 sc:srd sd:snd se:sme sg:sag si:sin sk:slo sl:slv sm:smo sn:sna so:som sq:alb sr:srp ss:ssw st:sot
 su:sun sv:swe sw:swa ta:tam te:tel tg:tgk th:tha ti:tir tk:tuk tl:tgl tn:tsn to:ton tr:tur ts:tso
 tt:tat tw:twi ty:tah ug:uig uk:ukr ur:urd uz:uzb ve:ven vi:vie vo:vol wa:wln wo:wol xh:xho yi:yid
-yo:yor za:zha zh:chi zu:zul iw:heb in:ind ji:yid`
+yo:yor za:zha zh:chi zu:zul iw:heb in:ind ji:yid sh:scr mo:rum`
 	m := map[string]string{}
 	for _, f := range strings.Fields(table) {
 		k, v, _ := strings.Cut(f, ":")

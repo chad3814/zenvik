@@ -238,14 +238,14 @@ func ParseVTS(b []byte) (*VTS, error) {
 	if v.Video, err = parseVideo(b[0x200:]); err != nil {
 		return nil, err
 	}
-	na := be16(b, 0x202)
+	na := int(b[0x203]) // 0x202 is reserved
 	if na > 8 {
 		return nil, corrupt("%d audio streams", na)
 	}
 	for i := 0; i < na; i++ {
 		v.Audio = append(v.Audio, parseAudio(b[0x204+8*i:]))
 	}
-	ns := be16(b, 0x254)
+	ns := int(b[0x255]) // 0x254 is reserved
 	if ns > 32 {
 		return nil, corrupt("%d subpicture streams", ns)
 	}
@@ -365,13 +365,19 @@ func parsePTT(t []byte) ([][]PartOfTitle, error) {
 	out := make([][]PartOfTitle, n)
 	for i := 0; i < n; i++ {
 		start := int64(be32(t, 8+4*i))
+		if start >= int64(len(t)) {
+			continue // libdvdread tolerates this: the title has no chapters
+		}
 		stop := int64(len(t))
 		if i+1 < n {
-			stop = int64(be32(t, 8+4*(i+1)))
+			if next := int64(be32(t, 8+4*(i+1))); next < stop {
+				stop = next
+			}
 		}
-		if start < int64(8+4*n) || stop < start || stop > int64(len(t)) || (stop-start)%4 != 0 {
+		if start < int64(8+4*n) || stop < start {
 			return nil, corrupt("part-of-title table: title %d spans bytes %d–%d", i+1, start, stop)
 		}
+		stop = start + (stop-start)/4*4 // only whole entries
 		for o := start; o < stop; o += 4 {
 			p := PartOfTitle{PGC: be16(t, int(o)), Program: be16(t, int(o)+2)}
 			if p.PGC < 1 || p.Program < 1 {
@@ -389,15 +395,21 @@ func parsePGCI(t []byte) ([]*PGC, error) {
 		return nil, corrupt("program chain table has %d chains", n)
 	}
 	out := make([]*PGC, n)
+	seen := map[int64]*PGC{} // search pointers may alias one PGC
 	for i := 0; i < n; i++ {
 		off := int64(be32(t, 8+8*i+4))
+		if p, ok := seen[off]; ok {
+			out[i] = p
+			continue
+		}
 		if off < int64(8+8*n) || off+0xEC > int64(len(t)) {
 			return nil, corrupt("PGC %d at byte %d is outside its table", i+1, off)
 		}
 		p, err := parsePGC(t[off:])
 		if err != nil {
-			return nil, fmt.Errorf("PGC %d: %w", i+1, err)
+			return nil, corrupt("PGC %d: %v", i+1, err)
 		}
+		seen[off] = p
 		out[i] = p
 	}
 	return out, nil
@@ -424,18 +436,18 @@ func parsePGC(p []byte) (*PGC, error) {
 	}
 	if ncell == 0 {
 		if nprog != 0 {
-			return nil, corrupt("%d programs but no cells", nprog)
+			return nil, fmt.Errorf("%d programs but no cells", nprog)
 		}
 		return pg, nil
 	}
 	progOff, cellOff, posOff := be16(p, 0xE6), be16(p, 0xE8), be16(p, 0xEA)
 	if progOff < 0xEC || progOff+nprog > len(p) || cellOff < 0xEC || cellOff+24*ncell > len(p) || posOff < 0xEC || posOff+4*ncell > len(p) {
-		return nil, corrupt("program map, cell or position table outside the PGC")
+		return nil, fmt.Errorf("program map, cell or position table outside the PGC")
 	}
 	for i := 0; i < nprog; i++ {
 		c := int(p[progOff+i])
 		if c < 1 || c > ncell {
-			return nil, corrupt("program %d starts at cell %d of %d", i+1, c, ncell)
+			return nil, fmt.Errorf("program %d starts at cell %d of %d", i+1, c, ncell)
 		}
 		pg.Programs = append(pg.Programs, c)
 	}
@@ -443,13 +455,13 @@ func parsePGC(p []byte) (*PGC, error) {
 		c := p[cellOff+24*i:]
 		t, err := parseTime(c[4:8])
 		if err != nil {
-			return nil, fmt.Errorf("cell %d: %w", i+1, err)
+			return nil, fmt.Errorf("cell %d: %v", i+1, err)
 		}
 		q := p[posOff+4*i:]
 		cell := Cell{BlockMode: BlockMode(c[0] >> 6), AngleBlock: (c[0]>>4)&3 == 1, Time: t,
 			FirstSector: be32(c, 8), LastSector: be32(c, 20), VOBID: be16(q, 0), CellID: int(q[3])}
 		if cell.LastSector < cell.FirstSector {
-			return nil, corrupt("cell %d ends at sector %d before it starts at %d", i+1, cell.LastSector, cell.FirstSector)
+			return nil, fmt.Errorf("cell %d ends at sector %d before it starts at %d", i+1, cell.LastSector, cell.FirstSector)
 		}
 		pg.Cells = append(pg.Cells, cell)
 	}

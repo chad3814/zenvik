@@ -57,6 +57,10 @@ func NewTime(d time.Duration, r FrameRate) Time {
 	return t
 }
 
+// parseTime decodes a 4-byte BCD time. Only invalid digits are an error, and
+// the message carries no sentinel: callers wrap it with corrupt. Like
+// libdvdread, it tolerates real-disc quirks: a missing or reserved frame rate
+// reads as 30 fps and an out-of-range frame count is clamped.
 func parseTime(b []byte) (Time, error) {
 	bcd := func(x byte) (int, bool) {
 		hi, lo := x>>4, x&0x0F
@@ -67,24 +71,18 @@ func parseTime(b []byte) (Time, error) {
 	s, ok3 := bcd(b[2])
 	f, ok4 := bcd(b[3] & 0x3F)
 	if !ok1 || !ok2 || !ok3 || !ok4 || m > 59 || s > 59 {
-		return Time{}, fmt.Errorf("%w: bad BCD time % X", ErrCorrupt, b[:4])
+		return Time{}, fmt.Errorf("bad BCD time % X", b[:4])
 	}
 	t := Time{Hours: h, Minutes: m, Seconds: s, Frames: f}
-	switch b[3] >> 6 {
-	case 1:
-		t.Rate = Rate25
-	case 3:
-		t.Rate = Rate30
-	case 0:
-		if t != (Time{}) {
-			return Time{}, fmt.Errorf("%w: time % X has no frame rate", ErrCorrupt, b[:4])
-		}
+	if b[3]>>6 == 0 && t == (Time{}) {
 		return t, nil
-	default:
-		return Time{}, fmt.Errorf("%w: time % X has an invalid frame rate", ErrCorrupt, b[:4])
+	}
+	t.Rate = Rate30
+	if b[3]>>6 == 1 {
+		t.Rate = Rate25
 	}
 	if f >= int(t.Rate) {
-		return Time{}, fmt.Errorf("%w: time % X has frame %d at %d fps", ErrCorrupt, b[:4], f, t.Rate)
+		t.Frames = int(t.Rate) - 1
 	}
 	return t, nil
 }
