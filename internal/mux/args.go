@@ -16,15 +16,19 @@ type Track struct {
 
 // Job describes one remux.
 type Job struct {
-	Input  string  // playlist (.mpls) path
-	Output string  // output file path
-	Tracks []Track // output tracks, in output order
+	Input       string   // the input file (a playlist, .mpls); ignored when Concat is set
+	Concat      []string // files mkvmerge reads as one input, passed as "( a b … )" (DVD title VOBs)
+	ChapterFile string   // chapters to use instead of the inputs' own; "" keeps the inputs' chapters
+	Output      string   // output file path
+	Tracks      []Track  // output tracks, in output order
 }
 
-// Args returns mkvmerge's arguments for job (without --gui-mode): output,
-// per-track options, the track selection, the track order, then the input.
+// Args returns mkvmerge's arguments for job (without --gui-mode): output, the chapter file, per-track options, the track selection, the track order, then the input (a "( … )" group for Concat).
 func Args(job Job) []string {
 	args := []string{"-o", job.Output}
+	if job.ChapterFile != "" {
+		args = append(args, "--chapters", job.ChapterFile)
+	}
 	var video, audio, subs, order []string
 	for _, t := range job.Tracks {
 		id := strconv.Itoa(t.ID)
@@ -54,6 +58,14 @@ func Args(job Job) []string {
 	args = append(args, selection("--subtitle-tracks", "--no-subtitles", subs)...)
 	if len(order) > 0 {
 		args = append(args, "--track-order", strings.Join(order, ","))
+	}
+	if job.ChapterFile != "" {
+		args = append(args, "--no-chapters")
+	}
+	if len(job.Concat) > 0 {
+		args = append(args, "(")
+		args = append(args, job.Concat...)
+		return append(args, ")")
 	}
 	return append(args, job.Input)
 }

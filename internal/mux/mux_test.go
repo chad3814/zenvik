@@ -160,3 +160,26 @@ func TestArgs(t *testing.T) {
 		t.Errorf("Args (video only) = %q", noSubs)
 	}
 }
+
+func TestArgsConcatAndChapters(t *testing.T) {
+	got := Args(Job{Concat: []string{"a.vob", "b.vob", "c.vob"}, ChapterFile: "ch.txt", Output: "o.mkv",
+		Tracks: []Track{{ID: 0, Type: "video", Default: true}}})
+	want := []string{"-o", "o.mkv", "--chapters", "ch.txt", "--default-track-flag", "0:yes",
+		"--video-tracks", "0", "--no-audio", "--no-subtitles", "--track-order", "0:0",
+		"--no-chapters", "(", "a.vob", "b.vob", "c.vob", ")"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Args =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestIdentifyStreamIDs(t *testing.T) {
+	id, err := parseIdentification([]byte(`{"tracks":[
+		{"id":0,"type":"video","codec":"MPEG-1/2","properties":{"number":224,"stream_id":224}},
+		{"id":1,"type":"audio","codec":"AC-3","properties":{"number":549755814077,"stream_id":189,"sub_stream_id":128,"audio_channels":6}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id.Tracks[0].StreamID != 0xE0 || id.Tracks[0].SubStreamID != 0 || id.Tracks[1].StreamID != 0xBD || id.Tracks[1].SubStreamID != 0x80 {
+		t.Errorf("tracks = %+v", id.Tracks)
+	}
+}

@@ -25,6 +25,9 @@ type IdentifiedTrack struct {
 	PID      uint16 // transport stream PID
 	Language string
 	Channels int // audio only
+
+	StreamID    uint16 // MPEG program stream ID; 0 if not reported
+	SubStreamID uint16 // MPEG program stream private sub-stream ID; 0 if none
 }
 
 // Identify runs `mkvmerge -J input`.
@@ -63,6 +66,7 @@ type rawIdentification struct {
 		Properties struct {
 			Number        uint64 `json:"number"`
 			StreamID      uint64 `json:"stream_id"`
+			SubStreamID   uint64 `json:"sub_stream_id"`
 			Language      string `json:"language"`
 			AudioChannels int    `json:"audio_channels"`
 		} `json:"properties"`
@@ -97,10 +101,16 @@ func parseIdentification(b []byte) (*Identification, error) {
 		if pid == 0 {
 			pid = t.Properties.StreamID
 		}
-		id.Tracks = append(id.Tracks, IdentifiedTrack{
+		it := IdentifiedTrack{
 			ID: t.ID, Type: t.Type, Codec: t.Codec, PID: uint16(pid),
 			Language: t.Properties.Language, Channels: t.Properties.AudioChannels,
-		})
+		}
+		// For transport streams mkvmerge reports the PID as stream_id; a
+		// program stream ID is a single byte.
+		if t.Properties.StreamID <= 0xFF {
+			it.StreamID, it.SubStreamID = uint16(t.Properties.StreamID), uint16(t.Properties.SubStreamID)
+		}
+		id.Tracks = append(id.Tracks, it)
 	}
 	for _, c := range raw.Chapters {
 		id.Chapters += c.NumEntries

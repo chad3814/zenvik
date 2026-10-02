@@ -13,6 +13,7 @@ import (
 
 	"github.com/chad3814/zenvik/internal/mount"
 	"github.com/chad3814/zenvik/internal/mux"
+	"github.com/chad3814/zenvik/internal/source"
 )
 
 // Phase identifies a stage of Rip.
@@ -21,7 +22,7 @@ type Phase int
 // Rip phases, in order.
 const (
 	PhaseMounting   Phase = 1 // attaching an ISO image
-	PhaseScanning   Phase = 2 // mkvmerge scanning the playlist's files
+	PhaseScanning   Phase = 2 // mkvmerge scanning the title's files
 	PhaseMuxing     Phase = 3 // mkvmerge writing the output
 	PhaseFinalizing Phase = 4 // renaming the finished file
 )
@@ -118,21 +119,22 @@ func (d *Disc) Rip(ctx context.Context, t *Title, opts RipOptions) (res *RipResu
 		}
 	}()
 
-	playlist := filepath.Join(root, "BDMV", "PLAYLIST", t.ID+".mpls")
-	ident, err := mk.Identify(ctx, playlist)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		return nil, err
-	}
-	tracks, warnings := mapTracks(t, ident)
-	warnings = append(warnings, ident.Warnings...)
-	if len(tracks) == 0 {
-		return nil, fmt.Errorf("%w: mkvmerge found none of title %s's streams", ErrMuxFailed, t.ID)
-	}
 	partial := opts.OutputPath + ".partial"
-	job := mux.Job{Input: playlist, Output: partial, Tracks: tracks}
+	var job mux.Job
+	var warnings []string
+	if d.Format == DVD {
+		var cleanup func()
+		job, warnings, cleanup, err = dvdJob(ctx, mk, root, t, partial, opts.DryRun)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+	} else {
+		job, warnings, err = blurayJob(ctx, mk, root, t, partial)
+		if err != nil {
+			return nil, err
+		}
+	}
 	command := append([]string{mk.Path}, mux.Args(job)...)
 	if opts.DryRun {
 		return &RipResult{OutputPath: opts.OutputPath, Duration: t.Duration, Warnings: warnings, Command: command}, nil
@@ -168,7 +170,7 @@ func (d *Disc) Rip(ctx context.Context, t *Title, opts RipOptions) (res *RipResu
 	}, nil
 }
 
-// mountRoot returns the directory that holds BDMV for mkvmerge to read,
+// mountRoot returns the directory that holds BDMV or VIDEO_TS for mkvmerge to read,
 // mounting an ISO image if needed, and a function that releases it.
 func (d *Disc) mountRoot(ctx context.Context, report func(Phase, float64)) (string, func() error, error) {
 	if d.src.Kind != ISO {
@@ -180,12 +182,50 @@ func (d *Disc) mountRoot(ctx context.Context, report func(Phase, float64)) (stri
 		return "", nil, mountHint(ctx, err)
 	}
 	release := func() error { return m.Detach(ctx) }
-	if _, err := os.Stat(filepath.Join(m.Dir, "BDMV", "index.bdmv")); err != nil {
-		err = fmt.Errorf("zenvik: mounted %s at %s but found no BDMV/index.bdmv: %w", d.src.Path, m.Dir, err)
+	if !hasDiscMarker(m.Dir, d.Format) {
+		err := fmt.Errorf("zenvik: mounted %s at %s but found no %s", d.src.Path, m.Dir, discMarker(d.Format))
 		return "", nil, errors.Join(err, release())
 	}
 	report(PhaseMounting, 1)
 	return m.Dir, release, nil
+}
+
+// discMarker is the file that identifies a mounted disc of format f.
+func discMarker(f Format) string {
+	if f == DVD {
+		return "VIDEO_TS/VIDEO_TS.IFO"
+	}
+	return "BDMV/index.bdmv"
+}
+
+// hasDiscMarker reports whether root holds format f's marker file; DVD
+// names are matched ignoring case.
+func hasDiscMarker(root string, f Format) bool {
+	if f == DVD {
+		fsys := os.DirFS(root)
+		dir := source.FindName(fsys, ".", "VIDEO_TS", true)
+		return dir != "" && source.FindName(fsys, dir, "VIDEO_TS.IFO", false) != ""
+	}
+	st, err := os.Stat(filepath.Join(root, "BDMV", "index.bdmv"))
+	return err == nil && st.Mode().IsRegular()
+}
+
+// blurayJob identifies the title's playlist under root and maps its tracks.
+func blurayJob(ctx context.Context, mk *mux.Mkvmerge, root string, t *Title, output string) (mux.Job, []string, error) {
+	playlist := filepath.Join(root, "BDMV", "PLAYLIST", t.ID+".mpls")
+	ident, err := mk.Identify(ctx, playlist)
+	if err != nil {
+		if ctx.Err() != nil {
+			return mux.Job{}, nil, ctx.Err()
+		}
+		return mux.Job{}, nil, err
+	}
+	tracks, warnings := mapTracks(t, ident)
+	warnings = append(warnings, ident.Warnings...)
+	if len(tracks) == 0 {
+		return mux.Job{}, nil, fmt.Errorf("%w: mkvmerge found none of title %s's streams", ErrMuxFailed, t.ID)
+	}
+	return mux.Job{Input: playlist, Output: output, Tracks: tracks}, warnings, nil
 }
 
 // mountHint decorates an Attach failure. After cancellation it returns the
