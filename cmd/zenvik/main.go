@@ -77,6 +77,7 @@ func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "zenvik",
 		Short:         "Inspect and remux unencrypted Blu-ray and DVD disc images",
+		Version:       buildVersion(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -91,6 +92,7 @@ func newRootCmd() *cobra.Command {
 			return usageError{errors.New("missing command")}
 		},
 	}
+	root.SetVersionTemplate("zenvik {{.Version}}\n")
 	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error { return usageError{err} })
 	root.AddCommand(newInfoCmd())
 	root.AddCommand(newRipCmd())

@@ -27,7 +27,7 @@ Audience: the author's personal collection first, structured so it can be publis
 - No online metadata lookup.
 - No BD-J execution. No HDR10+/Dolby Vision special handling. Multi-angle titles rip angle 1 only.
 - DVD (`VIDEO_TS`) arrived in milestone 5; see `2026-10-01-zenvik-m5-dvd-design.md`.
-- No release packaging (goreleaser) in v1.
+- No installers or package-manager packaging (Homebrew, apt, MSI), and no macOS code signing or notarization. Since 2026-10-02, pushing a `v*` tag publishes plain release archives for darwin/arm64, darwin/amd64, linux/amd64 and windows/amd64 (`.github/workflows/release.yml`, `scripts/release-build.sh`), and `zenvik --version` reports the tag.
 
 ## 2. Architecture
 

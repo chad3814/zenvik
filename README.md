@@ -7,6 +7,24 @@ Status: early development. See `docs/superpowers/specs/2026-10-01-zenvik-v1-desi
 
 License: MIT.
 
+## Install
+
+Download the archive for your platform from the
+[releases page](https://github.com/chad3814/zenvik/releases): macOS (Apple silicon `arm64`
+or Intel `amd64`), Linux `amd64` or Windows `amd64`. Each archive holds the `zenvik`
+binary, this README and the license, and `SHA256SUMS` lists every archive's checksum
+(`shasum -a 256 -c SHA256SUMS`). Put `zenvik` somewhere on your `PATH`. zenvik also needs
+MKVToolNix (see [Requirements](#requirements)). `zenvik --version` prints the release.
+
+The macOS binaries are not signed or notarized, so Gatekeeper blocks the first run. Allow
+it under System Settings → Privacy & Security, or clear the quarantine flag:
+
+```
+xattr -d com.apple.quarantine zenvik
+```
+
+To build from source instead: `go install github.com/chad3814/zenvik/cmd/zenvik@latest`
+(Go 1.27).
 
 ## Usage
 

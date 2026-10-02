@@ -10,6 +10,7 @@ Go module `github.com/chad3814/zenvik`. Design: `docs/superpowers/specs/2026-10-
 - Unit tests: `go test -race ./...`
 - Integration tests (need `mkvmerge`, `mkvextract`, `ffmpeg` and `dvdauthor`/`spumux`; macOS also exercises `hdiutil`): `go test -tags integration ./...`
 - Regenerate the hdiutil UDF fixture (macOS only): `scripts/gen-udf-fixtures.sh`
+- Release archives (what the release workflow runs): `scripts/release-build.sh vX.Y.Z` writes `dist/`. Pushing a `v*` tag runs `.github/workflows/release.yml`, which tests, builds darwin/arm64, darwin/amd64, linux/amd64 and windows/amd64, and publishes a GitHub release (tags containing `-` are pre-releases).
 
 ## Rules
 
