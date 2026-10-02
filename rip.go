@@ -25,6 +25,7 @@ const (
 	PhaseScanning   Phase = 2 // mkvmerge scanning the title's files
 	PhaseMuxing     Phase = 3 // mkvmerge writing the output
 	PhaseFinalizing Phase = 4 // renaming the finished file
+	PhaseSubtitles  Phase = 5 // extracting DVD subtitles (before scanning)
 )
 
 func (p Phase) String() string {
@@ -37,6 +38,8 @@ func (p Phase) String() string {
 		return "muxing"
 	case PhaseFinalizing:
 		return "finalizing"
+	case PhaseSubtitles:
+		return "extracting subtitles"
 	}
 	return "unknown"
 }
@@ -124,7 +127,7 @@ func (d *Disc) Rip(ctx context.Context, t *Title, opts RipOptions) (res *RipResu
 	var warnings []string
 	if d.Format == DVD {
 		var cleanup func()
-		job, warnings, cleanup, err = dvdJob(ctx, mk, root, t, partial, opts.DryRun)
+		job, warnings, cleanup, err = dvdJob(ctx, mk, root, t, partial, opts.DryRun, report)
 		if err != nil {
 			return nil, err
 		}

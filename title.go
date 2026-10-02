@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/chad3814/zenvik/bluray"
+	"github.com/chad3814/zenvik/internal/vobsub"
 )
 
 // Title is one playlist (Blu-ray) or title (DVD) on the disc.
@@ -22,6 +23,8 @@ type Title struct {
 	// why not (DVD titles that start or end mid-file, for example).
 	Unsupported string
 	Rank        RankInfo
+
+	dvd *dvdInfo // DVD only: what ripping needs beyond the public fields
 }
 
 // Clip is one play item: a clip and its IN/OUT times on the clip's clock.
@@ -83,3 +86,11 @@ type RankInfo struct {
 // not a Blu-ray stream coding type, so bluray.CodingType.String reports
 // it as "0xFF".
 const CodingVobSub bluray.CodingType = 0xFF
+
+// dvdInfo is what ripping a DVD title needs beyond its public fields.
+type dvdInfo struct {
+	cells         []vobsub.Cell     // angle-1 cells and their start times
+	palette       [16]uint32        // the PGC's subpicture palette
+	width, height int               // video size
+	subLang       map[uint16]string // subtitle PID → ISO 639-1 code from the IFO
+}

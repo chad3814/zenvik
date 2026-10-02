@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -61,10 +62,18 @@ esac
 			t.Errorf("missing %s %s in %q", p[0], p[1], cmd)
 		}
 	}
-	n := len(cmd)
-	if n < 5 || cmd[n-5] != "--no-chapters" || cmd[n-4] != "(" || !strings.HasSuffix(cmd[n-3], filepath.Join("VIDEO_TS", "VTS_01_1.VOB")) ||
-		!strings.HasSuffix(cmd[n-2], filepath.Join("VIDEO_TS", "VTS_01_2.VOB")) || cmd[n-1] != ")" {
-		t.Errorf("inputs = %q", cmd[max(0, n-5):])
+	open := slices.Index(cmd, "(")
+	if open < 1 || open+3 >= len(cmd) || cmd[open-1] != "--no-chapters" || !strings.HasSuffix(cmd[open+1], filepath.Join("VIDEO_TS", "VTS_01_1.VOB")) ||
+		!strings.HasSuffix(cmd[open+2], filepath.Join("VIDEO_TS", "VTS_01_2.VOB")) || cmd[open+3] != ")" {
+		t.Errorf("inputs = %q", cmd)
+	}
+	tail := cmd[slices.Index(cmd, ")")+1:]
+	if len(tail) == 0 || tail[len(tail)-1] != "<subtitles.idx>" || !hasPair(tail, "--language", "0:eng") || !hasPair(tail, "--language", "1:fre") ||
+		!hasPair(tail, "--track-name", "2:Forced") || !hasPair(tail, "--default-track-flag", "0:no") || !hasPair(tail, "--subtitle-tracks", "0,1,2") {
+		t.Errorf("subtitle input = %q", tail)
+	}
+	if !hasPair(cmd, "--track-order", "0:0,0:1,0:2,0:3,1:0,1:1,1:2") {
+		t.Errorf("track order missing in %q", cmd)
 	}
 	if _, err := os.Stat(out + ".partial"); err == nil {
 		t.Error("dry run wrote a partial file")

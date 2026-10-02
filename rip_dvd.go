@@ -5,20 +5,28 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/chad3814/zenvik/internal/mux"
 	"github.com/chad3814/zenvik/internal/source"
+	"github.com/chad3814/zenvik/internal/vobsub"
 )
 
 // chapterPlaceholder stands in for the chapter file in a dry run, which
 // writes nothing.
 const chapterPlaceholder = "<chapters.txt>"
 
+// subtitlePlaceholder stands in for the extracted VobSub .idx in a dry
+// run, which extracts nothing.
+const subtitlePlaceholder = "<subtitles.idx>"
+
 // dvdJob builds the mux job for DVD title t from the files under root.
-// The returned cleanup removes the chapter file; call it after muxing.
-func dvdJob(ctx context.Context, mk *mux.Mkvmerge, root string, t *Title, output string, dryRun bool) (mux.Job, []string, func(), error) {
+// The returned cleanup removes the chapter file and the extracted
+// subtitles; call it after muxing. report receives subtitle-extraction
+// progress.
+func dvdJob(ctx context.Context, mk *mux.Mkvmerge, root string, t *Title, output string, dryRun bool, report func(Phase, float64)) (mux.Job, []string, func(), error) {
 	none := func() {}
 	fsys := os.DirFS(root)
 	dir := source.FindName(fsys, ".", "VIDEO_TS", true)
@@ -50,15 +58,65 @@ func dvdJob(ctx context.Context, mk *mux.Mkvmerge, root string, t *Title, output
 	}
 	job := mux.Job{Concat: inputs, Output: output, Tracks: tracks}
 	cleanup := none
+	if len(t.Subtitles) > 0 && t.dvd != nil {
+		if dryRun {
+			job.Extra = []mux.Input{{Path: subtitlePlaceholder, Tracks: subtitleTracks(t.Subtitles)}}
+		} else {
+			dir, err := os.MkdirTemp("", "zenvik-subtitles-")
+			if err != nil {
+				return mux.Job{}, nil, none, err
+			}
+			removeDir := func() { os.RemoveAll(dir) }
+			streams := make([]vobsub.Stream, len(t.Subtitles))
+			byID := map[int]SubtitleTrack{}
+			for i, s := range t.Subtitles {
+				id := int(s.PID - 0xBD20)
+				streams[i] = vobsub.Stream{ID: id, Language: t.dvd.subLang[s.PID]}
+				byID[id] = s
+			}
+			report(PhaseSubtitles, 0)
+			res, err := vobsub.Extract(ctx, vobsub.Params{
+				VOBs: inputs, Cells: t.dvd.cells, Streams: streams, Palette: t.dvd.palette,
+				Width: t.dvd.width, Height: t.dvd.height, Dir: dir,
+				OnProgress: func(done, total int64) {
+					if total > 0 {
+						report(PhaseSubtitles, float64(done)/float64(total))
+					}
+				},
+			})
+			if err != nil {
+				removeDir()
+				if ctx.Err() != nil {
+					return mux.Job{}, nil, none, ctx.Err()
+				}
+				return mux.Job{}, nil, none, err
+			}
+			var kept []SubtitleTrack
+			for _, s := range res.Streams {
+				kept = append(kept, byID[s.ID])
+			}
+			for _, s := range t.Subtitles {
+				if !slices.ContainsFunc(kept, func(k SubtitleTrack) bool { return k.PID == s.PID }) {
+					warnings = append(warnings, fmt.Sprintf("title %s: subtitle stream 0x%04X has no subtitles in this title; skipped", t.ID, s.PID))
+				}
+			}
+			if len(kept) > 0 {
+				job.Extra = []mux.Input{{Path: res.IDX, Tracks: subtitleTracks(kept)}}
+			}
+			cleanup = removeDir
+		}
+	}
 	if len(t.Chapters) > 0 {
 		job.ChapterFile = chapterPlaceholder
 		if !dryRun {
 			p, err := writeChapterFile(t.Chapters)
 			if err != nil {
+				cleanup()
 				return mux.Job{}, nil, none, err
 			}
 			job.ChapterFile = p
-			cleanup = func() { os.Remove(p) }
+			prev := cleanup
+			cleanup = func() { os.Remove(p); prev() }
 		}
 	}
 	return job, warnings, cleanup, nil
@@ -156,4 +214,15 @@ func writeChapterFile(chapters []Chapter) (string, error) {
 func ogmTime(d time.Duration) string {
 	ms := d.Milliseconds()
 	return fmt.Sprintf("%02d:%02d:%02d.%03d", ms/3_600_000, ms/60_000%60, ms/1000%60, ms%1000)
+}
+
+// subtitleTracks are the mux tracks of a VobSub input whose streams are
+// subs, in .idx order: track i is subs[i]. None is default.
+func subtitleTracks(subs []SubtitleTrack) []mux.Track {
+	out := make([]mux.Track, len(subs))
+	for i, s := range subs {
+		lang, _ := normalizeLanguage(s.Language)
+		out[i] = mux.Track{ID: i, Type: "subtitles", Language: lang, Name: s.Description}
+	}
+	return out
 }

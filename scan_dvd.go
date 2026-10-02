@@ -11,6 +11,7 @@ import (
 	"github.com/chad3814/zenvik/dvd"
 	"github.com/chad3814/zenvik/internal/rank"
 	"github.com/chad3814/zenvik/internal/source"
+	"github.com/chad3814/zenvik/internal/vobsub"
 )
 
 // Reasons a DVD title can't be ripped yet (M5 spec section 5.1).
@@ -158,7 +159,14 @@ func dvdTitle(num int, e dvd.TitleEntry, ts *titleSet) (*Title, rank.Candidate) 
 	for i, p := range ptts {
 		t.Chapters = append(t.Chapters, Chapter{Number: i + 1, Start: starts[pgc.Programs[p.Program-1]-1]})
 	}
-	fillDVDTracks(t, ts.vts, pgc)
+	info := &dvdInfo{palette: pgc.Palette, width: ts.vts.Video.Width, height: ts.vts.Video.Height, subLang: map[uint16]string{}}
+	for i, cl := range pgc.Cells {
+		if !cl.AngleBlock || cl.BlockMode == dvd.FirstInBlock || cl.BlockMode == dvd.NotInBlock {
+			info.cells = append(info.cells, vobsub.Cell{VOBID: cl.VOBID, CellID: cl.CellID, Start: starts[i]})
+		}
+	}
+	t.dvd = info
+	fillDVDTracks(t, ts.vts, pgc, info)
 	cells := angleOne(pgc.Cells)
 	for _, cl := range cells {
 		t.Size += (int64(cl.LastSector) - int64(cl.FirstSector) + 1) * 2048
@@ -241,7 +249,7 @@ func wholeFiles(cells []dvd.Cell, vobs []vobFile) ([]vobFile, string) {
 // fillDVDTracks sets t's tracks from the title set's attributes and the
 // PGC's stream control tables. Track PIDs are MPEG-PS stream keys (see
 // the plan's Global Constraints).
-func fillDVDTracks(t *Title, vts *dvd.VTS, pgc *dvd.PGC) {
+func fillDVDTracks(t *Title, vts *dvd.VTS, pgc *dvd.PGC, info *dvdInfo) {
 	v := vts.Video
 	vt := VideoTrack{PID: 0x00E0, Codec: bluray.CodingMPEG2Video, Format: 1, FrameRate: 4, AspectRatio: "4:3"}
 	if v.Coding == dvd.MPEG1 {
@@ -292,6 +300,7 @@ func fillDVDTracks(t *Title, vts *dvd.VTS, pgc *dvd.PGC) {
 			continue
 		}
 		seen[pid] = true
+		info.subLang[pid] = s.Language
 		t.Subtitles = append(t.Subtitles, SubtitleTrack{PID: pid, Codec: CodingVobSub, Language: dvd.Language6392(s.Language),
 			Description: subpictureDescriptions[s.CodeExtension]})
 	}

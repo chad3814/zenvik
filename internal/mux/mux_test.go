@@ -183,3 +183,17 @@ func TestIdentifyStreamIDs(t *testing.T) {
 		t.Errorf("tracks = %+v", id.Tracks)
 	}
 }
+
+func TestArgsExtraInput(t *testing.T) {
+	got := Args(Job{Concat: []string{"a.vob"}, Output: "o.mkv",
+		Tracks: []Track{{ID: 0, Type: "video", Default: true}},
+		Extra:  []Input{{Path: "s.idx", Tracks: []Track{{ID: 0, Type: "subtitles", Language: "eng", Name: "Forced"}}}}})
+	want := []string{"-o", "o.mkv", "--default-track-flag", "0:yes",
+		"--video-tracks", "0", "--no-audio", "--no-subtitles", "--track-order", "0:0,1:0",
+		"(", "a.vob", ")",
+		"--language", "0:eng", "--track-name", "0:Forced", "--default-track-flag", "0:no",
+		"--no-video", "--no-audio", "--subtitle-tracks", "0", "s.idx"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Args =\n%q\nwant\n%q", got, want)
+	}
+}

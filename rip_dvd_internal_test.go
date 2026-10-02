@@ -58,3 +58,11 @@ func TestWriteChapterFile(t *testing.T) {
 		t.Errorf("chapter file =\n%s\nwant\n%s", b, want)
 	}
 }
+
+func TestSubtitleTracks(t *testing.T) {
+	got := subtitleTracks([]SubtitleTrack{{PID: 0xBD20, Language: "eng"}, {PID: 0xBD22, Language: "xx", Description: "Forced"}})
+	want := []mux.Track{{ID: 0, Type: "subtitles", Language: "eng"}, {ID: 1, Type: "subtitles", Name: "Forced"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("tracks = %+v", got)
+	}
+}
