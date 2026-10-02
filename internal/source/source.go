@@ -1,10 +1,11 @@
-// Package source resolves a user-supplied path (a disc image, a folder containing BDMV or VIDEO_TS, or a BDMV or VIDEO_TS folder) to a file tree whose root holds BDMV or VIDEO_TS.
+// Package source resolves a user-supplied path (a disc image, a folder containing BDMV or VIDEO_TS, a BDMV or VIDEO_TS folder, or a flattened BDMV folder) to a file tree whose root holds BDMV or VIDEO_TS.
 package source
 
 import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,10 @@ const (
 
 // VideoTSDir is a VIDEO_TS folder (or a folder that contains one).
 const VideoTSDir Kind = 3
+
+// FlatBDMVDir is a folder whose BDMV tree was flattened: the files of
+// PLAYLIST, CLIPINF, STREAM and META/DL sit at its top level.
+const FlatBDMVDir Kind = 4
 
 // Format is the disc format.
 type Format int
@@ -54,6 +59,8 @@ func (k Kind) String() string {
 		return "BDMV folder"
 	case VideoTSDir:
 		return "VIDEO_TS folder"
+	case FlatBDMVDir:
+		return "BDMV folder (flattened)"
 	}
 	return "unknown"
 }
@@ -62,11 +69,19 @@ func (k Kind) String() string {
 type Source struct {
 	Kind    Kind
 	Format  Format
-	Path    string // the ISO file, or the folder containing BDMV or VIDEO_TS
-	Label   string // UDF volume identifier, or the folder's name
-	FS      fs.FS  // root contains BDMV/index.bdmv or <VideoTS>/VIDEO_TS.IFO
-	VideoTS string // name of the VIDEO_TS directory in FS (DVD only)
+	Path    string            // the ISO file, or the folder containing BDMV or VIDEO_TS
+	Label   string            // UDF volume identifier, or the folder's name
+	FS      fs.FS             // root contains BDMV/index.bdmv or <VideoTS>/VIDEO_TS.IFO
+	VideoTS string            // name of the VIDEO_TS directory in FS (DVD only)
+	files   map[string]string // FlatBDMVDir: standard path → absolute real path
 	close   func() error
+}
+
+// Files returns a FlatBDMVDir source's files: standard tree paths such as
+// "BDMV/PLAYLIST/00001.mpls" mapped to the absolute paths of the real
+// files. It returns nil for other kinds.
+func (s *Source) Files() map[string]string {
+	return maps.Clone(s.files)
 }
 
 // Close releases the source.
@@ -105,7 +120,22 @@ func openDir(dir string) (*Source, error) {
 	if err != nil {
 		return nil, err
 	}
-	if isFile(filepath.Join(root, "BDMV", "index.bdmv")) {
+	hasIndex := isFile(filepath.Join(root, "BDMV", "index.bdmv"))
+	if hasIndex && isDir(filepath.Join(root, "BDMV", "PLAYLIST")) {
+		return &Source{Kind: BDMVDir, Format: Bluray, Path: root, Label: filepath.Base(abs), FS: fsys}, nil
+	}
+	flat, err := flatFiles(root)
+	if err != nil {
+		return nil, err
+	}
+	if flat != nil {
+		files := make(map[string]string, len(flat))
+		for std, rel := range flat {
+			files[std] = filepath.Join(abs, filepath.FromSlash(rel))
+		}
+		return &Source{Kind: FlatBDMVDir, Format: Bluray, Path: root, Label: filepath.Base(abs), FS: newFlatFS(root, flat), files: files}, nil
+	}
+	if hasIndex {
 		return &Source{Kind: BDMVDir, Format: Bluray, Path: root, Label: filepath.Base(abs), FS: fsys}, nil
 	}
 	if vts := videoTSDir(fsys); vts != "" {
@@ -178,6 +208,11 @@ func FindName(fsys fs.FS, dir, name string, wantDir bool) string {
 		}
 	}
 	return found
+}
+
+func isDir(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
 }
 
 func isFile(p string) bool {

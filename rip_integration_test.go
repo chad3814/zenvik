@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/chad3814/zenvik"
@@ -82,6 +83,34 @@ func TestRipDirectory(t *testing.T) {
 	}
 	if !slices.ContainsFunc(events, func(e zenvik.Progress) bool { return e.Phase == zenvik.PhaseMuxing }) {
 		t.Error("no muxing progress reported")
+	}
+}
+
+func TestRipFlattened(t *testing.T) {
+	root := realMovie(t)
+	if err := testdisc.Flatten(root); err != nil {
+		t.Fatal(err)
+	}
+	d := openDisc(t, root)
+	if d.Kind != zenvik.FlatBDMVDir {
+		t.Fatalf("Kind = %v", d.Kind)
+	}
+	title := mustTitle(t, d, "00800")
+	out := filepath.Join(t.TempDir(), "flat.mkv")
+	res, err := d.Rip(context.Background(), title, zenvik.RipOptions{OutputPath: out})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Warnings) != 0 {
+		t.Errorf("warnings = %q", res.Warnings)
+	}
+	assertRipped(t, out)
+	i := slices.IndexFunc(res.Command, func(a string) bool { return strings.HasSuffix(a, "00800.mpls") })
+	if i < 0 || !strings.Contains(res.Command[i], "zenvik-bdmv-") {
+		t.Fatalf("command reads no playlist from a temporary tree: %q", res.Command)
+	}
+	if _, err := os.Stat(res.Command[i]); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("temporary tree input %s still exists: %v", res.Command[i], err)
 	}
 }
 
