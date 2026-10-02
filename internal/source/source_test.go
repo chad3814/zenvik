@@ -77,20 +77,9 @@ func TestOpenPathVariants(t *testing.T) {
 		}
 	})
 
-	t.Run("dvd folder", func(t *testing.T) {
-		dvd := filepath.Join(t.TempDir(), "DVD")
-		if err := os.MkdirAll(filepath.Join(dvd, "VIDEO_TS"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		_, err := Open(dvd)
-		if !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "DVD") {
-			t.Errorf("err = %v", err)
-		}
-	})
-
 	t.Run("empty folder", func(t *testing.T) {
 		_, err := Open(t.TempDir())
-		if !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "no BDMV/index.bdmv") {
+		if !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "no BDMV/index.bdmv or VIDEO_TS/VIDEO_TS.IFO") {
 			t.Errorf("err = %v", err)
 		}
 	})
@@ -131,22 +120,6 @@ func TestOpenISO(t *testing.T) {
 	}
 }
 
-func TestOpenDVDImage(t *testing.T) {
-	img, err := udfimage.Build(map[string]udfimage.File{"VIDEO_TS/VIDEO_TS.IFO": {Data: []byte("DVDVIDEO-VMG")}},
-		udfimage.Options{Revision: 0x0102, Label: "SOME_DVD"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := filepath.Join(t.TempDir(), "dvd.iso")
-	if err := os.WriteFile(p, img, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_, err = Open(p)
-	if !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "DVD") {
-		t.Errorf("err = %v", err)
-	}
-}
-
 func TestOpenCorruptImage(t *testing.T) {
 	img, err := testdisc.SampleMovie().ISO(udfimage.Options{Revision: 0x0250, Label: "X"})
 	if err != nil {
@@ -166,18 +139,73 @@ func TestOpenCorruptImage(t *testing.T) {
 	}
 }
 
-func TestKindString(t *testing.T) {
-	if ISO.String() != "ISO image" || BDMVDir.String() != "BDMV folder" || Kind(0).String() != "unknown" {
-		t.Error("Kind.String mismatch")
+func writeFiles(t *testing.T, root string, files map[string]string) {
+	t.Helper()
+	for name, data := range files {
+		p := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
-// TestExplainBeforeClose is a regression test for the use-after-close bug where
-// explain was called after img.Close(), preventing DVD detection. This test
-// demonstrates the hazard: when explain is called on a closed image, it returns
-// the generic message instead of detecting DVD.
-func TestExplainBeforeClose(t *testing.T) {
-	// Create a DVD UDF image
+func TestOpenVideoTSFolder(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "My Movie")
+	writeFiles(t, root, map[string]string{"VIDEO_TS/VIDEO_TS.IFO": "DVDVIDEO-VMG"})
+	for _, path := range []string{root, filepath.Join(root, "VIDEO_TS")} {
+		s, err := Open(path)
+		if err != nil {
+			t.Fatalf("Open(%s): %v", path, err)
+		}
+		if s.Kind != VideoTSDir || s.Format != DVD || s.VideoTS != "VIDEO_TS" || s.Path != root || s.Label != "My Movie" {
+			t.Errorf("Open(%s) = %+v", path, s)
+		}
+		if _, err := fs.Stat(s.FS, "VIDEO_TS/VIDEO_TS.IFO"); err != nil {
+			t.Error(err)
+		}
+	}
+}
+
+func TestOpenVideoTSLowerCase(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "disc")
+	writeFiles(t, root, map[string]string{"video_ts/video_ts.ifo": "DVDVIDEO-VMG", "._VIDEO_TS": "x"})
+	s, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.VideoTS != "video_ts" || s.Format != DVD {
+		t.Errorf("Source = %+v", s)
+	}
+}
+
+func TestOpenVideoTSWithoutIFO(t *testing.T) {
+	root := t.TempDir()
+	writeFiles(t, root, map[string]string{"VIDEO_TS/VTS_01_1.VOB": "x"})
+	_, err := Open(root)
+	if !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "VIDEO_TS/VIDEO_TS.IFO") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestOpenHybridPrefersBluray(t *testing.T) {
+	root := t.TempDir()
+	if err := testdisc.SampleMovie().WriteDir(root); err != nil {
+		t.Fatal(err)
+	}
+	writeFiles(t, root, map[string]string{"VIDEO_TS/VIDEO_TS.IFO": "DVDVIDEO-VMG"})
+	s, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Format != Bluray || s.Kind != BDMVDir || s.VideoTS != "" {
+		t.Errorf("Source = %+v", s)
+	}
+}
+
+func TestOpenDVDImage(t *testing.T) {
 	img, err := udfimage.Build(map[string]udfimage.File{"VIDEO_TS/VIDEO_TS.IFO": {Data: []byte("DVDVIDEO-VMG")}},
 		udfimage.Options{Revision: 0x0102, Label: "SOME_DVD"})
 	if err != nil {
@@ -187,29 +215,39 @@ func TestExplainBeforeClose(t *testing.T) {
 	if err := os.WriteFile(p, img, 0o644); err != nil {
 		t.Fatal(err)
 	}
-
-	// Call openImage directly to test the fix: explain should be called before Close.
-	// With the bug (explain after Close), the error message would be generic.
-	// With the fix (explain before Close), the message should contain "DVD".
-	_, err = openImage(p)
-	if err == nil {
-		t.Fatal("expected error for DVD image")
-	}
-	if !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "DVD") {
-		t.Errorf("err = %v, want ErrUnsupported with 'DVD' in message", err)
-	}
-
-	// Demonstrate the hazard: explain on a closed image returns the generic message.
-	closedImg, err := udf.OpenImage(p)
+	s, err := Open(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	closedImg.Close()
-	genericErr := explain(closedImg, p)
-	if !strings.Contains(genericErr.Error(), "no BDMV/index.bdmv") {
-		t.Errorf("explain on closed image: %v", genericErr)
+	defer s.Close()
+	if s.Kind != ISO || s.Format != DVD || s.VideoTS != "VIDEO_TS" || s.Label != "SOME_DVD" {
+		t.Errorf("Source = %+v", s)
 	}
-	if strings.Contains(genericErr.Error(), "DVD") {
-		t.Errorf("explain on closed image should not detect DVD: %v", genericErr)
+}
+
+func TestFindName(t *testing.T) {
+	root := t.TempDir()
+	writeFiles(t, root, map[string]string{"Video_TS/vts_01_1.vob": "x", "Video_TS/._VTS_01_1.VOB": "x"})
+	fsys := os.DirFS(root)
+	if got := FindName(fsys, ".", "VIDEO_TS", true); got != "Video_TS" {
+		t.Errorf("dir = %q", got)
+	}
+	if got := FindName(fsys, "Video_TS", "VTS_01_1.VOB", false); got != "vts_01_1.vob" {
+		t.Errorf("file = %q", got)
+	}
+	if got := FindName(fsys, "Video_TS", "VTS_01_1.VOB", true); got != "" {
+		t.Errorf("file found as dir: %q", got)
+	}
+	if got := FindName(fsys, "missing", "x", false); got != "" {
+		t.Errorf("missing dir: %q", got)
+	}
+}
+
+func TestKindString(t *testing.T) {
+	if ISO.String() != "ISO image" || BDMVDir.String() != "BDMV folder" || VideoTSDir.String() != "VIDEO_TS folder" || Kind(0).String() != "unknown" {
+		t.Error("Kind.String mismatch")
+	}
+	if Bluray.String() != "Blu-ray" || DVD.String() != "DVD" {
+		t.Error("Format.String mismatch")
 	}
 }
