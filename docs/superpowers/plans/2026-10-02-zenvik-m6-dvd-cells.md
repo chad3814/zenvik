@@ -2516,7 +2516,8 @@ import (
 const oneFrame = 34 * time.Millisecond
 
 // videoDuration is the video track's span (first to last frame timestamp,
-// plus one NTSC frame). The container duration also counts audio, which
+// plus one NTSC frame; the trailing end-time value timestamps_v2 writes is
+// dropped). The container duration also counts audio, which
 // mkvmerge appends after audio at VOB ID changes (Task 1 notes).
 func videoDuration(t *testing.T, path string) time.Duration {
 	t.Helper()
@@ -2531,10 +2532,11 @@ func videoDuration(t *testing.T, path string) time.Duration {
 			ts = append(ts, v)
 		}
 	}
-	if len(ts) == 0 {
+	if len(ts) < 2 {
 		t.Fatalf("no video timestamps in %s", path)
 	}
 	slices.Sort(ts)
+	ts = ts[:len(ts)-1] // timestamps_v2 ends with the last frame's end time (Task 1 notes)
 	return time.Duration((ts[len(ts)-1]-ts[0])*float64(time.Millisecond)) + 1001*time.Second/30000
 }
 
