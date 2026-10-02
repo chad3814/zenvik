@@ -17,7 +17,7 @@ M5 lets zenvik remux **unencrypted DVD-Video** discs to MKV with the same UX as 
 
 ### Non-goals (M5)
 
-- **Titles that start or end in the middle of a VOB file.** This includes most TV episodes that share a title set. They are listed and explained but not ripped. That is planned for a later milestone.
+- **Titles that start or end in the middle of a VOB file.** This includes most TV episodes that share a title set. They are not ripped: `rip` refuses them, the default `info` listing hides them as filtered, and `info --all` shows each with its reason. That is planned for a later milestone.
 - **Pipes or temp copies of video data.** mkvmerge v102 cannot read MPEG-PS from a FIFO (it aborts with `mm_io::seek_x`) or from stdin. M5 therefore only passes real VOB files to mkvmerge.
 - Angles other than angle 1, menus, closed captions (line 21), and CSS decryption.
 
@@ -161,7 +161,7 @@ For each TT_SRPT entry, scanning resolves the title set and the title's first PG
 ### 5.3 Ranking
 
 - `internal/rank` gets the same candidate fields as Blu-ray: duration, chapter count and track counts.
-- Duplicates are titles whose angle-1 cell lists (VTSN, VOB ID, cell ID) are identical. The one with the lower title number is kept.
+- Duplicates are titles whose angle-1 cells match one for one: each cell's (VTSN, VOB ID, cell ID) key and its duration (the clip `Out`) are identical, in order. The one with the lower title number is kept.
 - Titles with `Unsupported` set are filtered, with their reason. `min_duration` applies.
 - The decoy-rate filter applies to DVDs as it does to Blu-ray: a title whose data rate (`Size` over `Duration`) is under 1% of the highest rate among the unfiltered titles is filtered as a likely decoy. Candidates with an unknown size are left alone.
 - Titles are listed in the same order as Blu-ray: the main title, other scored titles, duplicates, then filtered titles.
@@ -271,11 +271,11 @@ Results are in `docs/superpowers/notes/2026-10-01-m5-mkvmerge-dvd.md`. Checks 2 
 3. The synthetic VIDEO_TS builder, plus the ISO variant.
 4. Source detection.
 5. DVD scan: titles, tracks, chapters, the whole-file check, CSS detection and ranking.
-6. DVD rip: mounting, mkvmerge arguments, track mapping, the chapter file and the palette.
+6. DVD rip: mounting, mkvmerge arguments (the title VOBs as one `( … )` group), track mapping and the chapter file. There is no palette fallback; subtitles are Task 10.
 7. CLI: `--title`, `info` output, JSON `format`/`kind`.
 8. Integration tests and CI.
 9. Docs and syncing the v1 spec. That covers §1 non-goals, §3 `SourceKind` and §11.
-10. (Added after Task 1) Extract DVD subtitles to VobSub: `internal/vobsub`, `mux.Job.Extra`, and the rip integration.
+10. (Added after Task 1) Extract DVD subtitles to a VobSub `.idx`/`.sub` pair, because mkvmerge ignores DVD subpictures in VOBs: `internal/vobsub`, `mux.Job.Extra`, and the rip integration. Task 6 maps video and audio only.
 
 Tasks 2 and 3 can run in parallel. Once Task 5 is done, Tasks 6 and 7 can run in parallel.
 
@@ -294,7 +294,7 @@ Where the shipped code differs from the draft that was reviewed. The code is the
 - **Title size** is the sum of the angle-1 cell sectors, not of the VOB file sizes, so unsupported titles have a size too. The decoy-rate filter (under 1% of the highest data rate) applies to DVDs.
 - **Dry run.** Like Blu-ray, it mounts an ISO (to identify the tracks) and does not show a mount placeholder. The chapter file appears as `<chapters.txt>` and the subtitle file as `<subtitles.idx>`.
 - **Integration ISOs** are built by `internal/testdisc/udfimage` (UDF 1.02); `hdiutil makehybrid` and `genisoimage` were not needed. `hdiutil` attaches them on macOS. Linux CI does not mount ISOs, as for Blu-ray. The tests select title `01` explicitly because the 15 s authored title is below `min_duration`.
-- **Subtitles.** mkvmerge ignores DVD subpictures inside VOBs. zenvik extracts them to a temporary VobSub `.idx`/`.sub`, with the IFO palette and NAV-pack-based timestamps (DSI VOB ID, cell ID and cell elapsed time, PCI VOBU start PTM, IFO cell starts), and muxes that file as a second input. The dry run shows `<subtitles.idx>`. This replaces the palette fallback of the draft's section 6.1.
+- **Subtitles.** mkvmerge ignores DVD subpictures inside VOBs. zenvik extracts them to a temporary VobSub `.idx`/`.sub`, with the IFO palette (converted from YCrCb to RGB with the BT.601 studio-range matrix) and NAV-pack-based timestamps (DSI VOB ID, cell ID and cell elapsed time, PCI VOBU start PTM, IFO cell starts), and muxes that file as a second input. The dry run shows `<subtitles.idx>`. This replaces the palette fallback of the draft's section 6.1.
 - **Title VOBs are passed as mkvmerge's `( a.VOB b.VOB )` group,** even for one file. mkvmerge chains sibling VOBs on its own (`VTS_01_1.VOB` alone is already the whole title), so `+` duplicated content (22.8 s instead of 15 s in Task 1's measurement). A single parenthesized file turns auto-chaining off.
 - **Parser tolerance.** The IFO parsers accept real-disc quirks as libdvdread does (single-byte stream counts, a missing frame rate reads as 30 fps, clamped frame counts, short PTT tables). Only structural problems and invalid BCD digits are corrupt. It adds `sh` to `scr` and `mo` to `rum` in the language map.
 - **Progress.** `PhaseSubtitles` ("extracting subtitles") runs before `PhaseScanning`, so a DVD rip with subtitles reads the title once before muxing.

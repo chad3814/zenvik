@@ -40,7 +40,7 @@ zenvik/
 ├── bluray/              # public: index.bdmv, MovieObject.bdmv, MPLS, CLPI, bdmt meta parsers
 ├── dvd/                 # public: VIDEO_TS.IFO and VTS_nn_0.IFO parsers (added in M5)
 ├── internal/
-│   ├── source/          # detect input kind (ISO | BDMV dir); expose fs.FS
+│   ├── source/          # detect input kind (ISO | BDMV dir | VIDEO_TS dir) and format; expose fs.FS
 │   ├── mount/           # OS mount helpers (build tags: darwin, linux, windows)
 │   ├── rank/            # main-feature detection
 │   ├── mux/             # Muxer interface + mkvmerge implementation
@@ -76,14 +76,14 @@ type Disc struct {
   Titles []*Title     // ranked; Titles[0] is the best main-feature candidate
 }
 func (d *Disc) Main() *Title                    // nil if no title qualifies
-func (d *Disc) Title(id string) (*Title, error) // by playlist id, e.g. "00800"
+func (d *Disc) Title(id string) (*Title, error) // by playlist id, e.g. "00800" (DVD: "03" or "3")
 func (d *Disc) Rip(ctx context.Context, t *Title, opts RipOptions) (*RipResult, error)
 func (d *Disc) Close() error                    // unmounts anything zenvik mounted
 
 type Title struct {
-  ID        string        // MPLS number, "00800"
+  ID        string        // MPLS number, "00800" (DVD, M5: title number, "01")
   Duration  time.Duration
-  Size      int64         // sum of referenced clip file sizes
+  Size      int64         // sum of referenced clip file sizes (DVD: angle-1 cell sectors x 2048)
   Clips     []Clip        // m2ts name + in/out times
   Chapters  []Chapter
   Video     []VideoTrack  // codec, resolution, frame rate, HDR flag, PID
@@ -183,13 +183,13 @@ Typed parsers for `index.bdmv` (titles → movie object or BD-J), `MovieObject.b
 
 ```
 zenvik info <path> [--all] [--json]
-zenvik rip  <path> [-p|--playlist ID] [-o|--output-dir DIR] [--name NAME] [--year YYYY]
+zenvik rip  <path> [-t|--title ID] [-o|--output-dir DIR] [--name NAME] [--year YYYY]
                    [--template TMPL] [--preset NAME] [--overwrite] [--dry-run]
 zenvik doctor
 ```
 
-- **`info`:** a ranked table with columns ★ (main), ID, duration, size, chapters, video, audio languages, subtitle languages, and notes (duplicate, ambiguous, encrypted, angles). `--all` includes filtered titles with their reasons. `--json` prints the `Disc` model, with `"kind": "iso" | "bdmv"`.
-- **`rip`:** rips the main title by default (or `--playlist`). It prints the chosen title and why, then the progress. When the result is ambiguous, it rips the top candidate and warns, naming the alternatives. `--dry-run` prints the resolved output path and the mkvmerge command without running it.
+- **`info`:** a ranked table with columns ★ (main), ID, duration, size, chapters, video, audio languages, subtitle languages, and notes (duplicate, ambiguous, encrypted, angles). `--all` includes filtered titles with their reasons. `--json` prints the `Disc` model, with `"kind": "iso" | "bdmv" | "video_ts"` and `"format": "bluray" | "dvd"` (M5).
+- **`rip`:** rips the main title by default (or `--title`; `--playlist`/`-p` is an alias for it). It prints the chosen title and why, then the progress. When the result is ambiguous, it rips the top candidate and warns, naming the alternatives. `--dry-run` prints the resolved output path and the mkvmerge command without running it.
 - **`doctor`:** checks that mkvmerge is found and its version, whether ISO mounting is possible on this OS, the config path and whether it parses, and any leftover zenvik mounts. It prints `✓`, `!` (warning) or `✗` per check. A leftover whose mount is still live is `✗ leftover mount: …`; a stale record (mount already gone) is `! stale mount record: <image> (mount is gone); remove with: <command>`. Exit `4` if mkvmerge is missing or too old, else `2` if the config is invalid, else `1` if there are live leftover mounts, else `0`. Stale records and unavailable ISO mounting are only warnings.
 - **Progress:** an in-place progress bar on a TTY; plain periodic lines otherwise.
 - **Signals:** SIGINT/SIGTERM cancel the context, so cleanup (partial-file removal, unmount) runs.
@@ -222,7 +222,7 @@ template   = "{name}[ ({year})]/{name}[ ({year})].mkv"
 | `{name}` | `--name`, else the bdmt title, else the cleaned volume label (underscores → spaces, title case: `THE_MATRIX` → `The Matrix`) |
 | `{year}` | `--year` only |
 | `{label}` | Raw volume label |
-| `{playlist}` | Playlist ID |
+| `{playlist}` | Playlist ID (a DVD title number such as `01`, since M5) |
 
 - `[...]` is an optional group, dropped if any variable inside it is empty. Groups do not nest.
 - An unknown variable is an error.

@@ -30,8 +30,8 @@ passing both is a usage error.
 `info --json` prints `format` (`"bluray"` or `"dvd"`) and `kind` (`"iso"`, `"bdmv"` or
 `"video_ts"`) for the disc. For each title, `unsupported` (why zenvik can't rip it) appears
 when set. Video tracks add `aspect_ratio` (`"4:3"` or `"16:9"`), and audio and subtitle tracks
-add `description` (for example `Director's Commentary` or `Forced`), when present. The
-fields are DVD only.
+add `description` (for example `Director's Commentary` or `Forced`), when present. Only
+`unsupported`, `aspect_ratio` and `description` are DVD only.
 
 Exit codes: 0 success, 1 failure, 2 usage error, 3 unsupported or encrypted source,
 4 missing or too-old dependency.
@@ -54,7 +54,7 @@ includes most individual TV episodes, can't be ripped yet: they are filtered out
 default `info` listing, `info --all` shows them with the reason (for example `starts or ends
 mid-file (not supported yet)`), and `rip` refuses them with exit code 1. A title is also
 unsupported if a VOB's size isn't a multiple of 2048 bytes. CSS-encrypted titles are
-detected and refused (exit code 3 when every title is encrypted), never decrypted.
+detected and refused, never decrypted. `rip` of an encrypted title exits 3, and `info` or `rip` exits 3 when the only titles zenvik could otherwise use are encrypted.
 
 Each audio and subtitle track keeps its language from the disc. Audio tracks are named with
 the codec and channel layout, plus the disc's description when it has one, for example
