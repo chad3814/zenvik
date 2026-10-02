@@ -31,7 +31,7 @@ Not in v1 (§7):
   - The root `CLAUDE.md` rules ("No cgo", "Third-party dependencies are limited to…") apply to the root module. `gui/CLAUDE.md` states the GUI module's own rules.
 - **Binary:** `zenvik-gui`. On macOS it is `Zenvik.app`.
 - **Library, not CLI:** the GUI links the zenvik library. It never runs the `zenvik` CLI.
-  - Discs and titles: `zenvik.Open`, `Disc.Titles`, `Disc.Main`, `Disc.Title(id)`.
+  - Discs and titles: `zenvik.Open` with the config's `min_duration` (the same as the CLI; `Open` still keeps filtered titles, so every title is listed), `Disc.Titles`, `Disc.Main`, `Disc.Title(id)`.
   - Rips: `Disc.Rip` with `RipOptions{OutputPath, MkvmergePath, OnProgress}`.
   - Default names: `zenvik.FormatName`.
   - Config: zenvik's `internal/config`. Go's `internal/` rule is by import path, so `github.com/chad3814/zenvik/gui/...` may import `github.com/chad3814/zenvik/internal/...`.
@@ -65,9 +65,9 @@ Not in v1 (§7):
 
 ### 3.1 Discs pane
 
-- **Adding.** Drop ISOs, `BDMV`/`VIDEO_TS` folders, or a disc's parent folder onto the window. Alternatively, **Add…** opens a native dialog that accepts files and folders.
+- **Adding.** Drop ISOs, `BDMV`/`VIDEO_TS` folders, or a disc's parent folder onto the window. Alternatively, two buttons open native dialogs: **Add ISO…** (files) and **Add folder…** (folders). Wails v2 has no dialog that accepts both.
 - **Opening.**
-  - Each disc opens in the background with `zenvik.Open(ctx, path, zenvik.WithMinDuration(0))`, so every title is listed.
+  - Each disc opens in the background with `zenvik.Open(ctx, path, zenvik.WithMinDuration(<config min_duration>))`, the same as the CLI. `Open` keeps filtered titles, so every title is still listed, and the main-title pick matches the CLI's.
   - The row shows a spinner, then the format: `DVD` or `Blu-ray`.
   - A disc that fails to open stays in the list in red, showing zenvik's error text (for example `encrypted (AACS)`).
 - **Duplicates and removal.**
@@ -82,15 +82,16 @@ Not in v1 (§7):
   - When the disc has an unambiguous main title, it is ticked by default.
   - When the ranking is ambiguous (`Disc.Main().Rank.Ambiguous`), nothing is pre-ticked and a hint reads: *"No clear main title — tick the titles you want."*
 - **Name fields.** Ticking a title adds a filename field under its row.
-  - The field is prefilled with `FormatName(settings.Template, disc, title, vars)`, the same template and default preset the CLI uses.
-  - When names from the same disc collide (because the template has no `{title}`), the later ones get ` (2)`, ` (3)`… before the extension.
+  - The field holds a relative path: `FormatName(settings.Template, disc, title, vars)`'s output, the same template and default preset the CLI uses, so the template may add subfolders. The template variable for the title is `{playlist}`.
+  - Absolute paths and `..` are rejected. `.mkv` is added when the name has no extension or a different one.
+  - When names from the same disc collide (because the template has no `{playlist}`), the later ones get ` (2)`, ` (3)`… before the extension.
   - The names are editable, and unticking keeps the typed name for that title.
 - **Output folder** is set per disc.
-  - The default is the config's `output_dir`. When that is unset, it is `~/Movies` on macOS and the home folder elsewhere.
+  - The default is the config's `output_dir`. The CLI's default `.` (the current directory, meaningless for an app) becomes `~/Movies` on macOS when that folder exists, otherwise the home folder. A relative `output_dir` is taken relative to the home folder.
   - **Change…** opens a native folder dialog.
 - **Add N titles to queue** appends one entry per ticked title. The disc's ticks then clear, and its names are kept.
   - The entry is rejected with an inline red field if its full output path equals another entry's that is waiting or running.
-  - It is also rejected if the name is empty or contains a path separator.
+  - It is also rejected if the name is empty, is an absolute path, or contains `..`. When any item fails, nothing is added.
 
 ### 3.2 Queue pane
 
@@ -104,7 +105,7 @@ Not in v1 (§7):
   | `failed` | zenvik's message, and **Retry** |
   | `canceled` | **Retry** |
 
-- **Editing waiting entries:** they can be renamed in place (the same validation as §3.1), dragged to reorder, or removed.
+- **Editing waiting entries:** they can be renamed in place (the same validation as §3.1), reordered by drag-and-drop or with ↑/↓ buttons, or removed. Rename edits the file name only, never the folder.
 - **Start/Pause queue.**
   - Pausing lets the current rip finish and starts nothing new.
   - The queue runs automatically whenever it isn't paused and an entry is waiting.
@@ -128,7 +129,7 @@ Not in v1 (§7):
 ### 4.1 Disc list (`internal/discs`)
 
 - The list holds a `*zenvik.Disc` per path, keyed by `filepath.Abs`.
-- `Open` runs in a goroutine per disc, and the result is published as a `disc:changed` event.
+- `Open` runs in a goroutine per disc, and the result is published as a `discs:changed` event carrying the whole list.
 - The summary sent to the frontend is plain JSON. Go pointers never cross the bridge:
 
 ```ts
@@ -167,7 +168,7 @@ type Entry struct {
 - **Runner:** one goroutine.
   1. It takes the first `waiting` entry, if the queue isn't paused and the mkvmerge check passed.
   2. It runs the pre-run checks (§3.2).
-  3. It gets the `*Disc`: the disc list's open one, or else a fresh `Open`, closed after the rip.
+  3. It always re-opens the disc with a fresh `Open`, closed after the rip, instead of reusing the window's open `*Disc`. This removes any sharing between the disc list and a running rip, at the cost of about a second per rip.
   4. It looks up `Disc.Title(TitleID)` and calls `Rip` with a cancelable context.
   - Discs are only ripped one at a time, which satisfies "A Disc must not be ripped from concurrently".
   - `Ripper` is the interface around steps 3–4, so tests can swap it.
@@ -179,20 +180,21 @@ type Entry struct {
 
 ### 4.3 Events and bindings (`app.go`)
 
-**Bound methods** (Wails generates the TypeScript for them):
-- `AddPaths(paths []string)`, `PickAndAdd()` (native open dialog), `RemoveDisc(path)`;
+**Bound methods** take and return only primitives, strings slices and `error`; Wails generates the TypeScript for them:
+- `AddPaths(paths []string)`, `PickISO()` and `PickFolder()` (native dialogs), `RemoveDisc(path)`;
 - `SetOutputDir(path, dir)`, `PickOutputDir(path)`;
-- `Enqueue(path string, items []EnqueueItem) []FieldError`, where `EnqueueItem{titleID, name}`;
-- `Rename(id, name) *FieldError`, `Move(id string, index int)`, `Remove(id)`;
+- `Enqueue(path string, titleIDs []string, names []string) []string`, which returns nil on success, or one message per item (an empty string where that item was fine). When any item fails, nothing is added;
+- `Rename(id, name) string`, `Move(id string, index int)`, `Remove(id)`;
 - `Cancel(id)`, `Retry(id)`, `ClearFinished()`, `SetPaused(bool)`;
-- `RecheckMkvmerge()`, `Reveal(id)`;
-- `Snapshot() State`, called once on load.
+- `RecheckMkvmerge()`, `Reveal(id)`, `Version() string`;
+- `Ready()`, called once the page has loaded; it re-emits every event below.
 
-**Events:**
-- `disc:changed` with a `DiscSummary`;
-- `queue:changed` with the full queue snapshot;
-- `queue:progress` with `{id, phase, fraction, bytesDone, bytesTotal}`, throttled to at most 10 per second per entry;
-- `banner:changed`.
+**Events** are full snapshots:
+- `discs:changed` with the whole `DiscSummary[]`;
+- `discs:select` with a path string, telling the window which disc to select after an add;
+- `queue:changed` with the whole `QueueSnapshot`;
+- `queue:progress` with a `Progress` (`{id, phase, fraction, bytesDone, bytesTotal}`), at most one per 100 ms per entry, though phase changes and 100% always cross;
+- `banners:changed` with the whole `Banner[]`.
 
 **Config** is loaded at startup, and again when the window regains focus.
 
@@ -239,7 +241,7 @@ type Entry struct {
   | `windows/amd64` | `windows-latest` | WebView2, already part of Windows 10/11 |
   | `linux/amd64` | `ubuntu-latest` | `-tags webkit2_41`; installs `libgtk-3-dev libwebkit2gtk-4.1-dev` |
 
-- **Version.** The GUI gets the same version string as the CLI through `-ldflags`, and shows it in an About box.
+- **Version.** The GUI gets the same version string as the CLI through `-ldflags "-X main.version=<tag>"`, and shows it in an in-app About dialog.
 - **CI.** A new `gui` job runs on `macos-latest`, `ubuntu-latest` and `windows-latest`. It runs `go vet` and `go test ./...` in `gui/`, `npm ci && npm run lint && npm test` in `gui/frontend`, then `wails build` to prove it compiles. The existing CLI jobs are unchanged.
 - **Release.** The release workflow becomes per-OS build jobs, followed by one publish job.
   - The CLI archives are built as today.
