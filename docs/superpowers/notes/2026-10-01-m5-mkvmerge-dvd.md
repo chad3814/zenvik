@@ -6,10 +6,14 @@
 
 - Subtitles: mkvmerge ignores DVD subpictures in VOBs -> zenvik extracts VobSub (Task 10).
 - Multiple VOBs: use `( a b )`, never `+`; mkvmerge auto-chains sibling VOBs.
-- Each title VOB starts with a NAV pack; the extractor's timestamps rely on NAV packs at VOBU starts. `TestAuthorDVDAndMkvmerge` pins all of this.
+- NAV packs: each title VOB starts with a NAV pack. The Task 10 extractor reads each NAV pack's DSI (VOB ID, cell ID, c_eltm) and PCI (vobu_s_ptm) to time subtitles.
+
+What `TestAuthorDVDAndMkvmerge` actually pins: the three tracks from `mkvmerge -J VTS_01_1.VOB` (audio 189/128, audio 189/129, video 224/0), at least one subpicture pack (private stream 1, sub-stream 0x20) in the VOBs, a NAV pack at the start of both VOB files, and the 15.02 s (15 +/- 0.25) duration with 3 tracks for the grouped mux `( VTS_01_1.VOB VTS_01_2.VOB )`. The findings that "mkvmerge ignores subtitles" (a subtitle track, if reported, is only logged) and that "auto-chaining makes `+` double the tail" are recorded observations, not assertions.
+
+## Environment and fixture
 
 - Tools: mkvmerge v102.0 ('Little Houses') 64-bit, ffmpeg 9.0.2, dvdauthor/spumux 0.7.2 (Homebrew 0.7.2_4), macOS (Darwin, arm64).
-- Fixture: `AuthorDVD(ctx, dir, 15)`; VTS_01_1.VOB is 562 sectors in total before the split (split at the NAV pack nearest the middle: VTS_01_1.VOB = 1,150,976 bytes, VTS_01_2.VOB = 1,136,640 bytes). `ffprobe` sees all five streams in the spumux output (video, 2x ac3, `dvd_subtitle`). A raw scan of the VOB finds the private-stream-1 sub-stream 0x20 packet (the subtitle SPU) at sector 188 of VTS_01_1.VOB. Sub-streams 0x80 and 0x81 appear 86 times each.
+- Fixture: `AuthorDVD(ctx, dir, 15)`; the title VOB had 1117 sectors before the split (562 + 555; split at the NAV pack nearest the middle: VTS_01_1.VOB = 1,150,976 bytes, VTS_01_2.VOB = 1,136,640 bytes). `ffprobe` sees all five streams in the spumux output (video, 2x ac3, `dvd_subtitle`). A raw scan of the VOB finds the private-stream-1 sub-stream 0x20 packet (the subtitle SPU) at sector 188 of the post-split VTS_01_1.VOB (562 sectors). Sub-streams 0x80 and 0x81 appear 86 times each.
 
 ## (a) `mkvmerge -J VTS_01_1.VOB` tracks (type, stream_id, sub_stream_id)
 
@@ -41,10 +45,11 @@ Candidate mechanisms that give the full, correct duration: pass the whole VOB li
 
 ## (c) VobSub codec private data after muxing
 
-Not observable: the muxed MKV has no subtitle track at all (see (a)), so there is no codec private data to read. Conclusion: **no palette** (not because mkvmerge writes none, but because mkvmerge writes no subtitle track).
+No palette could be observed, because mkvmerge produced no subtitle track (see (a)), so there is no codec private data to read. Palette handling now belongs to the VobSub extractor (Task 10), which writes the IFO palette into the `.idx`.
 
 The video track's codec private data is the MPEG-2 sequence header (`000001b3...`), unrelated to the palette.
 
-## Consequence for Task 6/9
+## Ruled outcome
 
-Subtitle tracks cannot come from mkvmerge reading the VOBs: either the subtitle SPUs must be demuxed and muxed as a separate VobSub (`.idx` plus `.sub`, which mkvmerge does support, and which needs the DVD palette from the IFO) or DVD subtitles must be dropped and documented as a limitation. The multi-VOB mux must also use `( a.VOB b.VOB )` instead of `a.VOB + b.VOB`. This needs a decision before Task 6/9 proceeds.
+- VobSub extraction is done by zenvik in Task 10 (subtitle SPUs demuxed to `.idx` plus `.sub`, which mkvmerge supports as input).
+- The multi-VOB mux in Task 6 passes the title VOBs as the parenthesized group `( a.VOB b.VOB )`, never with `+`.

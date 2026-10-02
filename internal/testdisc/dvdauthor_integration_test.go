@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"testing"
 )
 
@@ -23,11 +24,9 @@ type mkvJSON struct {
 	} `json:"container"`
 	Tracks []struct {
 		Type       string `json:"type"`
-		Codec      string `json:"codec"`
 		Properties struct {
-			StreamID         int    `json:"stream_id"`
-			SubStreamID      int    `json:"sub_stream_id"`
-			CodecPrivateData string `json:"codec_private_data"`
+			StreamID    int `json:"stream_id"`
+			SubStreamID int `json:"sub_stream_id"`
 		} `json:"properties"`
 	} `json:"tracks"`
 }
@@ -90,7 +89,7 @@ func TestAuthorDVDAndMkvmerge(t *testing.T) {
 			t.Logf("mkvmerge reported a subtitle track: stream %d sub-stream %d", tr.Properties.StreamID, tr.Properties.SubStreamID)
 			continue
 		}
-		got = append(got, tr.Type+" "+itoa(tr.Properties.StreamID)+" "+itoa(tr.Properties.SubStreamID))
+		got = append(got, tr.Type+" "+strconv.Itoa(tr.Properties.StreamID)+" "+strconv.Itoa(tr.Properties.SubStreamID))
 	}
 	sort.Strings(got)
 	want := []string{"audio 189 128", "audio 189 129", "video 224 0"}
@@ -145,9 +144,4 @@ func countSubpicturePackets(b []byte) int {
 		}
 	}
 	return n
-}
-
-func itoa(n int) string {
-	b, _ := json.Marshal(n)
-	return string(b)
 }

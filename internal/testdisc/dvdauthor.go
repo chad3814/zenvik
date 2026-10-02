@@ -3,6 +3,7 @@ package testdisc
 import (
 	"bytes"
 	"context"
+	"encoding/xml"
 	"fmt"
 	"os"
 	"os/exec"
@@ -64,7 +65,11 @@ func AuthorDVD(ctx context.Context, dir string, seconds int) error {
 	if err != nil {
 		return err
 	}
-	xml := fmt.Sprintf(`<dvdauthor dest=%q>
+	var dest bytes.Buffer
+	if err := xml.EscapeText(&dest, []byte(abs)); err != nil {
+		return err
+	}
+	cfg := fmt.Sprintf(`<dvdauthor dest="%s">
   <vmgm />
   <titleset>
     <titles>
@@ -78,8 +83,8 @@ func AuthorDVD(ctx context.Context, dir string, seconds int) error {
     </titles>
   </titleset>
 </dvdauthor>
-`, abs, seconds/3, 2*seconds/3)
-	if err := os.WriteFile(filepath.Join(work, "dvd.xml"), []byte(xml), 0o644); err != nil {
+`, dest.String(), seconds/3, 2*seconds/3)
+	if err := os.WriteFile(filepath.Join(work, "dvd.xml"), []byte(cfg), 0o644); err != nil {
 		return err
 	}
 	if err := runTool(ctx, work, nil, nil, "dvdauthor", "-x", "dvd.xml"); err != nil {
@@ -143,7 +148,7 @@ func runTool(ctx context.Context, dir string, stdin *os.File, stdout *os.File, n
 		cmd.Stdout = &stderr
 	}
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s: %w: %s", name, err, stderr.Bytes())
+		return fmt.Errorf("testdisc: %s: %w: %s", name, err, stderr.Bytes())
 	}
 	return nil
 }
