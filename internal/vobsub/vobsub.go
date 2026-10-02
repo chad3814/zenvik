@@ -132,7 +132,7 @@ func Extract(ctx context.Context, p Params) (*Result, error) {
 				return nil, fmt.Errorf("vobsub: reading %s: %w", sp.Path, err)
 			}
 			done += packSize
-			if nav, ok := dvd.ParseNAV(buf); ok {
+			if nav, err := dvd.ParseNAV(buf); err == nil {
 				start, found := starts[[2]int{nav.VOBID, nav.CellID}]
 				base, ptm, known = start+nav.CellElapsed, uint64(nav.StartPTM), found
 				continue

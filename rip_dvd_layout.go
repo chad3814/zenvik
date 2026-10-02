@@ -194,9 +194,12 @@ func planCut(info *dvdInfo, paths []string) (start0, gap, start, end time.Durati
 		if err != nil {
 			return 0, 0, 0, 0, fmt.Errorf("VOBU at sector %d: %w", sec, err)
 		}
-		nav, ok := dvd.ParseNAV(p)
-		if !ok {
+		nav, err := dvd.ParseNAV(p)
+		if errors.Is(err, dvd.ErrNotNAV) {
 			return 0, 0, 0, 0, fmt.Errorf("no NAV pack at VOBU sector %d", sec)
+		}
+		if err != nil {
+			return 0, 0, 0, 0, fmt.Errorf("VOBU at sector %d: %w", sec, err)
 		}
 		if prevVOB >= 0 && nav.VOBID != prevVOB {
 			changes++

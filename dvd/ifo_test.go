@@ -3,6 +3,7 @@ package dvd_test
 import (
 	"encoding/binary"
 	"errors"
+	"math"
 	"reflect"
 	"runtime"
 	"strings"
@@ -180,6 +181,9 @@ func TestNewTime(t *testing.T) {
 		{time.Second + 979*time.Millisecond, dvd.Rate25, pal(0, 0, 1, 24)}, // 49.475 frames → 49
 		{time.Second + 980*time.Millisecond, dvd.Rate25, pal(0, 0, 2, 0)},  // 49.5 frames → 50
 		{100 * time.Hour, dvd.Rate25, pal(99, 59, 59, 24)},
+		{1000 * time.Hour, dvd.Rate30, ntsc(99, 59, 59, 29)}, // would overflow d × 3 unclamped
+		{time.Duration(math.MaxInt64), dvd.Rate30, ntsc(99, 59, 59, 29)},
+		{time.Duration(math.MaxInt64), dvd.Rate25, pal(99, 59, 59, 24)},
 	} {
 		if got := dvd.NewTime(tt.d, tt.r); got != tt.want {
 			t.Errorf("NewTime(%v, %d) = %+v, want %+v", tt.d, tt.r, got, tt.want)

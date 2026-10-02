@@ -39,9 +39,9 @@ func (t Time) Duration() time.Duration {
 // It inverts Duration. Durations past the last frame of 99:59:59 are
 // clamped to that frame.
 func NewTime(d time.Duration, r FrameRate) Time {
-	if d < 0 {
-		d = 0
-	}
+	// Clamp before multiplying: 101 h is past the last frame of 99:59:59 at
+	// either rate (NTSC's is 100.1 h), and d × 3 would overflow near 854 h.
+	d = min(max(d, 0), 101*time.Hour)
 	t := Time{Rate: r}
 	var frames, fps int64
 	switch r {

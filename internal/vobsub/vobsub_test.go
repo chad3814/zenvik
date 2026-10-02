@@ -25,6 +25,7 @@ func navPack(vob, cell, elapsed int, ptm uint32) []byte {
 	copy(p[0x0E:], []byte{0, 0, 1, 0xBB, 0x00, 0x12})
 	copy(p[0x26:], []byte{0, 0, 1, 0xBF, 0x03, 0xD4, 0x00})
 	binary.BigEndian.PutUint32(p[0x2D+12:], ptm)
+	binary.BigEndian.PutUint32(p[0x2D+16:], ptm+90000) // vobu_e_ptm: a 1 s VOBU
 	copy(p[0x400:], []byte{0, 0, 1, 0xBF, 0x03, 0xFA, 0x01})
 	dsi := p[0x407:]
 	binary.BigEndian.PutUint16(dsi[24:], uint16(vob))

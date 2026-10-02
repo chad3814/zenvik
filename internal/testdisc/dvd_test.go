@@ -98,12 +98,12 @@ func TestSampleDVDNavigation(t *testing.T) {
 		t.Errorf("VTS 2 VOBUs = %v, want %v", vts.VOBUs, want)
 	}
 	vob := files["VIDEO_TS/VTS_02_1.VOB"]
-	nav, ok := dvd.ParseNAV(vob[20*2048 : 21*2048])
+	nav, err := dvd.ParseNAV(vob[20*2048 : 21*2048])
 	const ep = 35964 * 3003 // a 20-minute cell is 35964 NTSC frames of 3003 ticks
-	if !ok || nav.VOBID != 1 || nav.CellID != 2 || nav.EndPTM-nav.StartPTM != ep || nav.StartPTM != ep {
-		t.Errorf("NAV at sector 20 = %+v, %v", nav, ok)
+	if err != nil || nav.VOBID != 1 || nav.CellID != 2 || nav.EndPTM-nav.StartPTM != ep || nav.StartPTM != ep {
+		t.Errorf("NAV at sector 20 = %+v, %v", nav, err)
 	}
-	if _, ok := dvd.ParseNAV(vob[2048:4096]); ok {
+	if _, err := dvd.ParseNAV(vob[2048:4096]); err == nil {
 		t.Error("sector 1 is not a VOBU start")
 	}
 }

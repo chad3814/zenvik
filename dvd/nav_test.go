@@ -1,6 +1,7 @@
 package dvd_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -10,9 +11,9 @@ import (
 
 func TestNAVRoundTrip(t *testing.T) {
 	want := dvd.NAV{StartPTM: 900000, EndPTM: 945045, VOBID: 3, CellID: 7, CellElapsed: time.Duration(12*30+15) * 1001 * time.Second / 30000} // 00:00:12:15, 375 NTSC frames
-	got, ok := dvd.ParseNAV(testdisc.NAVPack(want))
-	if !ok || got != want {
-		t.Errorf("ParseNAV = %+v, %v; want %+v", got, ok, want)
+	got, err := dvd.ParseNAV(testdisc.NAVPack(want))
+	if err != nil || got != want {
+		t.Errorf("ParseNAV = %+v, %v; want %+v", got, err, want)
 	}
 }
 
@@ -31,8 +32,17 @@ func TestParseNAVRejects(t *testing.T) {
 		} else {
 			mut(p)
 		}
-		if _, ok := dvd.ParseNAV(p); ok {
-			t.Errorf("%s: ParseNAV accepted it", name)
+		if _, err := dvd.ParseNAV(p); !errors.Is(err, dvd.ErrNotNAV) {
+			t.Errorf("%s: err = %v, want ErrNotNAV", name, err)
 		}
+	}
+}
+
+func TestParseNAVReversedPTM(t *testing.T) {
+	if _, err := dvd.ParseNAV(testdisc.NAVPack(dvd.NAV{StartPTM: 900, EndPTM: 899, VOBID: 1, CellID: 1})); !errors.Is(err, dvd.ErrCorrupt) {
+		t.Errorf("EndPTM < StartPTM: err = %v, want ErrCorrupt", err)
+	}
+	if _, err := dvd.ParseNAV(testdisc.NAVPack(dvd.NAV{StartPTM: 900, EndPTM: 900, VOBID: 1, CellID: 1})); err != nil {
+		t.Errorf("EndPTM == StartPTM: err = %v", err)
 	}
 }
