@@ -54,7 +54,8 @@ includes most individual TV episodes, can't be ripped yet: they are filtered out
 default `info` listing, `info --all` shows them with the reason (for example `starts or ends
 mid-file (not supported yet)`), and `rip` refuses them with exit code 1. A title is also
 unsupported if a VOB's size isn't a multiple of 2048 bytes. CSS-encrypted titles are
-detected and refused, never decrypted. `rip` of an encrypted title exits 3, and `info` or `rip` exits 3 when the only titles zenvik could otherwise use are encrypted.
+detected and refused, never decrypted. `rip` of an encrypted title exits 3, and `info` or
+`rip` exits 3 when the only titles zenvik could otherwise use are encrypted.
 
 Each audio and subtitle track keeps its language from the disc. Audio tracks are named with
 the codec and channel layout, plus the disc's description when it has one, for example

@@ -46,7 +46,8 @@ zenvik/
 │   ├── mux/             # Muxer interface + mkvmerge implementation
 │   ├── config/          # TOML config + presets
 │   ├── naming/          # filename templates
-│   └── testdisc/        # synthetic BDMV builder for tests
+│   ├── vobsub/          # DVD subtitles: extract VobSub .idx/.sub from title VOBs
+│   └── testdisc/        # synthetic BDMV and VIDEO_TS builders for tests
 └── cmd/zenvik/          # CLI
 ```
 
