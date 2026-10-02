@@ -8,7 +8,7 @@
 
 M5 rips only DVD titles whose angle-1 cells cover whole title VOB files. Every other title is listed as `starts or ends mid-file (not supported yet)` or `cells are not contiguous (not supported yet)`. That excludes most TV episodes, and some movies.
 
-The motivating disc is *Swiss Family Robinson (1960)*. Its 2:06:14 feature (title 01) plays cells 1–21 as one ascending run, from sector 439 to 3,100,664 across `VTS_01_1`–`VTS_01_6.VOB`. The run starts 439 sectors into the first file and ends 878 sectors before the end of the last. It then plays cell 22, a 1-second black cell at sectors 0–438. Because title 01 is unsupported, `info` also picks the 7-minute title 11 as the main feature.
+The motivating disc is *Swiss Family Robinson (1960)*. Its 2:06:21 (7580.7 s) feature (title 01) plays cells 1–21 as one ascending run, from sector 439 to 3,100,664 across `VTS_01_1`–`VTS_01_6.VOB`. The run starts 439 sectors into the first file and ends 878 sectors before the end of the last. It then plays cell 22, a 1-second black cell at sectors 0–438. Because title 01 is unsupported, `info` also picks the 7-minute title 11 as the main feature.
 
 ### Goals
 
@@ -70,7 +70,7 @@ Let the run cover sectors `R0`…`R1`, which lie in title VOBs `VTS_nn_a` … `V
 
 ## 4. The copy path
 
-1. **Free space.** Before copying, zenvik checks the free space in the output directory. It uses `syscall.Statfs` on Unix and `GetDiskFreeSpaceExW` on Windows, through the standard library `syscall` package with no cgo. Copying needs room for the title's `Size` plus 64 MiB. If there isn't enough, the rip fails with `zenvik: copying title <id> needs <size> in <dir>, only <free> free`.
+1. **Free space.** Before copying, zenvik checks the free space in the output directory. It uses `syscall.Statfs` on Unix and `GetDiskFreeSpaceExW` on Windows, through the standard library `syscall` package with no cgo. Copying needs room for the title's `Size` plus 64 MiB. That check covers the temporary title file only: the MKV written beside it needs about `Size` more. If there isn't enough, the rip fails with `zenvik: copying title <id> needs <size> in <dir>, only <free> free`.
 2. **Copy.** zenvik copies each kept cell's sectors, in play order, from the VOBs (mounted for an ISO) into `.<output file name>.title.vob` beside the output, using 1 MiB reads.
    - Progress is reported as a new phase, `PhaseCopying` (`"copying"`).
    - The copy honours cancellation.
@@ -161,10 +161,11 @@ These record where the implementation differs from §2–§6 and what was observ
 - **Classification order (differs from §2).** Short edge strays are dropped first, and then the whole-file check runs. So kept cells that cover whole VOB files after a drop use the `files` method.
 - **Audio lag at VOB ID changes.** In a `( … )` group, mkvmerge appends each VOB ID's audio straight after the previous one's audio. On the authored discs each segment's AC-3 is 10 ms longer than its video, so the audio lags the video by about 10 ms per earlier VOB ID. This is an observation about mkvmerge's group mux (it shows in the whole-file path too), not a cut-path defect. The integration tests therefore check durations on the video track (mkvextract `timestamps_v2` of track 0, dropping its trailing end-time line), not the container duration.
 - **Single-part naming.** A single `parts:` range writes the given file name, so §3 step 5's rename is not needed.
-- **Integration tests (§6.3).** `testdisc.AddMixedEpisodeTitles` adds two titles to the episodes fixture: title 05 (red episode, then the 0.5 s black cell as a trailing stray) and title 06 (blue episode, then red, out of sector order). Observed with mkvmerge v102:
-  - title 03 (cut, green): video 6.005 s (IFO 6 s), green to green, chapters at 5 ms and 3.005 s, first subtitle at 1.005 s; container 6.032 s.
-  - title 05 (cut, red, cell 3 skipped): video 6.005 s, red to red, warning `title 05: skipped cell 3 (0.5 s at sectors 0–12, out of order)`; container 6.022 s.
-  - title 06 (copy): video 12.012 s (IFO 12 s), blue to red; container 12.032 s.
+- **Integration tests (§6.3).** `testdisc.AddMixedEpisodeTitles` adds two titles to the episodes fixture: title 05 (red episode, then the 0.5 s black cell as a trailing stray) and title 06 (blue episode, then red, out of sector order). `rip_dvd_cells_integration_test.go` asserts, with mkvmerge v102 (a frame is 34 ms; the IFO times are NTSC frame counts, so the 180-frame episodes are 6.006 s):
+  - title 03 (cut, green): video duration within one frame of the title's IFO duration (6.006 s), green at the first and a seeked frame, chapters each within one frame of the IFO chapter starts, first subtitle between 0.9 s and 1.1 s.
+  - title 05 (cut, red, cell 3 skipped): `skipped_cells` has one entry; video duration within one frame of the title's duration (6.006 s, the stray excluded), red to red, and a `skipped cell` warning (`title 05: skipped cell 3 (0.5 s at sectors 0–12, out of order)`).
+  - title 06 (copy): video duration within two frames of the title's duration (12.012 s), blue to red.
+  - Every rip leaves only the MKV in the output directory.
   - title 04 from a darwin ISO (cut): blue to blue, no mount left.
 - **First acceptance run (§6.4), 2026-10-02, mkvmerge v102, before fix wave A.** *Swiss Family Robinson (1960)* title 01:
   - `info` marked 01 with ★, `cut`, with the note `skipped 1 short cell(s)`, 18 chapters, 2:06:13 (IFO times read as wall-clock seconds).
