@@ -201,7 +201,7 @@ esac
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, ti, _ := sampleTitle(t, testdisc.SampleDVD(), "05")
+	d, ti, paths := sampleTitle(t, testdisc.SampleDVD(), "05")
 	job, _, cleanup, err := dvdJob(ctx, mk, d.src.Path, ti, filepath.Join(t.TempDir(), "ep.mkv.partial"), false, func(Phase, float64) {})
 	if err != nil {
 		t.Fatal(err)
@@ -216,6 +216,32 @@ esac
 	}
 	if !strings.HasPrefix(string(b), "CHAPTER01=00:39:59.997\n") { // start₀ = 2 × 35964 frames = 2399.9976 s
 		t.Errorf("chapter file:\n%s", b)
+	}
+
+	// An open GOP: the run's first VOBU (sector 40, VTS_02_2 sector 10) shows
+	// two B-frames before its I-frame, whose PTS is vobu_s_ptm + 6006. The
+	// chapters move by that gap; the --split times don't.
+	vob, err := os.ReadFile(paths[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	copy(vob[11*2048:], videoPESPack(2*vobu20+6006))
+	if err := os.WriteFile(paths[1], vob, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	job, _, cleanup2, err := dvdJob(ctx, mk, d.src.Path, ti, filepath.Join(t.TempDir(), "ep.mkv.partial"), false, func(Phase, float64) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup2()
+	if len(job.Split) != 1 || job.Split[0] != (mux.TimeRange{Start: ticks90k(2*vobu20) - frame, End: ticks90k(3*vobu20) - frame}) {
+		t.Errorf("open GOP: split = %v", job.Split)
+	}
+	if b, err = os.ReadFile(job.ChapterFile); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(b), "CHAPTER01=00:40:00.064\n") { // start₀ + 66.733 ms
+		t.Errorf("open GOP: chapter file:\n%s", b)
 	}
 }
 

@@ -47,7 +47,7 @@ func dvdJob(ctx context.Context, mk *mux.Mkvmerge, root string, t *Title, output
 	}
 	job := mux.Job{Output: output}
 	var subSpans []vobsub.Span
-	var offset time.Duration
+	var offset, chapterOffset time.Duration // group-timeline shifts for subtitles and chapters
 	identifyPath := paths[touchedFiles(info.ranges, info.files)[0]]
 	switch info.method {
 	case "files":
@@ -65,7 +65,10 @@ func dvdJob(ctx context.Context, mk *mux.Mkvmerge, root string, t *Title, output
 			return fail(fmt.Errorf("zenvik: title %s: cannot compute cut points: %w", t.ID, err))
 		}
 		job.Split = []mux.TimeRange{{Start: start, End: end}}
-		offset = start0 + gap
+		// mkvmerge shifts the subtitle track like the video, to the run's
+		// first displayed frame (start₀), but chapters by the I-frame it
+		// cuts at, gap later on an open GOP.
+		offset, chapterOffset = start0, start0+gap
 		subSpans = byteSpans(info.ranges, info.files, paths)
 	case "copy":
 		if dryRun {
@@ -143,7 +146,7 @@ func dvdJob(ctx context.Context, mk *mux.Mkvmerge, root string, t *Title, output
 		if !dryRun {
 			shifted := make([]Chapter, len(t.Chapters))
 			for i, c := range t.Chapters {
-				shifted[i] = Chapter{Number: c.Number, Start: c.Start + offset}
+				shifted[i] = Chapter{Number: c.Number, Start: c.Start + chapterOffset}
 			}
 			p, err := writeChapterFile(shifted)
 			if err != nil {

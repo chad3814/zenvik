@@ -134,10 +134,10 @@ func cutPoints(info *dvdInfo, paths []string) (start, end time.Duration, err err
 
 // planCut computes cutPoints and also returns start₀, the run's start on
 // the group timeline, and gap, the lead-in of the run's first VOBU (see
-// vobuLeadIn). The title's chapters and subtitles are shifted by
-// start₀ + gap: mkvmerge rebases the video to the run's first displayed
-// frame, at start₀, but moves chapters back by the keyframe it cuts at,
-// which is gap later on an open GOP (see
+// vobuLeadIn). mkvmerge rebases the video and the subtitle track to the
+// run's first displayed frame, at start₀, but moves chapters back by the
+// keyframe it cuts at, which is gap later on an open GOP. So subtitles are
+// shifted by start₀ and chapters by start₀ + gap (see
 // docs/superpowers/notes/2026-10-02-m6-mkvmerge-cut.md).
 func planCut(info *dvdInfo, paths []string) (start0, gap, start, end time.Duration, err error) {
 	if len(info.vobus) == 0 {
