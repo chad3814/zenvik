@@ -10,8 +10,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chad3814/zenvik"
 	"github.com/chad3814/zenvik/internal/testdisc"
 )
+
+// openNoMinimum opens a disc with the minimum-duration filter disabled: the
+// fixture is 7 seconds long, below zenvik's default 2-minute minimum for a
+// main title. The app opens discs with the config's min_duration, so a
+// fixture this short needs the minimum off.
+func openNoMinimum(ctx context.Context, path string) (*zenvik.Disc, error) {
+	return zenvik.Open(ctx, path, zenvik.WithMinDuration(0))
+}
 
 // TestLibRipperRipsRealDisc runs the real queue and ripper against a short
 // Blu-ray folder authored with ffmpeg; it needs mkvmerge and ffmpeg.
@@ -25,16 +34,20 @@ func TestLibRipperRipsRealDisc(t *testing.T) {
 	if err := disc.WriteDir(root); err != nil {
 		t.Fatal(err)
 	}
-	d, err := libOpen(context.Background(), root)
+	d, err := openNoMinimum(context.Background(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	main := d.Main().ID
+	m := d.Main()
 	d.Close()
+	if m == nil {
+		t.Fatal("no main title found even with the minimum duration disabled")
+	}
+	main := m.ID
 
 	var mu sync.Mutex
 	var phases []string
-	r := LibRipper{Open: libOpen, MkvmergePath: func() string { return "" }}
+	r := LibRipper{Open: openNoMinimum, MkvmergePath: func() string { return "" }}
 	q, dir := runQueue(t, r, Hooks{Progress: func(p Progress) { mu.Lock(); phases = append(phases, p.Phase); mu.Unlock() }})
 	out := filepath.Join(dir, "Real Movie.mkv")
 	if msgs := q.Add([]NewEntry{{root, main, out}}); msgs != nil {
