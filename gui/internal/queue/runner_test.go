@@ -241,3 +241,30 @@ func TestProgressThrottle(t *testing.T) {
 }
 
 var _ = errors.New
+
+// stopThenSucceed writes the output and calls Stop before returning nil, so
+// finish sees both r.stopped and a nil error.
+type stopThenSucceed struct{ q *Queue }
+
+func (r *stopThenSucceed) Rip(ctx context.Context, e Entry, progress func(zenvik.Progress)) error {
+	if err := os.WriteFile(e.OutputPath, []byte("mkv"), 0o644); err != nil {
+		return err
+	}
+	r.q.Stop(0)
+	return nil
+}
+
+func TestStopAfterSuccessfulRipKeepsDone(t *testing.T) {
+	r := &stopThenSucceed{}
+	q, dir := runQueue(t, r, Hooks{})
+	r.q = q
+	q.Add([]NewEntry{{"/d", "01", filepath.Join(dir, "a.mkv")}})
+	e := waitState(t, q, entryIDs(q)[0], Done)
+	if e.EndedAt == nil {
+		t.Errorf("EndedAt not set: %+v", e)
+	}
+	reopened, err := Open(q.path, r, Hooks{})
+	if err != nil || reopened.Snapshot().Entries[0].State != Done {
+		t.Errorf("saved state = %+v, %v", reopened.Snapshot().Entries, err)
+	}
+}

@@ -86,10 +86,10 @@ func (q *Queue) finish(r *running, err error) {
 		e := &q.entries[i]
 		now := q.now()
 		switch {
-		case r.stopped:
-			e.State, e.StartedAt = Waiting, nil
 		case err == nil:
 			e.State, e.EndedAt = Done, &now
+		case r.stopped:
+			e.State, e.StartedAt = Waiting, nil
 		case r.canceled:
 			e.State, e.EndedAt = Canceled, &now
 		default:
