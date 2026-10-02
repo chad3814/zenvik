@@ -17,11 +17,12 @@ func newInfoCmd() *cobra.Command {
 	var all, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "info <path>",
-		Short: "List the titles on a Blu-ray ISO image or BDMV folder",
-		Long: `List the titles (playlists) on a Blu-ray ISO image or BDMV folder, ranked so
+		Short: "List the titles on a Blu-ray or DVD disc image or folder",
+		Long: `List the titles (playlists or DVD titles) on a Blu-ray or DVD disc image or folder, ranked so
 the likely main feature (★) comes first. Duplicates, encrypted titles and
 multi-angle titles are noted; very short or unusable titles are hidden
-unless --all is given.`,
+unless --all is given. DVD titles that zenvik can't rip yet are noted with
+the reason.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageError{fmt.Errorf("info needs exactly one path, got %d", len(args))}
@@ -55,7 +56,7 @@ func writeTable(out, errw io.Writer, d *zenvik.Disc, all bool) {
 	if d.Meta != nil && d.Meta.Title != "" {
 		name = d.Meta.Title
 	}
-	fmt.Fprintf(out, "%s  (%s: %s)\n\n", name, d.Kind, d.Path)
+	fmt.Fprintf(out, "%s  (%s: %s)\n\n", name, kindLabel(d), d.Path)
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "\tID\tDURATION\tSIZE\tCH\tVIDEO\tAUDIO\tSUBS\tNOTES")
 	hidden := 0
@@ -124,6 +125,7 @@ func closeSecond(t *zenvik.Title) string {
 type jsonDisc struct {
 	Path     string      `json:"path"`
 	Kind     string      `json:"kind"`
+	Format   string      `json:"format"`
 	Label    string      `json:"label"`
 	Title    string      `json:"title,omitempty"`
 	Language string      `json:"language,omitempty"`
@@ -138,6 +140,7 @@ type jsonTitle struct {
 	Chapters        []float64      `json:"chapters"` // start times in seconds
 	Angles          int            `json:"angles"`
 	Encrypted       bool           `json:"encrypted"`
+	Unsupported     string         `json:"unsupported,omitempty"`
 	Video           []jsonVideo    `json:"video"`
 	Audio           []jsonAudio    `json:"audio"`
 	Subtitles       []jsonSubtitle `json:"subtitles"`
@@ -150,20 +153,23 @@ type jsonVideo struct {
 	Format       string `json:"format"`
 	FrameRate    string `json:"frame_rate"`
 	DynamicRange string `json:"dynamic_range"`
+	AspectRatio  string `json:"aspect_ratio,omitempty"`
 }
 
 type jsonAudio struct {
-	PID        uint16 `json:"pid"`
-	Codec      string `json:"codec"`
-	Language   string `json:"language"`
-	Channels   string `json:"channels"`
-	SampleRate string `json:"sample_rate"`
+	PID         uint16 `json:"pid"`
+	Codec       string `json:"codec"`
+	Language    string `json:"language"`
+	Channels    string `json:"channels"`
+	SampleRate  string `json:"sample_rate"`
+	Description string `json:"description,omitempty"`
 }
 
 type jsonSubtitle struct {
-	PID      uint16 `json:"pid"`
-	Codec    string `json:"codec"`
-	Language string `json:"language"`
+	PID         uint16 `json:"pid"`
+	Codec       string `json:"codec"`
+	Language    string `json:"language"`
+	Description string `json:"description,omitempty"`
 }
 
 type jsonRank struct {
@@ -182,12 +188,25 @@ func kindName(k zenvik.SourceKind) string {
 		return "iso"
 	case zenvik.BDMVDir:
 		return "bdmv"
+	case zenvik.VideoTSDir:
+		return "video_ts"
+	}
+	return "unknown"
+}
+
+// formatName is the machine-readable disc format for JSON output.
+func formatName(f zenvik.Format) string {
+	switch f {
+	case zenvik.Bluray:
+		return "bluray"
+	case zenvik.DVD:
+		return "dvd"
 	}
 	return "unknown"
 }
 
 func writeJSON(w io.Writer, d *zenvik.Disc) error {
-	out := jsonDisc{Path: d.Path, Kind: kindName(d.Kind), Label: d.Label, Titles: make([]jsonTitle, 0, len(d.Titles))}
+	out := jsonDisc{Path: d.Path, Kind: kindName(d.Kind), Format: formatName(d.Format), Label: d.Label, Titles: make([]jsonTitle, 0, len(d.Titles))}
 	if d.Meta != nil {
 		out.Title, out.Language = d.Meta.Title, d.Meta.Language
 	}
@@ -210,6 +229,7 @@ func toJSONTitle(t *zenvik.Title) jsonTitle {
 		Chapters:        make([]float64, 0, len(t.Chapters)),
 		Angles:          t.Angles,
 		Encrypted:       t.Encrypted,
+		Unsupported:     t.Unsupported,
 		Video:           make([]jsonVideo, 0, len(t.Video)),
 		Audio:           make([]jsonAudio, 0, len(t.Audio)),
 		Subtitles:       make([]jsonSubtitle, 0, len(t.Subtitles)),
@@ -226,15 +246,15 @@ func toJSONTitle(t *zenvik.Title) jsonTitle {
 		jt.Chapters = append(jt.Chapters, c.Start.Seconds())
 	}
 	for _, v := range t.Video {
-		jt.Video = append(jt.Video, jsonVideo{PID: v.PID, Codec: v.Codec.String(), Format: v.Format.String(),
-			FrameRate: v.FrameRate.String(), DynamicRange: v.DynamicRange.String()})
+		jt.Video = append(jt.Video, jsonVideo{PID: v.PID, Codec: codecName(v.Codec), Format: v.Format.String(),
+			FrameRate: v.FrameRate.String(), DynamicRange: v.DynamicRange.String(), AspectRatio: v.AspectRatio})
 	}
 	for _, a := range t.Audio {
-		jt.Audio = append(jt.Audio, jsonAudio{PID: a.PID, Codec: a.Codec.String(), Language: a.Language,
-			Channels: a.Channels.String(), SampleRate: a.SampleRate.String()})
+		jt.Audio = append(jt.Audio, jsonAudio{PID: a.PID, Codec: codecName(a.Codec), Language: a.Language,
+			Channels: a.Channels.String(), SampleRate: a.SampleRate.String(), Description: a.Description})
 	}
 	for _, s := range t.Subtitles {
-		jt.Subtitles = append(jt.Subtitles, jsonSubtitle{PID: s.PID, Codec: s.Codec.String(), Language: s.Language})
+		jt.Subtitles = append(jt.Subtitles, jsonSubtitle{PID: s.PID, Codec: codecName(s.Codec), Language: s.Language, Description: s.Description})
 	}
 	return jt
 }

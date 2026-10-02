@@ -40,7 +40,7 @@ func TestRipExitCodes(t *testing.T) {
 		{"no args", []string{"rip"}, 2, ""},
 		{"unknown playlist", []string{"rip", "-p", "12345", good}, 2, "12345"},
 		{"encrypted", []string{"rip", encrypted}, 3, "encrypted"},
-		{"no main title", []string{"rip", "-o", t.TempDir(), noMain}, 1, "--playlist"},
+		{"no main title", []string{"rip", "-o", t.TempDir(), noMain}, 1, "--title"},
 		{"output exists", []string{"rip", "-o", existsDir, good}, 1, "--overwrite"},
 	}
 	for _, tt := range tests {
@@ -71,7 +71,7 @@ func TestRipAmbiguousWarning(t *testing.T) {
 	d.AddClipsFor()
 	t.Setenv("PATH", t.TempDir()) // stop before muxing; the warning comes first
 	_, out, errOut := runCLI("rip", "-o", t.TempDir(), writeDisc(t, d))
-	if !strings.Contains(errOut, "close call") || !strings.Contains(errOut, "--playlist") {
+	if !strings.Contains(errOut, "close call") || !strings.Contains(errOut, "--title") {
 		t.Errorf("stderr = %q", errOut)
 	}
 	if !strings.Contains(out, "Ripping 00800") || !strings.Contains(out, "chosen because:") {

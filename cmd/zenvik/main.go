@@ -76,7 +76,7 @@ func exitCode(err error) int {
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "zenvik",
-		Short:         "Inspect and remux unencrypted Blu-ray disc images",
+		Short:         "Inspect and remux unencrypted Blu-ray and DVD disc images",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args: func(cmd *cobra.Command, args []string) error {

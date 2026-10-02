@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/chad3814/zenvik"
+	"github.com/chad3814/zenvik/bluray"
 )
 
 // formatDuration renders d as H:MM:SS, rounded to the second.
@@ -76,4 +77,20 @@ func joinLanguages(langs []string) string {
 		return "-"
 	}
 	return strings.Join(out, ",")
+}
+
+// codecName names a track codec; DVD subtitles are "VobSub".
+func codecName(c bluray.CodingType) string {
+	if c == zenvik.CodingVobSub {
+		return "VobSub"
+	}
+	return c.String()
+}
+
+// kindLabel names the source kind for people, e.g. "DVD ISO image".
+func kindLabel(d *zenvik.Disc) string {
+	if d.Kind == zenvik.ISO && d.Format == zenvik.DVD {
+		return "DVD ISO image"
+	}
+	return d.Kind.String()
 }

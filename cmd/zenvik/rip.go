@@ -16,14 +16,15 @@ import (
 var yearRE = regexp.MustCompile(`^\d{4}$`)
 
 func newRipCmd() *cobra.Command {
-	var playlist, outDir, name, year, template, preset string
+	var playlist, titleID, outDir, name, year, template, preset string
 	var overwrite, dryRun bool
 	cmd := &cobra.Command{
 		Use:   "rip <path>",
 		Short: "Remux a title (the main feature by default) to MKV",
-		Long: `Remux one title of a Blu-ray ISO image or BDMV folder to an MKV file with
-mkvmerge, keeping every video, audio and subtitle track, chapters and
-languages. Without --playlist, the main feature is chosen automatically.`,
+		Long: `Remux one title of a Blu-ray or DVD disc image or folder to an MKV file
+with mkvmerge, keeping every video, audio and subtitle track, chapters and
+languages. Without --title (or --playlist), the main feature is chosen
+automatically.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return usageError{fmt.Errorf("rip needs exactly one path, got %d", len(args))}
@@ -34,6 +35,13 @@ languages. Without --playlist, the main feature is chosen automatically.`,
 			stdout, stderr := cmd.OutOrStdout(), cmd.ErrOrStderr()
 			if year != "" && !yearRE.MatchString(year) {
 				return usageError{fmt.Errorf("--year must be four digits, got %q", year)}
+			}
+			if playlist != "" && titleID != "" {
+				return usageError{errors.New("use --title or --playlist, not both")}
+			}
+			id := titleID
+			if id == "" {
+				id = playlist
 			}
 			var flags config.Flags
 			if cmd.Flags().Changed("output-dir") {
@@ -54,13 +62,13 @@ languages. Without --playlist, the main feature is chosen automatically.`,
 				return err
 			}
 			defer d.Close()
-			t, err := pickTitle(d, playlist)
+			t, err := pickTitle(d, id)
 			if err != nil {
 				return err
 			}
-			auto := playlist == ""
+			auto := id == ""
 			if auto && t.Rank.Ambiguous {
-				fmt.Fprintf(stderr, "warning: the main title is a close call (%s) — pass --playlist to choose\n", closeSecond(t))
+				fmt.Fprintf(stderr, "warning: the main title is a close call (%s) — pass --title to choose\n", closeSecond(t))
 			}
 			rel, err := zenvik.FormatName(s.Template, d, t, zenvik.NameVars{Name: name, Year: year})
 			if err != nil {
@@ -88,7 +96,8 @@ languages. Without --playlist, the main feature is chosen automatically.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&playlist, "playlist", "p", "", "rip this playlist (e.g. 00800) instead of the main feature")
+	cmd.Flags().StringVarP(&titleID, "title", "t", "", "rip this title instead of the main feature: a DVD title number (e.g. 3) or a Blu-ray playlist (e.g. 00800)")
+	cmd.Flags().StringVarP(&playlist, "playlist", "p", "", "same as --title, for Blu-ray playlists (e.g. 00800)")
 	cmd.Flags().StringVarP(&outDir, "output-dir", "o", "", "directory for the MKV file (default: config output_dir, else the current directory)")
 	cmd.Flags().StringVar(&name, "name", "", "title for {name} (default: the disc's title or tidied volume label)")
 	cmd.Flags().StringVar(&year, "year", "", "year for {year}, e.g. 1999")
@@ -99,7 +108,7 @@ languages. Without --playlist, the main feature is chosen automatically.`,
 	return cmd
 }
 
-// pickTitle returns the requested playlist, or the main title.
+// pickTitle returns the requested title, or the main title.
 func pickTitle(d *zenvik.Disc, playlist string) (*zenvik.Title, error) {
 	if playlist != "" {
 		t, err := d.Title(playlist)
@@ -111,7 +120,7 @@ func pickTitle(d *zenvik.Disc, playlist string) (*zenvik.Title, error) {
 	if m := d.Main(); m != nil {
 		return m, nil
 	}
-	return nil, errors.New("no title qualifies as the main feature; run `zenvik info --all` and pass --playlist")
+	return nil, errors.New("no title qualifies as the main feature; run `zenvik info --all` and pass --title")
 }
 
 // withHint adds advice for errors a user can fix.
