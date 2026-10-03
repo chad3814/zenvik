@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App';
@@ -18,6 +18,7 @@ vi.mock('../api', () => ({
     removeDisc: vi.fn(() => Promise.resolve()),
     pickOutputDir: vi.fn(() => Promise.resolve()),
     setPaused: vi.fn(() => Promise.resolve()),
+    openURL: vi.fn(),
   },
   on: (event: string, cb: (v: unknown) => void) => {
     handlers.set(event, cb);
@@ -109,5 +110,14 @@ describe('App', () => {
     render(<App />);
     await userEvent.click(screen.getByRole('button', { name: 'About' }));
     expect(await screen.findByText('Zenvik v1.1.0')).toBeInTheDocument();
+  });
+
+  it("opens About's link in the system browser, never in the window", async () => {
+    render(<App />);
+    await userEvent.click(screen.getByRole('button', { name: 'About' }));
+    const link = screen.getByRole('link', { name: 'github.com/chad3814/zenvik' });
+    const notPrevented = fireEvent.click(link);
+    expect(notPrevented).toBe(false);
+    expect(api.openURL).toHaveBeenCalledWith('https://github.com/chad3814/zenvik');
   });
 });

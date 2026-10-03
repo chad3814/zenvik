@@ -1,5 +1,5 @@
 import * as App from '../wailsjs/go/main/App';
-import { EventsOn, OnFileDrop, OnFileDropOff } from '../wailsjs/runtime/runtime';
+import { BrowserOpenURL, EventsOn, OnFileDrop, OnFileDropOff } from '../wailsjs/runtime/runtime';
 
 /** api is the backend's bound methods; data comes back through on(). */
 export const api = {
@@ -22,6 +22,8 @@ export const api = {
   recheckMkvmerge: (): Promise<void> => App.RecheckMkvmerge(),
   reloadConfig: (): Promise<void> => App.ReloadConfig(),
   reveal: (id: string): Promise<string> => App.Reveal(id),
+  /** openURL opens url in the system browser; the app's window never navigates. */
+  openURL: (url: string): void => BrowserOpenURL(url),
 };
 
 /** on subscribes to a backend event; it returns the unsubscribe function. */
