@@ -66,7 +66,7 @@ export function QueuePane({ queue, progress, now }: Props) {
             <li
               key={e.id}
               data-state={e.state}
-              draggable={e.state === 'waiting'}
+              draggable={e.state === 'waiting' && renaming?.id !== e.id}
               onDragStart={(ev) => {
                 ev.dataTransfer.setData('text/plain', e.id);
                 ev.dataTransfer.effectAllowed = 'move';

@@ -93,6 +93,14 @@ describe('QueuePane', () => {
     expect(screen.queryByRole('textbox', { name: 'New name for wait.mkv' })).not.toBeInTheDocument();
   });
 
+  it("doesn't drag a row while it is being renamed", async () => {
+    render(<QueuePane queue={queue([entry('wait', 'waiting')])} progress={{}} now={0} />);
+    const row = screen.getByText('wait.mkv').closest('li') as HTMLElement;
+    expect(row).toHaveAttribute('draggable', 'true');
+    await userEvent.click(screen.getByRole('button', { name: 'Rename' }));
+    expect(row).toHaveAttribute('draggable', 'false');
+  });
+
   it('reorders by drag and drop', () => {
     render(<QueuePane queue={queue([entry('a', 'waiting'), entry('b', 'waiting')])} progress={{}} now={0} />);
     const store = new Map<string, string>();
