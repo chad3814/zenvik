@@ -9,6 +9,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/linux"
 )
 
 // singleInstanceID names the lock that keeps a second Zenvik from running
@@ -20,6 +21,12 @@ var version = "dev"
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+// appIcon is the Linux window icon. macOS (.icns) and Windows (icon.ico) get
+// theirs from the same build/appicon.png at build time.
+//
+//go:embed build/appicon.png
+var appIcon []byte
 
 func main() {
 	deps, err := defaultDeps()
@@ -51,6 +58,7 @@ func main() {
 		// prevents the default for any drag carrying files, so a dropped
 		// file never replaces the page.
 		DragAndDrop: &options.DragAndDrop{EnableFileDrop: true},
+		Linux:       &linux.Options{Icon: appIcon},
 		Bind:        []interface{}{app},
 	})
 	if err != nil {
