@@ -2,3 +2,5 @@
 /dist/
 *.partial
 .DS_Store
+
+.superpowers/

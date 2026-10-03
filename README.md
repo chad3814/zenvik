@@ -26,6 +26,10 @@ xattr -d com.apple.quarantine zenvik
 To build from source instead: `go install github.com/chad3814/zenvik/cmd/zenvik@latest`
 (Go 1.27).
 
+## Desktop app
+
+`Zenvik` is a desktop app for the same job: add disc images or folders (drop them on the window), tick the titles you want, name each file, and queue rips that run one at a time. It uses your zenvik config. Download `zenvik-gui_<version>_<os>_<arch>` from the [releases](https://github.com/chad3814/zenvik/releases) (macOS: separate Apple Silicon and Intel builds). See [gui/README.md](gui/README.md) for requirements; the macOS app isn't signed yet.
+
 ## Usage
 
 ```

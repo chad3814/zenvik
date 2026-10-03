@@ -10,7 +10,8 @@ Go module `github.com/chad3814/zenvik`. Design: `docs/superpowers/specs/2026-10-
 - Unit tests: `go test -race ./...`
 - Integration tests (need `mkvmerge`, `mkvextract`, `ffmpeg` and `dvdauthor`/`spumux`; macOS also exercises `hdiutil`): `go test -tags integration ./...`
 - Regenerate the hdiutil UDF fixture (macOS only): `scripts/gen-udf-fixtures.sh`
-- Release archives (what the release workflow runs): `scripts/release-build.sh vX.Y.Z` writes `dist/`. Pushing a `v*` tag runs `.github/workflows/release.yml`, which tests, builds darwin/arm64, darwin/amd64, linux/amd64 and windows/amd64, and publishes a GitHub release (tags containing `-` are pre-releases).
+- Release archives (what the release workflow runs): `scripts/release-build.sh vX.Y.Z` writes `dist/`. Pushing a `v*` tag runs `.github/workflows/release.yml`, which tests, builds the four CLI archives (darwin/arm64, darwin/amd64, linux/amd64, windows/amd64), also builds the four GUI archives (one runner per OS, `scripts/release-gui.sh`), and publishes one GitHub release with a combined `SHA256SUMS` (tags containing `-` are pre-releases).
+- GUI (separate module in `gui/`, see `gui/CLAUDE.md`): `cd gui && go test -race $(go list ./... | grep -v /node_modules/)` (skips the Go package npm's `flatted` ships under `frontend/node_modules`); frontend `cd gui/frontend && npm ci && npm test`. GUI release archives: `scripts/release-gui.sh vX.Y.Z os/arch` (one target per host OS).
 
 ## Rules
 
