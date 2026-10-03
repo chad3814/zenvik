@@ -10,6 +10,7 @@ vi.mock('../api', () => ({
   api: {
     ready: vi.fn(() => Promise.resolve()),
     version: vi.fn(() => Promise.resolve('v1.1.0')),
+    platform: vi.fn(() => Promise.resolve('darwin')),
     addPaths: vi.fn(() => Promise.resolve()),
     reloadConfig: vi.fn(() => Promise.resolve()),
     enqueue: vi.fn(() => Promise.resolve(null)),

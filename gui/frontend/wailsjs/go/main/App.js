@@ -34,6 +34,10 @@ export function PickOutputDir(arg1) {
   return window['go']['main']['App']['PickOutputDir'](arg1);
 }
 
+export function Platform() {
+  return window['go']['main']['App']['Platform']();
+}
+
 export function Ready() {
   return window['go']['main']['App']['Ready']();
 }

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { QueuePane } from '../components/QueuePane';
+import { QueuePane, revealLabel } from '../components/QueuePane';
 import type { Entry, QueueSnapshot } from '../types';
 
 vi.mock('../api', () => ({
@@ -13,6 +13,7 @@ vi.mock('../api', () => ({
     remove: vi.fn(() => Promise.resolve()),
     move: vi.fn(() => Promise.resolve()),
     reveal: vi.fn(() => Promise.resolve('')),
+    platform: vi.fn(() => Promise.resolve('darwin')),
     rename: vi.fn((_id: string, name: string) => Promise.resolve(name.includes('/') ? "a file name can't contain a folder" : '')),
   },
 }));
@@ -56,7 +57,7 @@ describe('QueuePane', () => {
     expect(api.cancel).toHaveBeenCalledWith('rip');
     await userEvent.click(within(row('bad.mkv')).getByRole('button', { name: 'Retry' }));
     expect(api.retry).toHaveBeenCalledWith('bad');
-    await userEvent.click(within(row('done1.mkv')).getByRole('button', { name: 'Show' }));
+    await userEvent.click(await within(row('done1.mkv')).findByRole('button', { name: 'Show in Finder' }));
     expect(api.reveal).toHaveBeenCalledWith('done1');
     await userEvent.click(within(row('wait.mkv')).getByRole('button', { name: 'Move up' }));
     expect(api.move).toHaveBeenCalledWith('wait', 1);
@@ -69,8 +70,14 @@ describe('QueuePane', () => {
   it("shows why Show couldn't reveal the file", async () => {
     vi.mocked(api.reveal).mockResolvedValueOnce('exec: "xdg-open": executable file not found in $PATH');
     render(<QueuePane queue={queue([entry('done1', 'done')])} progress={{}} now={0} />);
-    await userEvent.click(screen.getByRole('button', { name: 'Show' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Show in Finder' }));
     expect(await screen.findByText('exec: "xdg-open": executable file not found in $PATH')).toBeInTheDocument();
+  });
+
+  it('names the file manager per OS', () => {
+    expect(revealLabel('darwin')).toBe('Show in Finder');
+    expect(revealLabel('windows')).toBe('Show in Explorer');
+    expect(revealLabel('linux')).toBe('Open folder');
   });
 
   it('renames a waiting entry and shows rename errors', async () => {

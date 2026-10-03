@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 import { api } from '../api';
 import { basename, clamp01, eta, formatBytes, formatSpan } from '../format';
 import type { LiveProgress } from '../store';
@@ -18,9 +18,26 @@ interface Renaming {
 
 const finishedStates: Entry['state'][] = ['done', 'failed', 'canceled'];
 
+/** revealLabel names the done-state button for the OS's file manager. */
+export function revealLabel(platform: string): string {
+  switch (platform) {
+    case 'darwin':
+      return 'Show in Finder';
+    case 'windows':
+      return 'Show in Explorer';
+    case 'linux':
+      return 'Open folder';
+  }
+  return 'Show file';
+}
+
 export function QueuePane({ queue, progress, now }: Props) {
   const [renaming, setRenaming] = useState<Renaming | null>(null);
   const [revealError, setRevealError] = useState<{ id: string; message: string } | null>(null);
+  const [platform, setPlatform] = useState('');
+  useEffect(() => {
+    api.platform().then(setPlatform, (err: unknown) => console.error('zenvik: platform() failed', err));
+  }, []);
   const finished = queue.entries.some((e) => finishedStates.includes(e.state));
 
   const submitRename = async (r: Renaming) => {
@@ -89,7 +106,7 @@ export function QueuePane({ queue, progress, now }: Props) {
                   </>
                 )}
                 {e.state === 'ripping' && <button onClick={() => void api.cancel(e.id)}>Cancel</button>}
-                {e.state === 'done' && <button onClick={() => void reveal(e.id)}>Show</button>}
+                {e.state === 'done' && <button onClick={() => void reveal(e.id)}>{revealLabel(platform)}</button>}
                 {(e.state === 'failed' || e.state === 'canceled') && <button onClick={() => void api.retry(e.id)}>Retry</button>}
                 {e.state !== 'ripping' && (
                   <button aria-label={`Remove ${basename(e.outputPath)}`} onClick={() => void api.remove(e.id)}>✕</button>

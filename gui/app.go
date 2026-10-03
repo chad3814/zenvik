@@ -197,6 +197,10 @@ func (a *App) Ready() {
 // Version is the build's version string.
 func (a *App) Version() string { return version }
 
+// Platform is the OS the app runs on (Go's GOOS: "darwin", "windows",
+// "linux"), so the window can name the file manager.
+func (a *App) Platform() string { return a.deps.GOOS }
+
 // AddPaths adds discs (dropped or picked) and selects the last one. Blank
 // paths and "/" are ignored: macOS reports an internal drag (a queue row) as
 // a file drop with no paths, and "" would become the working directory, "/"

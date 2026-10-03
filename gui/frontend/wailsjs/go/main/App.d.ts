@@ -17,6 +17,8 @@ export function PickISOs():Promise<void>;
 
 export function PickOutputDir(arg1:string):Promise<void>;
 
+export function Platform():Promise<string>;
+
 export function Ready():Promise<void>;
 
 export function RecheckMkvmerge():Promise<void>;

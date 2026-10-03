@@ -463,3 +463,10 @@ func TestSecondInstanceShowsWindowAndAddsPaths(t *testing.T) {
 		t.Errorf("shown %d, discs %+v, select %v", sh.shown, got, sh.last("discs:select"))
 	}
 }
+
+func TestPlatformIsGOOS(t *testing.T) {
+	a, _, _ := newTestApp(t, testOpts{})
+	if got := a.Platform(); got != "linux" {
+		t.Errorf("Platform() = %q, want the Deps GOOS", got)
+	}
+}

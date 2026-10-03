@@ -5,6 +5,7 @@ import { BrowserOpenURL, EventsOn, OnFileDrop, OnFileDropOff } from '../wailsjs/
 export const api = {
   ready: (): Promise<void> => App.Ready(),
   version: (): Promise<string> => App.Version(),
+  platform: (): Promise<string> => App.Platform(),
   addPaths: (paths: string[]): Promise<void> => App.AddPaths(paths),
   pickISOs: (): Promise<void> => App.PickISOs(),
   pickFolder: (): Promise<void> => App.PickFolder(),
