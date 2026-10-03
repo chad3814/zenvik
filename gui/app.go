@@ -285,7 +285,7 @@ func (a *App) Enqueue(path string, titleIDs []string, names []string) []string {
 	items := make([]queue.NewEntry, len(titleIDs))
 	bad := false
 	for i, id := range titleIDs {
-		out, msg := outputPath(s.OutputDir, names[i])
+		out, msg := outputPath(a.deps.GOOS, s.OutputDir, names[i])
 		if msg == "" && !rippable(s, id) {
 			msg = "this title can't be ripped"
 		}
@@ -312,7 +312,7 @@ func (a *App) Rename(id, name string) string {
 	if !a.wait() {
 		return msgNotStarted
 	}
-	if msg := fileNameError(name); msg != "" {
+	if msg := fileNameError(a.deps.GOOS, name); msg != "" {
 		return msg
 	}
 	for _, e := range a.queue.Snapshot().Entries {
