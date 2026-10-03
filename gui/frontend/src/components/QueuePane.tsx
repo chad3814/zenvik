@@ -20,11 +20,17 @@ const finishedStates: Entry['state'][] = ['done', 'failed', 'canceled'];
 
 export function QueuePane({ queue, progress, now }: Props) {
   const [renaming, setRenaming] = useState<Renaming | null>(null);
+  const [revealError, setRevealError] = useState<{ id: string; message: string } | null>(null);
   const finished = queue.entries.some((e) => finishedStates.includes(e.state));
 
   const submitRename = async (r: Renaming) => {
     const msg = await api.rename(r.id, r.value);
     setRenaming(msg ? { ...r, error: msg } : null);
+  };
+
+  const reveal = async (id: string) => {
+    const msg = await api.reveal(id);
+    setRevealError(msg ? { id, message: msg } : null);
   };
 
   return (
@@ -83,12 +89,13 @@ export function QueuePane({ queue, progress, now }: Props) {
                   </>
                 )}
                 {e.state === 'ripping' && <button onClick={() => void api.cancel(e.id)}>Cancel</button>}
-                {e.state === 'done' && <button onClick={() => void api.reveal(e.id)}>Show</button>}
+                {e.state === 'done' && <button onClick={() => void reveal(e.id)}>Show</button>}
                 {(e.state === 'failed' || e.state === 'canceled') && <button onClick={() => void api.retry(e.id)}>Retry</button>}
                 {e.state !== 'ripping' && (
                   <button aria-label={`Remove ${basename(e.outputPath)}`} onClick={() => void api.remove(e.id)}>✕</button>
                 )}
               </span>
+              {revealError?.id === e.id && <span className="error">{revealError.message}</span>}
             </li>
           ))}
         </ol>

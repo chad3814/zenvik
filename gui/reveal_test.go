@@ -20,3 +20,12 @@ func TestRevealArgs(t *testing.T) {
 		}
 	}
 }
+
+// Explorer only selects the file when the quotes surround the path alone, as
+// in /select,"C:\x y.mkv"; Go's own quoting would wrap the whole argument.
+func TestExplorerCmdLine(t *testing.T) {
+	got := explorerCmdLine(`C:\Users\me\Movies\Sample Movie (2).mkv`)
+	if want := `explorer /select,"C:\Users\me\Movies\Sample Movie (2).mkv"`; got != want {
+		t.Errorf("cmdline = %s, want %s", got, want)
+	}
+}

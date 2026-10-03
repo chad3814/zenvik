@@ -66,6 +66,13 @@ describe('QueuePane', () => {
     expect(api.clearFinished).toHaveBeenCalled();
   });
 
+  it("shows why Show couldn't reveal the file", async () => {
+    vi.mocked(api.reveal).mockResolvedValueOnce('exec: "xdg-open": executable file not found in $PATH');
+    render(<QueuePane queue={queue([entry('done1', 'done')])} progress={{}} now={0} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Show' }));
+    expect(await screen.findByText('exec: "xdg-open": executable file not found in $PATH')).toBeInTheDocument();
+  });
+
   it('renames a waiting entry and shows rename errors', async () => {
     render(<QueuePane queue={queue([entry('wait', 'waiting')])} progress={{}} now={0} />);
     await userEvent.click(screen.getByRole('button', { name: 'Rename' }));
