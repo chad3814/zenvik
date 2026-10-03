@@ -93,6 +93,9 @@ func (a *App) init(ctx context.Context, sh Shell) error {
 			}
 		},
 		Progress: func(p queue.Progress) { a.shell.Emit("queue:progress", p) },
+		// A rip found mkvmerge missing: the queue has already stopped itself
+		// (not ready), so only the banner is left to show.
+		MkvmergeMissing: func(err error) { a.setBanner(mkvmergeBanner(err)) },
 	})
 	if err != nil {
 		return err
@@ -348,36 +351,45 @@ func (a *App) SetPaused(paused bool) {
 	}
 }
 
-// RecheckMkvmerge looks for mkvmerge again; the queue only runs once found.
+// RecheckMkvmerge re-reads the config (mkvmerge_path may have changed) and
+// looks for mkvmerge again; the queue only runs once found.
 func (a *App) RecheckMkvmerge() {
-	if a.wait() {
-		a.recheckMkvmerge()
-	}
+	a.ReloadConfig()
 }
 
 func (a *App) recheckMkvmerge() {
 	err := a.deps.FindMkvmerge(a.ctx, a.mkvmergePath())
-	switch {
-	case err == nil:
+	if err == nil {
 		a.clearBanner("mkvmerge")
-	case errors.Is(err, zenvik.ErrMkvmergeNotFound):
-		a.setBanner(Banner{ID: "mkvmerge", Action: "recheck", Message: "mkvmerge wasn't found. Install MKVToolNix (https://mkvtoolnix.download) or set mkvmerge_path in zenvik's config, then press Recheck."})
-	case errors.Is(err, zenvik.ErrMkvmergeTooOld):
-		a.setBanner(Banner{ID: "mkvmerge", Action: "recheck", Message: errs.Message(err) + " Update MKVToolNix, then press Recheck."})
-	default:
-		a.setBanner(Banner{ID: "mkvmerge", Action: "recheck", Message: errs.Message(err)})
+	} else {
+		a.setBanner(mkvmergeBanner(err))
 	}
 	a.queue.SetReady(err == nil)
 }
 
+// mkvmergeBanner says what's wrong with mkvmerge and offers a Recheck.
+func mkvmergeBanner(err error) Banner {
+	b := Banner{ID: "mkvmerge", Action: "recheck", Message: errs.Message(err)}
+	switch {
+	case errors.Is(err, zenvik.ErrMkvmergeNotFound):
+		b.Message = "mkvmerge wasn't found. Install MKVToolNix (https://mkvtoolnix.download) or set mkvmerge_path in zenvik's config, then press Recheck."
+	case errors.Is(err, zenvik.ErrMkvmergeTooOld):
+		b.Message += " Update MKVToolNix, then press Recheck."
+	}
+	return b
+}
+
 // ReloadConfig re-reads zenvik's config (the frontend calls it when the
-// window regains focus) and re-renders default names and folders.
+// window regains focus or becomes visible), re-renders default names and
+// folders, and checks mkvmerge again, since mkvmerge_path may have changed or
+// MKVToolNix may have been installed or removed meanwhile.
 func (a *App) ReloadConfig() {
 	if !a.wait() {
 		return
 	}
 	a.reloadSettings()
 	a.discs.Configure(a.discConfig())
+	a.recheckMkvmerge()
 }
 
 // Reveal shows a finished entry's file in the file manager; it returns "" or

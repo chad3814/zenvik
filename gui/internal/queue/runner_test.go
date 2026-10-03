@@ -268,3 +268,37 @@ func TestStopAfterSuccessfulRipKeepsDone(t *testing.T) {
 		t.Errorf("saved state = %+v, %v", reopened.Snapshot().Entries, err)
 	}
 }
+
+func TestRunnerMkvmergeMissingWaitsAndStops(t *testing.T) {
+	for name, cause := range map[string]error{"not found": zenvik.ErrMkvmergeNotFound, "too old": zenvik.ErrMkvmergeTooOld} {
+		t.Run(name, func(t *testing.T) {
+			r := &scriptRipper{failWith: map[string]error{"01": fmt.Errorf("muxing: %w", cause)}}
+			missing := make(chan error, 4)
+			q, dir := runQueue(t, r, Hooks{MkvmergeMissing: func(err error) { missing <- err }})
+			q.Add([]NewEntry{{"/d", "01", filepath.Join(dir, "a.mkv")}, {"/d", "02", filepath.Join(dir, "b.mkv")}})
+			select {
+			case err := <-missing:
+				if !errors.Is(err, cause) {
+					t.Errorf("hook got %v", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("MkvmergeMissing was never called")
+			}
+			waitState(t, q, entryIDs(q)[0], Waiting)
+			time.Sleep(50 * time.Millisecond) // give the runner a chance to start the next entry
+			s := q.Snapshot()
+			if s.Ready || q.Running() {
+				t.Errorf("ready = %v, running = %v after mkvmerge went missing", s.Ready, q.Running())
+			}
+			if e := s.Entries[0]; e.Message != "" || e.StartedAt != nil || e.EndedAt != nil {
+				t.Errorf("first entry = %+v, want plain waiting", e)
+			}
+			r.mu.Lock()
+			order := append([]string{}, r.order...)
+			r.mu.Unlock()
+			if len(order) != 1 || s.Entries[1].State != Waiting {
+				t.Errorf("rips = %v, second entry %s; the queue should have stopped", order, s.Entries[1].State)
+			}
+		})
+	}
+}

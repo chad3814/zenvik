@@ -9,6 +9,8 @@ import { clearTicks, nameFor, setPick, tickedTitles, type Picks } from './picks'
 import { useAppState } from './store';
 import type { DiscSummary } from './types';
 
+const reloadGapMs = 250;
+
 export default function App() {
   const state = useAppState();
   const [selected, setSelected] = useState<string | null>(null);
@@ -19,11 +21,25 @@ export default function App() {
   useEffect(() => on<string>('discs:select', setSelected), []);
   useEffect(() => {
     onFileDrop((paths) => void api.addPaths(paths));
-    const focus = () => void api.reloadConfig();
-    window.addEventListener('focus', focus);
+    // Re-read the config (and re-check mkvmerge) when the window comes back.
+    // One activation can fire both focus and visibilitychange, so calls
+    // within reloadGapMs of the last one are dropped.
+    let last = -Infinity;
+    const reload = () => {
+      const t = Date.now();
+      if (t - last < reloadGapMs) return;
+      last = t;
+      void api.reloadConfig();
+    };
+    const visible = () => {
+      if (document.visibilityState === 'visible') reload();
+    };
+    window.addEventListener('focus', reload);
+    document.addEventListener('visibilitychange', visible);
     return () => {
       offFileDrop();
-      window.removeEventListener('focus', focus);
+      window.removeEventListener('focus', reload);
+      document.removeEventListener('visibilitychange', visible);
     };
   }, []);
   useEffect(() => {

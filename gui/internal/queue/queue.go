@@ -71,10 +71,16 @@ type Ripper interface {
 	Rip(ctx context.Context, e Entry, progress func(zenvik.Progress)) error
 }
 
-// Hooks are called without the queue's lock held.
+// Hooks are called without the queue's lock held. Changed runs with the
+// queue's emit lock held, so it must never call Queue methods that change
+// the queue; MkvmergeMissing runs with no queue lock held.
 type Hooks struct {
 	Changed  func(Snapshot)
 	Progress func(Progress)
+	// MkvmergeMissing is called when a rip failed because mkvmerge is missing
+	// or too old. The entry is waiting again and the queue is no longer ready;
+	// it runs again after SetReady(true).
+	MkvmergeMissing func(error)
 }
 
 // Queue is the rip queue. Its methods are safe for concurrent use.
@@ -107,6 +113,9 @@ func Open(path string, r Ripper, h Hooks) (*Queue, error) {
 	}
 	if q.hooks.Progress == nil {
 		q.hooks.Progress = func(Progress) {}
+	}
+	if q.hooks.MkvmergeMissing == nil {
+		q.hooks.MkvmergeMissing = func(error) {}
 	}
 	st, err := load(path)
 	switch {

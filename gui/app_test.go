@@ -65,6 +65,7 @@ type testOpts struct {
 	settingsErr error
 	mkvmerge    error
 	template    string
+	ripper      queue.Ripper // default: blockRipper
 }
 
 func newTestApp(t *testing.T, o testOpts) (*App, *fakeShell, string) {
@@ -85,8 +86,13 @@ func newTestApp(t *testing.T, o testOpts) (*App, *fakeShell, string) {
 			return config.Settings{OutputDir: ".", Template: tmpl, MinDuration: config.DefaultMinDuration}, nil
 		},
 		FindMkvmerge: func(context.Context, string) error { return o.mkvmerge },
-		Ripper:       func(discs.Opener, func() string) queue.Ripper { return blockRipper{release} },
-		Home:         home,
+		Ripper: func(discs.Opener, func() string) queue.Ripper {
+			if o.ripper != nil {
+				return o.ripper
+			}
+			return blockRipper{release}
+		},
+		Home: home,
 		GOOS:         "linux",
 	}
 	sh := &fakeShell{confirm: true}
@@ -349,5 +355,76 @@ func TestFailedInitReleasesCallers(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("bound methods block after a failed init")
+	}
+}
+
+// mkvmergeAt fakes FindMkvmerge: only good finds mkvmerge.
+func mkvmergeAt(good string) func(context.Context, string) error {
+	return func(_ context.Context, path string) error {
+		if path == good {
+			return nil
+		}
+		return fmt.Errorf("%w: %s", zenvik.ErrMkvmergeNotFound, path)
+	}
+}
+
+func settingsWithMkvmerge(path string) func() (config.Settings, error) {
+	return func() (config.Settings, error) {
+		return config.Settings{OutputDir: ".", Template: config.DefaultTemplate, MkvmergePath: path}, nil
+	}
+}
+
+func TestReloadConfigRechecksMkvmerge(t *testing.T) {
+	a, sh, _ := newTestApp(t, testOpts{})
+	a.deps.FindMkvmerge = mkvmergeAt("")
+	if _, ok := banners(sh)["mkvmerge"]; ok || !a.queue.Snapshot().Ready {
+		t.Fatalf("mkvmerge not fine at start: %+v", banners(sh))
+	}
+	gone := filepath.Join(t.TempDir(), "nonexistent")
+	a.deps.LoadSettings = settingsWithMkvmerge(gone)
+	a.ReloadConfig()
+	if b := banners(sh)["mkvmerge"]; b.Action != "recheck" || a.queue.Snapshot().Ready {
+		t.Errorf("after mkvmerge_path = %s: banner %+v, ready %v", gone, b, a.queue.Snapshot().Ready)
+	}
+	a.deps.LoadSettings = settingsWithMkvmerge("")
+	a.ReloadConfig()
+	if _, ok := banners(sh)["mkvmerge"]; ok || !a.queue.Snapshot().Ready {
+		t.Errorf("after the path was fixed: banners %+v, ready %v", banners(sh), a.queue.Snapshot().Ready)
+	}
+}
+
+func TestRecheckRereadsConfig(t *testing.T) {
+	good := filepath.Join(t.TempDir(), "mkvmerge")
+	a, sh, _ := newTestApp(t, testOpts{mkvmerge: zenvik.ErrMkvmergeNotFound})
+	if _, ok := banners(sh)["mkvmerge"]; !ok {
+		t.Fatal("no mkvmerge banner")
+	}
+	a.deps.FindMkvmerge = mkvmergeAt(good)
+	a.deps.LoadSettings = settingsWithMkvmerge(good) // edited, but no ReloadConfig yet
+	a.RecheckMkvmerge()
+	if _, ok := banners(sh)["mkvmerge"]; ok || !a.queue.Snapshot().Ready {
+		t.Errorf("Recheck tested a stale path: banners %+v, ready %v", banners(sh), a.queue.Snapshot().Ready)
+	}
+}
+
+// missingRipper fails every rip as if mkvmerge had been uninstalled.
+type missingRipper struct{}
+
+func (missingRipper) Rip(context.Context, queue.Entry, func(zenvik.Progress)) error {
+	return fmt.Errorf("muxing: %w: /usr/local/bin/mkvmerge", zenvik.ErrMkvmergeNotFound)
+}
+
+func TestRipWithoutMkvmergeRaisesBanner(t *testing.T) {
+	a, sh, _ := newTestApp(t, testOpts{ripper: missingRipper{}})
+	dir := sampleDisc(t, "SAMPLE_MOVIE")
+	a.AddPaths([]string{dir})
+	s := readyDisc(t, a, dir)
+	if msgs := a.Enqueue(dir, []string{s.Titles[0].ID, s.Titles[1].ID}, []string{"One", "Two"}); msgs != nil {
+		t.Fatal(msgs)
+	}
+	waitFor(t, "mkvmerge banner", func() bool { return banners(sh)["mkvmerge"].Action == "recheck" })
+	snap := a.queue.Snapshot()
+	if snap.Ready || snap.Entries[0].State != queue.Waiting || snap.Entries[1].State != queue.Waiting {
+		t.Errorf("ready %v, entries %+v; want both waiting and the queue stopped", snap.Ready, snap.Entries)
 	}
 }

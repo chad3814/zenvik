@@ -75,6 +75,33 @@ describe('App', () => {
     expect(api.reloadConfig).toHaveBeenCalled();
   });
 
+  it('reloads config when the window becomes visible, once per activation', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      render(<App />);
+      const visible = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+        window.dispatchEvent(new Event('focus'));
+      });
+      expect(api.reloadConfig).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(1000);
+      visible.mockReturnValue('hidden');
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      expect(api.reloadConfig).toHaveBeenCalledTimes(1);
+      visible.mockReturnValue('visible');
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      expect(api.reloadConfig).toHaveBeenCalledTimes(2);
+      visible.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('opens About with the version', async () => {
     render(<App />);
     await userEvent.click(screen.getByRole('button', { name: 'About' }));

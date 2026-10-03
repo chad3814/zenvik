@@ -75,8 +75,19 @@ func prerun(e Entry) error {
 	return os.MkdirAll(filepath.Dir(e.OutputPath), 0o755)
 }
 
+// mkvmergeMissing reports a rip that failed because mkvmerge is gone or too
+// old: no entry can rip until that's fixed.
+func mkvmergeMissing(err error) bool {
+	return errors.Is(err, zenvik.ErrMkvmergeNotFound) || errors.Is(err, zenvik.ErrMkvmergeTooOld)
+}
+
+// finish records how r's rip ended. When mkvmerge was missing the entry goes
+// back to waiting and the queue stops (not ready) instead of failing every
+// waiting entry in turn; Hooks.MkvmergeMissing is then told, outside the
+// queue's locks.
 func (q *Queue) finish(r *running, err error) {
 	r.cancel()
+	missing := false
 	q.update(func() bool {
 		q.run = nil
 		i := q.indexLocked(r.id)
@@ -92,6 +103,9 @@ func (q *Queue) finish(r *running, err error) {
 			e.State, e.StartedAt = Waiting, nil
 		case r.canceled:
 			e.State, e.EndedAt = Canceled, &now
+		case mkvmergeMissing(err):
+			e.State, e.StartedAt = Waiting, nil
+			q.ready, missing = false, true
 		default:
 			e.State, e.EndedAt = Failed, &now
 			e.Message, e.Label = errs.Message(err), errs.Label(err)
@@ -99,6 +113,9 @@ func (q *Queue) finish(r *running, err error) {
 		return true
 	})
 	close(r.done)
+	if missing {
+		q.hooks.MkvmergeMissing(err)
+	}
 }
 
 // Cancel stops the entry's rip if it is the one running; zenvik removes the
