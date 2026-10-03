@@ -93,7 +93,7 @@ func newTestApp(t *testing.T, o testOpts) (*App, *fakeShell, string) {
 			return blockRipper{release}
 		},
 		Home: home,
-		GOOS:         "linux",
+		GOOS: "linux",
 	}
 	sh := &fakeShell{confirm: true}
 	a := NewApp(deps)
@@ -426,5 +426,19 @@ func TestRipWithoutMkvmergeRaisesBanner(t *testing.T) {
 	snap := a.queue.Snapshot()
 	if snap.Ready || snap.Entries[0].State != queue.Waiting || snap.Entries[1].State != queue.Waiting {
 		t.Errorf("ready %v, entries %+v; want both waiting and the queue stopped", snap.Ready, snap.Entries)
+	}
+}
+
+func TestAddPathsIgnoresBlankAndRootPaths(t *testing.T) {
+	a, sh, _ := newTestApp(t, testOpts{})
+	root := "/"
+	a.AddPaths([]string{"", "  ", root, "//"})
+	if n := len(a.discs.Summaries()); n != 0 || sh.last("discs:select") != nil {
+		t.Fatalf("%d discs, select %v after blank and root paths", n, sh.last("discs:select"))
+	}
+	dir := sampleDisc(t, "SAMPLE_MOVIE")
+	a.AddPaths([]string{"", dir, root})
+	if got := a.discs.Summaries(); len(got) != 1 || got[0].Path != dir || sh.last("discs:select") != dir {
+		t.Errorf("discs = %+v, select %v", got, sh.last("discs:select"))
 	}
 }

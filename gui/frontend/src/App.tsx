@@ -20,7 +20,11 @@ export default function App() {
 
   useEffect(() => on<string>('discs:select', setSelected), []);
   useEffect(() => {
-    onFileDrop((paths) => void api.addPaths(paths));
+    onFileDrop((dropped) => {
+      // macOS reports a drag inside the page (a queue row) as a drop of "".
+      const paths = dropped.filter((p) => p.trim() !== '');
+      if (paths.length > 0) void api.addPaths(paths);
+    });
     // Re-read the config (and re-check mkvmerge) when the window comes back.
     // One activation can fire both focus and visibilitychange, so calls
     // within reloadGapMs of the last one are dropped.

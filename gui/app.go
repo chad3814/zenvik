@@ -197,9 +197,19 @@ func (a *App) Ready() {
 // Version is the build's version string.
 func (a *App) Version() string { return version }
 
-// AddPaths adds discs (dropped or picked) and selects the last one.
+// AddPaths adds discs (dropped or picked) and selects the last one. Blank
+// paths and "/" are ignored: macOS reports an internal drag (a queue row) as
+// a file drop with no paths, and "" would become the working directory, "/"
+// for an app launched from Finder. A Windows drive root such as D:\ is kept;
+// it can be a disc.
 func (a *App) AddPaths(paths []string) {
 	if !a.wait() {
+		return
+	}
+	paths = slices.DeleteFunc(slices.Clone(paths), func(p string) bool {
+		return strings.Trim(strings.TrimSpace(p), "/") == ""
+	})
+	if len(paths) == 0 {
 		return
 	}
 	if abs := a.discs.Add(paths); len(abs) > 0 {

@@ -67,8 +67,11 @@ describe('App', () => {
 
   it('adds dropped paths and reloads config on focus', () => {
     render(<App />);
-    act(() => dropped.cb?.(['/a.iso', '/b folder']));
+    act(() => dropped.cb?.(['/a.iso', '', '/b folder']));
     expect(api.addPaths).toHaveBeenCalledWith(['/a.iso', '/b folder']);
+    vi.mocked(api.addPaths).mockClear();
+    act(() => dropped.cb?.(['']));
+    expect(api.addPaths).not.toHaveBeenCalled();
     act(() => {
       window.dispatchEvent(new Event('focus'));
     });

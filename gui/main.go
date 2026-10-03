@@ -34,8 +34,14 @@ func main() {
 		OnStartup:     app.startup,
 		OnBeforeClose: app.beforeClose,
 		OnShutdown:    app.shutdown,
-		DragAndDrop:   &options.DragAndDrop{EnableFileDrop: true, DisableWebViewDrop: true},
-		Bind:          []interface{}{app},
+		// The web view keeps its own drop handling: Windows only reports
+		// file paths through it, Linux needs the web view to stay a drag
+		// destination, and on macOS WebKit only delivers the queue rows'
+		// HTML5 drops when it handles the drop too. Wails' runtime already
+		// prevents the default for any drag carrying files, so a dropped
+		// file never replaces the page.
+		DragAndDrop: &options.DragAndDrop{EnableFileDrop: true},
+		Bind:        []interface{}{app},
 	})
 	if err != nil {
 		println("Error:", err.Error())
