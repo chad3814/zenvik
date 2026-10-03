@@ -39,3 +39,14 @@ describe('useAppState', () => {
     expect(result.current.progress.a).toBeUndefined();
   });
 });
+
+describe('useAppState ready failure', () => {
+  it('logs a rejected ready() instead of throwing', async () => {
+    const { api } = await import('../api');
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(api.ready).mockRejectedValueOnce(new Error('bridge down'));
+    renderHook(() => useAppState());
+    await vi.waitFor(() => expect(err).toHaveBeenCalled());
+    err.mockRestore();
+  });
+});

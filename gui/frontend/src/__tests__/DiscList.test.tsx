@@ -35,4 +35,13 @@ describe('DiscList', () => {
     expect(h.onPickISOs).toHaveBeenCalled();
     expect(h.onPickFolder).toHaveBeenCalled();
   });
+
+  it('falls back to the error message when a failed disc has no label', () => {
+    render(<DiscList discs={[d('/Bad', { state: 'error', error: 'cannot read' })]} selected={null} onSelect={vi.fn()} onRemove={vi.fn()} onPickISOs={vi.fn()} onPickFolder={vi.fn()} />);
+    expect(screen.getByText('cannot read')).toBeInTheDocument();
+  });
+  it('shows a generic label when a failed disc has neither label nor message', () => {
+    render(<DiscList discs={[d('/Bad', { state: 'error' })]} selected={null} onSelect={vi.fn()} onRemove={vi.fn()} onPickISOs={vi.fn()} onPickFolder={vi.fn()} />);
+    expect(screen.getByText('error')).toBeInTheDocument();
+  });
 });

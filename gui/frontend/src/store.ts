@@ -45,7 +45,7 @@ export function useAppState(): AppState {
       ),
       on<Banner[]>('banners:changed', (banners) => setState((s) => ({ ...s, banners }))),
     ];
-    void api.ready();
+    api.ready().catch((err: unknown) => console.error('zenvik: ready() failed', err));
     return () => offs.forEach((off) => off());
   }, []);
   return state;

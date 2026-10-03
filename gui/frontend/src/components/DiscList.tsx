@@ -14,7 +14,7 @@ function status(d: DiscSummary) {
     case 'opening':
       return <span className="muted">opening…</span>;
     case 'error':
-      return <span className="error" title={d.error}>{d.errorLabel}</span>;
+      return <span className="error" title={d.error}>{d.errorLabel ?? d.error ?? 'error'}</span>;
     default:
       return <span className="muted">{d.format}</span>;
   }
