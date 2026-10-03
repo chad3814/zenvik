@@ -24,8 +24,43 @@ dist="$root/dist"
 mkdir -p "$dist"
 name="zenvik-gui_${ver}_${goos}_${goarch}"
 
+# The app's own version fields (Info.plist's CFBundleShortVersionString and
+# CFBundleVersion, the Windows version resource) come from wails.json's
+# info.productVersion. They must be numeric, so a pre-release tag (v1.2.0-rc1)
+# stamps 1.2.0. wails.json is changed for this build only and restored on exit;
+# so is frontend/dist/gitkeep, which `wails build -clean` deletes.
+numver=${ver%%[-+]*}
+if [[ ! $numver =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+	echo "can't make an X.Y.Z app version from $tag" >&2
+	exit 2
+fi
+wailsjson="$root/gui/wails.json"
+saved=$(mktemp)
+cp "$wailsjson" "$saved"
+restore() {
+	cp "$saved" "$wailsjson"
+	rm -f "$saved"
+	touch "$root/gui/frontend/dist/gitkeep"
+}
+trap restore EXIT
+node -e '
+const fs = require("fs");
+const [file, version] = process.argv.slice(1);
+const project = JSON.parse(fs.readFileSync(file, "utf8"));
+project.info = { ...project.info, productVersion: version };
+fs.writeFileSync(file, JSON.stringify(project, null, 2) + "\n");
+' "$wailsjson" "$numver"
+
 tags=()
 [[ $goos == linux ]] && tags=(-tags webkit2_41)
+if [[ $goos == darwin ]]; then
+	# macOS 13 or later (Go 1.27 itself needs 12). Wails adds
+	# -mmacosx-version-min=10.13 to the cgo flags unless they already set a
+	# minimum, and that flag would win over MACOSX_DEPLOYMENT_TARGET.
+	export MACOSX_DEPLOYMENT_TARGET=13.0
+	export CGO_CFLAGS="${CGO_CFLAGS:+$CGO_CFLAGS }-mmacosx-version-min=13.0"
+	export CGO_LDFLAGS="${CGO_LDFLAGS:+$CGO_LDFLAGS }-mmacosx-version-min=13.0"
+fi
 (cd "$root/gui" && go run github.com/wailsapp/wails/v2/cmd/wails@v2.16.0 build \
 	-clean -trimpath -platform "$target" -ldflags "-s -w -X main.version=$tag" ${tags[@]+"${tags[@]}"})
 
