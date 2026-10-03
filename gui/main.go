@@ -11,6 +11,10 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 )
 
+// singleInstanceID names the lock that keeps a second Zenvik from running
+// (and ripping the same saved queue); it must never change between releases.
+const singleInstanceID = "dev.cwalker.zenvik.gui-5d0b7c62-3c1e-4c8e-9a43-2f6f1b0f7a91"
+
 // version is set at build time with -ldflags "-X main.version=<tag>".
 var version = "dev"
 
@@ -34,6 +38,12 @@ func main() {
 		OnStartup:     app.startup,
 		OnBeforeClose: app.beforeClose,
 		OnShutdown:    app.shutdown,
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId: singleInstanceID,
+			OnSecondInstanceLaunch: func(d options.SecondInstanceData) {
+				app.secondInstance(d.Args)
+			},
+		},
 		// The web view keeps its own drop handling: Windows only reports
 		// file paths through it, Linux needs the web view to stay a drag
 		// destination, and on macOS WebKit only delivers the queue rows'

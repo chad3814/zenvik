@@ -419,6 +419,27 @@ func (a *App) Reveal(id string) string {
 	return "no such queue entry"
 }
 
+// secondInstance handles another launch of the app while this one runs (the
+// single-instance lock keeps a second process from ripping the same queue):
+// it brings the window forward and adds the absolute paths the launch was
+// given. Wails reports the second process's arguments but not its working
+// directory, so relative paths and flags (like macOS's -psn_…) are dropped.
+func (a *App) secondInstance(args []string) {
+	if !a.wait() {
+		return
+	}
+	a.shell.ShowWindow()
+	var paths []string
+	for _, p := range args {
+		if filepath.IsAbs(p) {
+			paths = append(paths, p)
+		}
+	}
+	if len(paths) > 0 {
+		a.AddPaths(paths)
+	}
+}
+
 // beforeClose asks before quitting during a rip; a confirmed quit cancels the
 // rip and returns its entry to waiting.
 func (a *App) beforeClose(ctx context.Context) (prevent bool) {

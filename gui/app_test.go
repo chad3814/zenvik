@@ -22,6 +22,7 @@ type fakeShell struct {
 	confirm bool
 	dir     string
 	files   []string
+	shown   int
 }
 
 func (s *fakeShell) Emit(event string, data any) {
@@ -41,6 +42,12 @@ func (s *fakeShell) last(event string) any {
 		return nil
 	}
 	return ev[len(ev)-1]
+}
+
+func (s *fakeShell) ShowWindow() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.shown++
 }
 
 func (s *fakeShell) PickFiles(string, string, string) ([]string, error) { return s.files, nil }
@@ -441,5 +448,18 @@ func TestAddPathsIgnoresBlankAndRootPaths(t *testing.T) {
 	a.AddPaths([]string{"", dir, root})
 	if got := a.discs.Summaries(); len(got) != 1 || got[0].Path != dir || sh.last("discs:select") != dir {
 		t.Errorf("discs = %+v, select %v", got, sh.last("discs:select"))
+	}
+}
+
+func TestSecondInstanceShowsWindowAndAddsPaths(t *testing.T) {
+	a, sh, _ := newTestApp(t, testOpts{})
+	a.secondInstance(nil)
+	if sh.shown != 1 || len(a.discs.Summaries()) != 0 {
+		t.Fatalf("shown %d, discs %d after a plain second launch", sh.shown, len(a.discs.Summaries()))
+	}
+	dir := sampleDisc(t, "SAMPLE_MOVIE")
+	a.secondInstance([]string{"-psn_0_12345", "relative.iso", dir})
+	if got := a.discs.Summaries(); sh.shown != 2 || len(got) != 1 || got[0].Path != dir || sh.last("discs:select") != dir {
+		t.Errorf("shown %d, discs %+v, select %v", sh.shown, got, sh.last("discs:select"))
 	}
 }

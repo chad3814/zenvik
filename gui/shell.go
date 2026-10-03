@@ -13,11 +13,19 @@ type Shell interface {
 	PickFiles(title, filterName, pattern string) ([]string, error)
 	PickDir(title string) (string, error)
 	Confirm(title, message, yes, no string) (bool, error)
+	ShowWindow()
 }
 
 type wailsShell struct{ ctx context.Context }
 
 func (s wailsShell) Emit(event string, data any) { runtime.EventsEmit(s.ctx, event, data) }
+
+// ShowWindow brings the window to the front, restoring it if minimised.
+func (s wailsShell) ShowWindow() {
+	runtime.WindowUnminimise(s.ctx)
+	runtime.WindowShow(s.ctx)
+	runtime.Show(s.ctx)
+}
 
 func (s wailsShell) PickFiles(title, filterName, pattern string) ([]string, error) {
 	return runtime.OpenMultipleFilesDialog(s.ctx, runtime.OpenDialogOptions{
