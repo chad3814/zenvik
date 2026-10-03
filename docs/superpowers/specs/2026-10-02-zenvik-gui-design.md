@@ -59,7 +59,7 @@ Not in v1 (§7):
 │ ☐ 04 · 0:03:11 · 1 ch                   │                                │
 │ ⊘ 05 · interleaved angle block (not supported yet)                       │
 │ [Add 2 titles to queue]                 │                                │
-│ ┄ Drop ISOs or disc folders here · [Add…] ┄                              │
+│ ┄ Drop ISOs or disc folders here · [Add ISO…] [Add folder…] ┄            │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
