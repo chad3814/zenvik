@@ -80,7 +80,11 @@ jobs:
       - working-directory: gui/frontend
         run: npm ci && npm run lint && npm test && npm run build
       - working-directory: gui
-        run: go vet ${{ runner.os == 'Linux' && '-tags webkit2_41' || '' }} ./... && go test ${{ runner.os == 'Linux' && '-tags webkit2_41' || '' }} ./...
+        # frontend/node_modules can hold Go packages (npm's flatted ships one); skip them.
+        run: |
+          pkgs=$(go list ./... | grep -v /node_modules/)
+          go vet ${{ runner.os == 'Linux' && '-tags webkit2_41' || '' }} $pkgs
+          go test ${{ runner.os == 'Linux' && '-tags webkit2_41' || '' }} $pkgs
       - if: runner.os == 'macOS'
         run: brew install mkvtoolnix ffmpeg
       - if: runner.os == 'macOS'
