@@ -67,6 +67,31 @@ describe('App', () => {
     expect(screen.getByRole('checkbox', { name: 'Title 01' })).toBeChecked();
   });
 
+  it('sends a double-clicked Add only once', async () => {
+    let finish: (v: string[] | null) => void = () => {};
+    vi.mocked(api.enqueue).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    render(<App />);
+    act(() => handlers.get('discs:changed')?.([disc]));
+    await userEvent.dblClick(screen.getByRole('button', { name: 'Add 1 title to queue' }));
+    expect(api.enqueue).toHaveBeenCalledTimes(1);
+    await act(async () => finish(null));
+    expect(await screen.findByRole('button', { name: 'Add 0 titles to queue' })).toBeDisabled();
+  });
+
+  it("clears a title's error when its name changes or it is ticked again", async () => {
+    vi.mocked(api.enqueue).mockResolvedValueOnce(['the name is empty', 'the name is empty']);
+    render(<App />);
+    act(() => handlers.get('discs:changed')?.([disc]));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Title 02' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add 2 titles to queue' }));
+    expect(await screen.findAllByText('the name is empty')).toHaveLength(2);
+    await userEvent.type(screen.getByRole('textbox', { name: 'Name for title 01' }), 'x');
+    expect(screen.getAllByText('the name is empty')).toHaveLength(1);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Title 02' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Title 02' }));
+    expect(screen.queryByText('the name is empty')).not.toBeInTheDocument();
+  });
+
   it('adds dropped paths and reloads config on focus', () => {
     render(<App />);
     act(() => dropped.cb?.(['/a.iso', '', '/b folder']));

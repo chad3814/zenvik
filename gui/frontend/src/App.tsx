@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, offFileDrop, on, onFileDrop } from './api';
 import { About } from './components/About';
 import { Banners } from './components/Banners';
@@ -17,6 +17,7 @@ export default function App() {
   const [picks, setPicks] = useState<Picks>({});
   const [errors, setErrors] = useState<Record<string, Record<string, string>>>({});
   const [now, setNow] = useState(() => Date.now());
+  const adding = useRef(false); // an Add is waiting for the backend
 
   useEffect(() => on<string>('discs:select', setSelected), []);
   useEffect(() => {
@@ -55,8 +56,15 @@ export default function App() {
   const queued = state.queue.entries.filter((e) => e.state === 'waiting' || e.state === 'ripping').length;
 
   const enqueue = async (d: DiscSummary) => {
+    if (adding.current) return; // a double click would queue the titles twice
+    adding.current = true;
     const titles = tickedTitles(d, picks[d.path]);
-    const msgs = await api.enqueue(d.path, titles.map((t) => t.id), titles.map((t) => nameFor(t, picks[d.path])));
+    let msgs: string[] | null;
+    try {
+      msgs = await api.enqueue(d.path, titles.map((t) => t.id), titles.map((t) => nameFor(t, picks[d.path])));
+    } finally {
+      adding.current = false;
+    }
     if (!msgs || msgs.every((m) => m === '')) {
       setPicks((p) => clearTicks(p, d));
       setErrors((e) => ({ ...e, [d.path]: {} }));
@@ -68,6 +76,14 @@ export default function App() {
     });
     setErrors((e) => ({ ...e, [d.path]: byTitle }));
   };
+
+  const clearError = (path: string, id: string) =>
+    setErrors((e) => {
+      if (!e[path]?.[id]) return e;
+      const rest = { ...e[path] };
+      delete rest[id];
+      return { ...e, [path]: rest };
+    });
 
   return (
     <div className="app">
@@ -94,8 +110,14 @@ export default function App() {
               disc={disc}
               picks={picks[disc.path]}
               errors={errors[disc.path] ?? {}}
-              onTick={(id, ticked) => setPicks((p) => setPick(p, disc.path, id, { ticked }))}
-              onName={(id, name) => setPicks((p) => setPick(p, disc.path, id, { name }))}
+              onTick={(id, ticked) => {
+                setPicks((p) => setPick(p, disc.path, id, { ticked }));
+                clearError(disc.path, id);
+              }}
+              onName={(id, name) => {
+                setPicks((p) => setPick(p, disc.path, id, { name }));
+                clearError(disc.path, id);
+              }}
               onPickOutputDir={() => void api.pickOutputDir(disc.path)}
               onEnqueue={() => void enqueue(disc)}
             />
