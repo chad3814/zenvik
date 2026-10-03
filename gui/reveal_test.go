@@ -1,13 +1,14 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
 )
 
 func TestRevealArgs(t *testing.T) {
-	p := filepath.FromSlash("/out/a.mkv")
+	p := filepath.Join(os.TempDir(), "out", "a.mkv")
 	cases := map[string][]string{
 		"darwin":  {"open", "-R", p},
 		"windows": {"explorer", "/select," + p},

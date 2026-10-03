@@ -1,21 +1,22 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
 
 func TestOutputPath(t *testing.T) {
-	dir := filepath.FromSlash("/out")
+	dir := filepath.Join(os.TempDir(), "out")
 	cases := []struct {
-		name, want, msg string
+		name, want, msg string // want is relative to dir
 	}{
-		{"Movie.mkv", "/out/Movie.mkv", ""},
-		{"  Movie  ", "/out/Movie.mkv", ""},
-		{"Movie.avi", "/out/Movie.avi.mkv", ""},
-		{"Movie.MKV", "/out/Movie.MKV", ""},
-		{"Show/S01/e1.mkv", "/out/Show/S01/e1.mkv", ""},
-		{"a/../b.mkv", "/out/b.mkv", ""},
+		{"Movie.mkv", "Movie.mkv", ""},
+		{"  Movie  ", "Movie.mkv", ""},
+		{"Movie.avi", "Movie.avi.mkv", ""},
+		{"Movie.MKV", "Movie.MKV", ""},
+		{"Show/S01/e1.mkv", "Show/S01/e1.mkv", ""},
+		{"a/../b.mkv", "b.mkv", ""},
 		{"", "", "the name is empty"},
 		{".", "", "the name is empty"},
 		{"../escape.mkv", "", "the name must stay inside the output folder"},
@@ -25,7 +26,7 @@ func TestOutputPath(t *testing.T) {
 		got, msg := outputPath(dir, c.name)
 		want := ""
 		if c.want != "" {
-			want = filepath.FromSlash(c.want)
+			want = filepath.Join(dir, filepath.FromSlash(c.want))
 		}
 		if got != want || msg != c.msg {
 			t.Errorf("outputPath(%q) = %q, %q; want %q, %q", c.name, got, msg, want, c.msg)

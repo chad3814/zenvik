@@ -9,7 +9,7 @@ import (
 
 func TestSaveAndReopen(t *testing.T) {
 	q, _, path := newQueue(t)
-	q.Add([]NewEntry{{"/d", "01", abs("a.mkv")}})
+	q.Add([]NewEntry{{discA, "01", abs("a.mkv")}})
 	q.SetPaused(true)
 	q2, err := Open(path, nopRipper{}, Hooks{})
 	if err != nil {
@@ -30,7 +30,7 @@ func TestSaveAndReopen(t *testing.T) {
 
 func TestOpenRestoresRippingAsWaiting(t *testing.T) {
 	q, _, path := newQueue(t)
-	q.Add([]NewEntry{{"/d", "01", abs("a.mkv")}})
+	q.Add([]NewEntry{{discA, "01", abs("a.mkv")}})
 	q.mu.Lock()
 	q.entries[0].State = Ripping
 	now := q.now()
@@ -87,7 +87,7 @@ func TestSaveErrorIsReported(t *testing.T) {
 		t.Fatal(err)
 	}
 	q.path = filepath.Join(blocker, "gui-queue.json")
-	q.Add([]NewEntry{{"/d", "01", abs("a.mkv")}})
+	q.Add([]NewEntry{{discA, "01", abs("a.mkv")}})
 	if q.Snapshot().SaveError == "" {
 		t.Error("SaveError empty after a failed save")
 	}

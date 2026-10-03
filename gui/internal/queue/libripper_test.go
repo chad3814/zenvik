@@ -15,7 +15,7 @@ func libOpen(ctx context.Context, path string) (*zenvik.Disc, error) { return ze
 
 func TestLibRipperMissingDisc(t *testing.T) {
 	r := LibRipper{Open: libOpen, MkvmergePath: func() string { return "" }}
-	err := r.Rip(context.Background(), Entry{DiscPath: filepath.Join(t.TempDir(), "gone.iso"), TitleID: "00800", OutputPath: "/x.mkv"}, nil)
+	err := r.Rip(context.Background(), Entry{DiscPath: filepath.Join(t.TempDir(), "gone.iso"), TitleID: "00800", OutputPath: filepath.Join(t.TempDir(), "x.mkv")}, nil)
 	if err == nil {
 		t.Fatal("want an error for a missing disc")
 	}
@@ -27,7 +27,7 @@ func TestLibRipperUnknownTitle(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := LibRipper{Open: libOpen, MkvmergePath: func() string { return "" }}
-	err := r.Rip(context.Background(), Entry{DiscPath: root, TitleID: "99999", OutputPath: "/x.mkv"}, nil)
+	err := r.Rip(context.Background(), Entry{DiscPath: root, TitleID: "99999", OutputPath: filepath.Join(t.TempDir(), "x.mkv")}, nil)
 	if err == nil || !strings.Contains(err.Error(), "title 99999 not found on SAMPLE_MOVIE") {
 		t.Errorf("err = %v", err)
 	}

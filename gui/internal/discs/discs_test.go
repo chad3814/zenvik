@@ -54,6 +54,13 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 	}
 }
 
+// absPath is an absolute path under the temp folder's volume: a path like
+// "/out" has no drive letter, so it isn't absolute on Windows.
+func absPath(elem ...string) string {
+	root := filepath.VolumeName(os.TempDir()) + string(filepath.Separator)
+	return filepath.Join(append([]string{root}, elem...)...)
+}
+
 func opener(ctx context.Context, path string) (*zenvik.Disc, error) {
 	return zenvik.Open(ctx, path)
 }
@@ -61,7 +68,7 @@ func opener(ctx context.Context, path string) (*zenvik.Disc, error) {
 func newList(t *testing.T, open Opener) (*List, *recorder) {
 	t.Helper()
 	r := &recorder{}
-	l := New(context.Background(), open, Config{Template: config.DefaultTemplate, OutputDir: "/out"}, r.changed)
+	l := New(context.Background(), open, Config{Template: config.DefaultTemplate, OutputDir: absPath("out")}, r.changed)
 	t.Cleanup(l.Close)
 	return l, r
 }
@@ -87,7 +94,7 @@ func TestListAddOpensInBackground(t *testing.T) {
 	}
 	waitFor(t, "ready", func() bool { return readyState(r, dir) })
 	s, _ := l.Summary(dir)
-	if s.State != "ready" || s.Format != "Blu-ray" || s.Name != "Sample Movie" || s.OutputDir != "/out" || len(s.Titles) == 0 {
+	if s.State != "ready" || s.Format != "Blu-ray" || s.Name != "Sample Movie" || s.OutputDir != absPath("out") || len(s.Titles) == 0 {
 		t.Errorf("summary = %+v", s)
 	}
 }
@@ -241,7 +248,7 @@ func TestListSlowCallbackKeepsEventOrder(t *testing.T) {
 	var calls atomic.Int32
 	l := New(context.Background(), func(context.Context, string) (*zenvik.Disc, error) {
 		return nil, errors.New("nope")
-	}, Config{Template: config.DefaultTemplate, OutputDir: "/out"}, func(s []Summary) {
+	}, Config{Template: config.DefaultTemplate, OutputDir: absPath("out")}, func(s []Summary) {
 		if calls.Add(1) == 1 {
 			<-gate // the "opening" event stalls in its callback
 		}
@@ -249,7 +256,7 @@ func TestListSlowCallbackKeepsEventOrder(t *testing.T) {
 	})
 	t.Cleanup(l.Close)
 	done := make(chan struct{})
-	go func() { l.Add([]string{"/nowhere/DISC"}); close(done) }()
+	go func() { l.Add([]string{absPath("nowhere", "DISC")}); close(done) }()
 	time.Sleep(50 * time.Millisecond) // let the open fail while the callback is stalled
 	close(gate)
 	<-done
@@ -270,11 +277,11 @@ func TestListEventsArriveInSnapshotOrder(t *testing.T) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			l.Add([]string{filepath.Join("/nowhere", fmt.Sprintf("DISC%d", i))})
+			l.Add([]string{absPath("nowhere", fmt.Sprintf("DISC%d", i))})
 		}()
 		go func() {
 			defer wg.Done()
-			l.Configure(Config{Template: config.DefaultTemplate, OutputDir: fmt.Sprintf("/out%d", i)})
+			l.Configure(Config{Template: config.DefaultTemplate, OutputDir: absPath(fmt.Sprintf("out%d", i))})
 		}()
 	}
 	wg.Wait()
@@ -304,11 +311,11 @@ func TestListOutputDirAndConfigure(t *testing.T) {
 	l.Add([]string{other})
 	waitFor(t, "ready", func() bool { return readyState(r, other) })
 
-	l.SetOutputDir(dir, "/picked")
-	l.Configure(Config{Template: "{name} - {playlist}.mkv", OutputDir: "/new"})
+	l.SetOutputDir(dir, absPath("picked"))
+	l.Configure(Config{Template: "{name} - {playlist}.mkv", OutputDir: absPath("new")})
 	a, _ := l.Summary(dir)
 	b, _ := l.Summary(other)
-	if a.OutputDir != "/picked" || b.OutputDir != "/new" {
+	if a.OutputDir != absPath("picked") || b.OutputDir != absPath("new") {
 		t.Errorf("dirs = %q, %q", a.OutputDir, b.OutputDir)
 	}
 	if a.Titles[0].DefaultName != "Sample Movie - 00800.mkv" {

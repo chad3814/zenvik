@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"sync"
@@ -45,7 +46,13 @@ func newQueue(t *testing.T) (*Queue, *hookLog, string) {
 	return q, h, path
 }
 
-func abs(name string) string { return filepath.Join(string(filepath.Separator)+"out", name) }
+// abs is an absolute output path. It is built under the temp folder: a
+// rooted path like "/out/a.mkv" has no drive letter, so it isn't absolute on
+// Windows and Add would reject it.
+// discA and discB are disc paths; the queue never opens them.
+var discA, discB = filepath.Join(os.TempDir(), "zenvik-queue-test", "DISC_A"), filepath.Join(os.TempDir(), "zenvik-queue-test", "DISC_B")
+
+func abs(name string) string { return filepath.Join(os.TempDir(), "zenvik-queue-test", "out", name) }
 
 func ids(s Snapshot) []string {
 	var out []string
@@ -57,7 +64,7 @@ func ids(s Snapshot) []string {
 
 func TestAddAppendsWaitingEntries(t *testing.T) {
 	q, h, _ := newQueue(t)
-	if msgs := q.Add([]NewEntry{{"/d", "01", abs("a.mkv")}, {"/d", "02", abs("b.mkv")}}); msgs != nil {
+	if msgs := q.Add([]NewEntry{{discA, "01", abs("a.mkv")}, {discA, "02", abs("b.mkv")}}); msgs != nil {
 		t.Fatalf("Add = %q", msgs)
 	}
 	s := q.Snapshot()
@@ -71,8 +78,8 @@ func TestAddAppendsWaitingEntries(t *testing.T) {
 
 func TestAddRejectsDuplicateOutputs(t *testing.T) {
 	q, _, _ := newQueue(t)
-	q.Add([]NewEntry{{"/d", "01", abs("a.mkv")}})
-	msgs := q.Add([]NewEntry{{"/d", "02", abs("b.mkv")}, {"/d", "03", abs("a.mkv")}, {"/e", "01", abs("b.mkv")}, {"/e", "02", "relative.mkv"}})
+	q.Add([]NewEntry{{discA, "01", abs("a.mkv")}})
+	msgs := q.Add([]NewEntry{{discA, "02", abs("b.mkv")}, {discA, "03", abs("a.mkv")}, {discB, "01", abs("b.mkv")}, {discB, "02", "relative.mkv"}})
 	want := []string{"", "another queue entry already writes this file", "another queue entry already writes this file", "the output path must be absolute"}
 	if len(msgs) != len(want) {
 		t.Fatalf("msgs = %q", msgs)
@@ -89,18 +96,18 @@ func TestAddRejectsDuplicateOutputs(t *testing.T) {
 
 func TestFinishedEntriesDontBlockTheirOutput(t *testing.T) {
 	q, _, _ := newQueue(t)
-	q.Add([]NewEntry{{"/d", "01", abs("a.mkv")}})
+	q.Add([]NewEntry{{discA, "01", abs("a.mkv")}})
 	q.mu.Lock()
 	q.entries[0].State = Done
 	q.mu.Unlock()
-	if msgs := q.Add([]NewEntry{{"/d", "01", abs("a.mkv")}}); msgs != nil {
+	if msgs := q.Add([]NewEntry{{discA, "01", abs("a.mkv")}}); msgs != nil {
 		t.Errorf("Add after done = %q", msgs)
 	}
 }
 
 func TestRename(t *testing.T) {
 	q, _, _ := newQueue(t)
-	q.Add([]NewEntry{{"/d", "01", abs("a.mkv")}, {"/d", "02", abs("b.mkv")}})
+	q.Add([]NewEntry{{discA, "01", abs("a.mkv")}, {discA, "02", abs("b.mkv")}})
 	s := q.Snapshot()
 	a, b := s.Entries[0].ID, s.Entries[1].ID
 	if msg := q.Rename(a, abs("b.mkv")); msg != "another queue entry already writes this file" {
@@ -125,7 +132,7 @@ func TestRename(t *testing.T) {
 
 func TestMoveRemoveRetryClear(t *testing.T) {
 	q, _, _ := newQueue(t)
-	q.Add([]NewEntry{{"/d", "01", abs("1.mkv")}, {"/d", "02", abs("2.mkv")}, {"/d", "03", abs("3.mkv")}})
+	q.Add([]NewEntry{{discA, "01", abs("1.mkv")}, {discA, "02", abs("2.mkv")}, {discA, "03", abs("3.mkv")}})
 	s := q.Snapshot()
 	q.Move(s.Entries[2].ID, 0)
 	if got := ids(q.Snapshot()); got[0] != "03" || got[1] != "01" || got[2] != "02" {
@@ -158,7 +165,7 @@ func TestMoveRemoveRetryClear(t *testing.T) {
 
 func TestRemoveIgnoresRippingEntry(t *testing.T) {
 	q, _, _ := newQueue(t)
-	q.Add([]NewEntry{{"/d", "01", abs("1.mkv")}})
+	q.Add([]NewEntry{{discA, "01", abs("1.mkv")}})
 	q.mu.Lock()
 	q.entries[0].State = Ripping
 	q.mu.Unlock()
@@ -222,7 +229,7 @@ func TestConcurrentUpdatesEndOnTheFinalState(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < 25; i++ {
 				q.SetPaused(i%2 == 0)
-				q.Add([]NewEntry{{"/d", "01", abs(fmt.Sprintf("%d-%d.mkv", g, i))}})
+				q.Add([]NewEntry{{discA, "01", abs(fmt.Sprintf("%d-%d.mkv", g, i))}})
 			}
 		}()
 	}
@@ -237,7 +244,7 @@ func TestConcurrentUpdatesEndOnTheFinalState(t *testing.T) {
 
 func TestEmitResendsCurrentSnapshot(t *testing.T) {
 	q, h, _ := newQueue(t)
-	q.Add([]NewEntry{{"/d", "01", abs("a.mkv")}})
+	q.Add([]NewEntry{{discA, "01", abs("a.mkv")}})
 	before := h.count()
 	q.Emit()
 	if h.count() != before+1 {

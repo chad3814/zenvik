@@ -106,16 +106,16 @@ func TestDefaultOutputDir(t *testing.T) {
 		exists           func(string) bool
 		want             string
 	}{
-		{".", "darwin", yes, "/home/u/Movies"},
-		{".", "darwin", no, "/home/u"},
-		{".", "linux", yes, "/home/u"},
-		{"", "windows", yes, "/home/u"},
-		{"/srv/rips", "darwin", yes, "/srv/rips"},
-		{"rips", "linux", yes, "/home/u/rips"},
+		{".", "darwin", yes, absPath("home", "u", "Movies")},
+		{".", "darwin", no, absPath("home", "u")},
+		{".", "linux", yes, absPath("home", "u")},
+		{"", "windows", yes, absPath("home", "u")},
+		{absPath("srv", "rips"), "darwin", yes, absPath("srv", "rips")},
+		{"rips", "linux", yes, absPath("home", "u", "rips")},
 	}
 	for _, c := range cases {
-		got := DefaultOutputDir(c.configured, c.goos, "/home/u", c.exists)
-		if got != filepath.FromSlash(c.want) {
+		got := DefaultOutputDir(c.configured, c.goos, absPath("home", "u"), c.exists)
+		if got != c.want {
 			t.Errorf("DefaultOutputDir(%q, %s) = %q, want %q", c.configured, c.goos, got, c.want)
 		}
 	}

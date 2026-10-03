@@ -95,7 +95,7 @@ func entryIDs(q *Queue) []string {
 func TestRunnerRipsInOrderOneAtATime(t *testing.T) {
 	r := &scriptRipper{}
 	q, dir := runQueue(t, r, Hooks{})
-	q.Add([]NewEntry{{"/d", "01", filepath.Join(dir, "a.mkv")}, {"/d", "02", filepath.Join(dir, "b.mkv")}, {"/d", "03", filepath.Join(dir, "c.mkv")}})
+	q.Add([]NewEntry{{discA, "01", filepath.Join(dir, "a.mkv")}, {discA, "02", filepath.Join(dir, "b.mkv")}, {discA, "03", filepath.Join(dir, "c.mkv")}})
 	for _, id := range entryIDs(q) {
 		e := waitState(t, q, id, Done)
 		if e.StartedAt == nil || e.EndedAt == nil {
@@ -115,7 +115,7 @@ func TestRunnerWaitsForReadyAndUnpause(t *testing.T) {
 	q, dir := runQueue(t, r, Hooks{})
 	q.SetReady(false)
 	q.SetPaused(true)
-	q.Add([]NewEntry{{"/d", "01", filepath.Join(dir, "a.mkv")}})
+	q.Add([]NewEntry{{discA, "01", filepath.Join(dir, "a.mkv")}})
 	time.Sleep(50 * time.Millisecond)
 	if q.Snapshot().Entries[0].State != Waiting {
 		t.Fatal("ripped while paused and not ready")
@@ -132,7 +132,7 @@ func TestRunnerWaitsForReadyAndUnpause(t *testing.T) {
 func TestRunnerFailureContinues(t *testing.T) {
 	r := &scriptRipper{failWith: map[string]error{"01": fmt.Errorf("title 01: %w", zenvik.ErrEncrypted)}}
 	q, dir := runQueue(t, r, Hooks{})
-	q.Add([]NewEntry{{"/d", "01", filepath.Join(dir, "a.mkv")}, {"/d", "02", filepath.Join(dir, "b.mkv")}})
+	q.Add([]NewEntry{{discA, "01", filepath.Join(dir, "a.mkv")}, {discA, "02", filepath.Join(dir, "b.mkv")}})
 	ids := entryIDs(q)
 	e := waitState(t, q, ids[0], Failed)
 	if e.Label != "encrypted" || e.Message == "" {
@@ -148,7 +148,7 @@ func TestRunnerOutputExists(t *testing.T) {
 	if err := os.WriteFile(out, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	q.Add([]NewEntry{{"/d", "01", out}})
+	q.Add([]NewEntry{{discA, "01", out}})
 	e := waitState(t, q, entryIDs(q)[0], Failed)
 	if e.Message != "a.mkv exists" || e.Label != "exists" || len(r.order) != 0 {
 		t.Errorf("entry = %+v, ripper calls %v", e, r.order)
@@ -162,7 +162,7 @@ func TestRunnerIgnoresPartialFile(t *testing.T) {
 	if err := os.WriteFile(out+".partial", nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	q.Add([]NewEntry{{"/d", "01", out}})
+	q.Add([]NewEntry{{discA, "01", out}})
 	waitState(t, q, entryIDs(q)[0], Done)
 }
 
@@ -170,7 +170,7 @@ func TestRunnerCreatesOutputFolder(t *testing.T) {
 	r := &scriptRipper{}
 	q, dir := runQueue(t, r, Hooks{})
 	out := filepath.Join(dir, "Show", "Season 1", "e1.mkv")
-	q.Add([]NewEntry{{"/d", "01", out}})
+	q.Add([]NewEntry{{discA, "01", out}})
 	waitState(t, q, entryIDs(q)[0], Done)
 	if _, err := os.Stat(out); err != nil {
 		t.Error(err)
@@ -180,7 +180,7 @@ func TestRunnerCreatesOutputFolder(t *testing.T) {
 func TestRunnerCancel(t *testing.T) {
 	r := &scriptRipper{release: make(chan struct{})}
 	q, dir := runQueue(t, r, Hooks{})
-	q.Add([]NewEntry{{"/d", "01", filepath.Join(dir, "a.mkv")}, {"/d", "02", filepath.Join(dir, "b.mkv")}})
+	q.Add([]NewEntry{{discA, "01", filepath.Join(dir, "a.mkv")}, {discA, "02", filepath.Join(dir, "b.mkv")}})
 	ids := entryIDs(q)
 	waitState(t, q, ids[0], Ripping)
 	if !q.Running() {
@@ -199,7 +199,7 @@ func TestRunnerCancel(t *testing.T) {
 func TestRunnerStopReturnsEntryToWaiting(t *testing.T) {
 	r := &scriptRipper{release: make(chan struct{})}
 	q, dir := runQueue(t, r, Hooks{})
-	q.Add([]NewEntry{{"/d", "01", filepath.Join(dir, "a.mkv")}, {"/d", "02", filepath.Join(dir, "b.mkv")}})
+	q.Add([]NewEntry{{discA, "01", filepath.Join(dir, "a.mkv")}, {discA, "02", filepath.Join(dir, "b.mkv")}})
 	ids := entryIDs(q)
 	waitState(t, q, ids[0], Ripping)
 	q.Stop(5 * time.Second)
@@ -228,7 +228,7 @@ func TestProgressThrottle(t *testing.T) {
 		progress(zenvik.Progress{Phase: zenvik.PhaseMounting + 1, Fraction: 1})
 	}}
 	q, dir := runQueue(t, r, Hooks{Progress: func(p Progress) { mu.Lock(); got = append(got, p); mu.Unlock() }})
-	q.Add([]NewEntry{{"/d", "01", filepath.Join(dir, "a.mkv")}})
+	q.Add([]NewEntry{{discA, "01", filepath.Join(dir, "a.mkv")}})
 	waitState(t, q, entryIDs(q)[0], Done)
 	mu.Lock()
 	defer mu.Unlock()
@@ -258,7 +258,7 @@ func TestStopAfterSuccessfulRipKeepsDone(t *testing.T) {
 	r := &stopThenSucceed{}
 	q, dir := runQueue(t, r, Hooks{})
 	r.q = q
-	q.Add([]NewEntry{{"/d", "01", filepath.Join(dir, "a.mkv")}})
+	q.Add([]NewEntry{{discA, "01", filepath.Join(dir, "a.mkv")}})
 	e := waitState(t, q, entryIDs(q)[0], Done)
 	if e.EndedAt == nil {
 		t.Errorf("EndedAt not set: %+v", e)
@@ -275,7 +275,7 @@ func TestRunnerMkvmergeMissingWaitsAndStops(t *testing.T) {
 			r := &scriptRipper{failWith: map[string]error{"01": fmt.Errorf("muxing: %w", cause)}}
 			missing := make(chan error, 4)
 			q, dir := runQueue(t, r, Hooks{MkvmergeMissing: func(err error) { missing <- err }})
-			q.Add([]NewEntry{{"/d", "01", filepath.Join(dir, "a.mkv")}, {"/d", "02", filepath.Join(dir, "b.mkv")}})
+			q.Add([]NewEntry{{discA, "01", filepath.Join(dir, "a.mkv")}, {discA, "02", filepath.Join(dir, "b.mkv")}})
 			select {
 			case err := <-missing:
 				if !errors.Is(err, cause) {

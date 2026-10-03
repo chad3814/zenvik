@@ -214,7 +214,7 @@ func TestEnqueueValidatesEveryName(t *testing.T) {
 	if got[0].OutputPath != filepath.Join(home, "Movie.mkv") || got[1].OutputPath != filepath.Join(home, "Extras", "Trailer.mkv") {
 		t.Errorf("outputs = %q, %q", got[0].OutputPath, got[1].OutputPath)
 	}
-	if msgs := a.Enqueue("/not/open", []string{"01"}, []string{"x"}); len(msgs) != 1 || msgs[0] != "the disc is no longer open" {
+	if msgs := a.Enqueue(filepath.Join(home, "not open"), []string{"01"}, []string{"x"}); len(msgs) != 1 || msgs[0] != "the disc is no longer open" {
 		t.Errorf("unknown disc = %q", msgs)
 	}
 }
@@ -344,10 +344,11 @@ func TestFailedInitReleasesCallers(t *testing.T) {
 		t.Skip("queue.Open accepted a directory as its state path")
 	}
 	done := make(chan struct{})
+	x := filepath.Join(t.TempDir(), "x")
 	go func() {
 		a.Ready()
-		a.AddPaths([]string{"/x"})
-		a.Enqueue("/x", nil, nil)
+		a.AddPaths([]string{x})
+		a.Enqueue(x, nil, nil)
 		a.SetPaused(true)
 		close(done)
 	}()
