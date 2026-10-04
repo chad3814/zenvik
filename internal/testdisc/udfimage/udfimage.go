@@ -49,6 +49,12 @@ type Options struct {
 	// allocation descriptors; the rest go into an allocation extent
 	// descriptor.
 	MaxInlineADs int
+	// UnpaddedFIDCRC writes each named file identifier descriptor's tag
+	// CRC length (and CRC) over the descriptor without its padding, the
+	// way some authoring tools do. Linux's UDF driver rejects such
+	// directories; the parent entry keeps the padded length, as those
+	// tools write it.
+	UnpaddedFIDCRC bool
 }
 
 type node struct {
@@ -358,7 +364,13 @@ func (b *builder) fid(blk uint32, chars uint8, name []byte, icb uint32) []byte {
 	d[19] = uint8(len(name))
 	copy(d[20:], longAD(0, sector, icb, b.feRef))
 	copy(d[38:], name)
-	return b.tag(257, blk, d)
+	d = b.tag(257, blk, d)
+	if used := 38 + len(name); b.opt.UnpaddedFIDCRC && len(name) > 0 && used < len(d) {
+		le16(d[10:], uint16(used-16))
+		le16(d[8:], crc16(d[16:used]))
+		d[4] = tagChecksum(d)
+	}
+	return d
 }
 
 func (b *builder) entry(e entryParams) []byte {
@@ -595,14 +607,20 @@ func (b *builder) tag(id uint16, loc uint32, d []byte) []byte {
 	le16(d[8:], crc16(d[16:]))
 	le16(d[10:], uint16(len(d)-16))
 	le32(d[12:], loc)
+	d[4] = tagChecksum(d)
+	return d
+}
+
+// tagChecksum is the descriptor tag checksum: the sum of the tag's bytes
+// other than the checksum itself.
+func tagChecksum(d []byte) byte {
 	var sum byte
 	for i := 0; i < 16; i++ {
 		if i != 4 {
 			sum += d[i]
 		}
 	}
-	d[4] = sum
-	return d
+	return sum
 }
 
 // crc16 is the ECMA-167 descriptor CRC: polynomial 0x1021, initial 0.

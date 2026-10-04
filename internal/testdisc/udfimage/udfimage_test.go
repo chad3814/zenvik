@@ -241,3 +241,56 @@ func TestAllDescriptorsValid(t *testing.T) {
 		})
 	}
 }
+
+// fidTags finds every file identifier descriptor in img without knowing
+// the layout: directory data starts on a sector boundary, so it scans each
+// sector that starts with tag 257 and walks the FIDs packed in it. For each
+// FID it returns its name length, used length, padded length and stored
+// CRC length.
+func fidTags(img []byte) [][4]int {
+	var out [][4]int
+	for s := 0; s+sector <= len(img); s += sector {
+		d := img[s : s+sector]
+		if binary.LittleEndian.Uint16(d) != 257 {
+			continue
+		}
+		for len(d) >= 38 && binary.LittleEndian.Uint16(d) == 257 {
+			lfi := int(d[19])
+			used := 38 + lfi + int(binary.LittleEndian.Uint16(d[36:]))
+			padded := (used + 3) &^ 3
+			out = append(out, [4]int{lfi, used, padded, int(binary.LittleEndian.Uint16(d[10:]))})
+			if padded > len(d) {
+				break
+			}
+			d = d[padded:]
+		}
+	}
+	return out
+}
+
+func TestUnpaddedFIDCRC(t *testing.T) {
+	files := map[string]File{"BDMV/index.bdmv": {Data: []byte("INDX0200")}, "CERTIFICATE/id.bdmv": {Data: []byte("x")}}
+	for _, rev := range []uint16{0x0102, 0x0250} {
+		for _, unpadded := range []bool{false, true} {
+			img, err := Build(files, Options{Revision: rev, UnpaddedFIDCRC: unpadded})
+			if err != nil {
+				t.Fatal(err)
+			}
+			fids := fidTags(img)
+			// root: parent, BDMV, CERTIFICATE; BDMV: parent, index.bdmv; CERTIFICATE: parent, id.bdmv
+			if len(fids) != 7 {
+				t.Fatalf("rev %#x unpadded=%v: found %d FIDs, want 7", rev, unpadded, len(fids))
+			}
+			for _, f := range fids {
+				lfi, used, padded, crcLen := f[0], f[1], f[2], f[3]
+				want := padded - 16
+				if unpadded && lfi > 0 {
+					want = used - 16
+				}
+				if crcLen != want {
+					t.Errorf("rev %#x unpadded=%v: FID (name length %d) CRC length %d, want %d", rev, unpadded, lfi, crcLen, want)
+				}
+			}
+		}
+	}
+}
