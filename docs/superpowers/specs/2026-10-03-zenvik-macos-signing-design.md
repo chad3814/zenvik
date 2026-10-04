@@ -44,10 +44,9 @@ No credential value ever passes through an assistant conversation, a log, or a f
 - **`cli` (ubuntu-latest).** It builds the `linux/amd64` and `windows/amd64` CLI archives only.
   - `scripts/release-build.sh vX.Y.Z [os/arch …]` takes an optional target list. With no list it builds all four, as today, so local use is unchanged.
 - **`cli-darwin` (new, macos-latest, `environment: release`).** It builds `darwin/arm64` and `darwin/amd64` with `release-build.sh`, then signs and notarizes them (§3.3).
-- **`gui` matrix.**
-  - The two `macos-latest` legs get `environment: release` and sign and notarize (§3.2).
-  - The Windows and Linux legs don't use the environment, so they can't read the secrets.
-- **`publish`.** It now `needs: [cli, cli-darwin, gui]`. It still makes one combined `SHA256SUMS` and uses the same `gh release create` flags.
+- **`gui-darwin` (macos-latest matrix: darwin/arm64, darwin/amd64; `environment: release`).** It builds, signs, notarizes and staples the app (§3.2).
+- **`gui-other` (windows/amd64, linux/amd64; no environment).** It builds as today and can't read the secrets. A job's `environment` can't be set per matrix row, which is why the GUI job is split in two.
+- **`publish`.** It now `needs: [cli, cli-darwin, gui-darwin, gui-other]`. It still makes one combined `SHA256SUMS` and uses the same `gh release create` flags.
 - **`SIGN_REQUIRED=1`.** It is set on both macOS jobs, so a missing secret fails the release instead of shipping it unsigned.
 
 ### 3.2 `scripts/macos-sign.sh` (new; macOS only)
@@ -59,7 +58,7 @@ It is a library script sourced by `release-build.sh` and `release-gui.sh`. It pr
     - creates a temporary keychain with a random password and imports the `.p12` into it;
     - allows `codesign` to use the key without a prompt (`security set-key-partition-list`);
     - puts the keychain first in the search list;
-    - installs a `trap` that deletes the keychain and the decoded key files on exit, whether the job succeeds or fails.
+    - installs no `trap` of its own. Callers run `macos_sign_cleanup` from their own EXIT trap, which deletes the keychain and the decoded key files and restores the keychain search list whether the job succeeds or fails. `release-gui.sh` already has an EXIT trap, and a second one would replace it.
   - Without it: signs with `MACOS_SIGN_IDENTITY` from the user's own keychain. This is how local runs work.
   - With no identity at all: skips signing and warns. If `SIGN_REQUIRED=1`, it fails instead.
 - **`macos_sign <path>`**
@@ -75,7 +74,7 @@ It is a library script sourced by `release-build.sh` and `release-gui.sh`. It pr
   - Runs `xcrun notarytool submit <zip> --key … --key-id … --issuer … --wait --timeout 30m`.
   - If the status isn't `Accepted`, it prints `xcrun notarytool log <submission-id>` and fails.
 - **`macos_staple <app>`** runs `xcrun stapler staple` and then `xcrun stapler validate`.
-- **`macos_verify_gatekeeper <path>`** runs `spctl -a -vv -t exec`, which must report `source=Notarized Developer ID`. It runs only when notarization ran.
+- **`macos_verify_gatekeeper <app>`** runs `spctl -a -vv -t exec` on the `.app`, which must report `source=Notarized Developer ID`. It runs only when notarization ran. It isn't used for the bare CLI binary, because `spctl` doesn't reliably assess a command-line Mach-O ("does not seem to be an app"). The CLI's proof in CI is notarytool's `Accepted` status plus `codesign --verify`.
 
 ### 3.3 Order of operations
 
@@ -92,9 +91,8 @@ It is a library script sourced by `release-build.sh` and `release-gui.sh`. It pr
 1. `go build`
 2. `macos_sign`
 3. `macos_verify_signature`
-4. Zip the bare binary for submission, then `macos_notarize`. A bare Mach-O can't hold a stapled ticket; Gatekeeper fetches it online the first time the binary runs.
-5. `macos_verify_gatekeeper`
-6. `tar.gz` as today, with the same layout and names.
+4. Zip the bare binary for submission, then `macos_notarize`, which must report `Accepted`. A bare Mach-O can't hold a stapled ticket; Gatekeeper fetches it online the first time the binary runs.
+5. `tar.gz` as today, with the same layout and names.
 
 On non-darwin targets nothing changes. Darwin CLI targets built on a non-macOS host (`release-build.sh` with no target list, run on Linux) have no `codesign`. They're built unsigned with a warning, and with `SIGN_REQUIRED=1` the build fails instead.
 
@@ -116,7 +114,8 @@ On non-darwin targets nothing changes. Darwin CLI targets built on a non-macOS h
   - Expect `codesign --verify --strict` to pass, the runtime flag and the Developer ID authority to show, and `spctl` to report the expected "Unnotarized Developer ID" (notarization is skipped locally).
   - `shellcheck` the new and changed scripts, and run `actionlint` on the workflow.
 - **First real run:** the pre-release tag `v1.1.0-rc2` after merging. Check the published assets:
-  - `spctl -a -vv -t exec` shows `source=Notarized Developer ID` for `Zenvik.app` from both darwin zips and for both darwin CLI binaries;
+  - `spctl -a -vv -t exec` shows `source=Notarized Developer ID` for `Zenvik.app` from both darwin zips;
+  - both darwin CLI binaries show the Developer ID authority and the `runtime` flag, and the arm64 one runs with a quarantine flag set (Gatekeeper would block it if it weren't notarized);
   - `stapler validate` passes for both apps;
   - the downloads match `SHA256SUMS`;
   - the user opens the downloaded app with no Gatekeeper prompt.
