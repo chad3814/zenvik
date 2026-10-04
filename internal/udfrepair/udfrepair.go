@@ -36,13 +36,11 @@ type Plan struct {
 // Entries is the number of directory entries the plan fixes (a tag that
 // crosses an extent boundary is one entry but two patches).
 func (p Plan) Entries() int {
-	n := 0
-	for i, pt := range p.Patches {
-		if i == 0 || p.Patches[i-1].Off+int64(len(p.Patches[i-1].New)) != pt.Off {
-			n++
-		}
+	seen := map[int64]bool{}
+	for _, pt := range p.Patches {
+		seen[pt.FID] = true
 	}
-	return n
+	return len(seen)
 }
 
 // Check opens image read-only and returns what a repair would change.

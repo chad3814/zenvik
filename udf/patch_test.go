@@ -38,6 +38,9 @@ func TestPaddingCRCFixes(t *testing.T) {
 			if len(p.Old) != 16 || len(p.New) != 16 {
 				t.Errorf("rev %#x: patch at %d is %d/%d bytes, want 16 (no tag crosses an extent here)", rev, p.Off, len(p.Old), len(p.New))
 			}
+			if p.FID != p.Off {
+				t.Errorf("rev %#x: patch at %d has FID %d, want its own offset (single-run tag)", rev, p.Off, p.FID)
+			}
 			if !bytes.Equal(bad[p.Off:p.Off+int64(len(p.Old))], p.Old) {
 				t.Errorf("rev %#x: patch Old at %d doesn't match the image", rev, p.Off)
 			}

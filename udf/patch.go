@@ -12,6 +12,9 @@ type Patch struct {
 	Off      int64
 	Old, New []byte
 	Dir      string // the directory holding the entry, slash-separated ("." for the root)
+	// FID is the image offset of the entry's first byte. Patches with the
+	// same FID fix one entry (a tag that crosses an extent boundary).
+	FID int64
 }
 
 // ErrEmbeddedDir: a directory stored inside its file entry can't be patched
@@ -113,17 +116,21 @@ func (f *FS) tagPatches(e *entry, dirOff int64, fid []byte, path string) ([]Patc
 	fixed[4] = sum
 
 	var out []Patch
+	var first int64
 	for i := 0; i < 16; i++ {
 		img, err := f.entryImageOffset(e, dirOff+int64(i))
 		if err != nil {
 			return nil, err
+		}
+		if i == 0 {
+			first = img
 		}
 		if n := len(out); n > 0 && out[n-1].Off+int64(len(out[n-1].Old)) == img {
 			out[n-1].Old = append(out[n-1].Old, fid[i])
 			out[n-1].New = append(out[n-1].New, fixed[i])
 			continue
 		}
-		out = append(out, Patch{Off: img, Old: []byte{fid[i]}, New: []byte{fixed[i]}, Dir: path})
+		out = append(out, Patch{Off: img, Old: []byte{fid[i]}, New: []byte{fixed[i]}, Dir: path, FID: first})
 	}
 	return out, nil
 }

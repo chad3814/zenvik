@@ -58,6 +58,7 @@ type Patch struct {
 	Off      int64
 	Old, New []byte
 	Dir      string // the directory holding the entry, slash-separated ("." for the root)
+	FID      int64  // image offset of the entry's first byte; patches sharing it fix one entry (added after review)
 }
 
 // ErrEmbeddedDir: a directory stored inside its file entry can't be patched

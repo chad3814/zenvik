@@ -309,3 +309,16 @@ func TestRepairReadOnly(t *testing.T) {
 		}
 	})
 }
+
+// A tag that crosses an extent boundary is one entry in two patches, which
+// need not be adjacent in the image.
+func TestPlanEntriesCountsSplitTagsOnce(t *testing.T) {
+	plan := Plan{Patches: []udf.Patch{
+		{Off: 1000, Old: make([]byte, 10), New: make([]byte, 10), FID: 1000},
+		{Off: 9000, Old: make([]byte, 6), New: make([]byte, 6), FID: 1000},
+		{Off: 2000, Old: make([]byte, 16), New: make([]byte, 16), FID: 2000},
+	}}
+	if got := plan.Entries(); got != 2 {
+		t.Fatalf("Entries = %d, want 2", got)
+	}
+}
