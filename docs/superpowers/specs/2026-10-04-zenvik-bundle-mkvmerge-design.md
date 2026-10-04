@@ -36,7 +36,7 @@ The macOS and Windows desktop downloads ship MKVToolNix's `mkvmerge`, so Zenvik 
 
 `mkvmerge` is GPLv2. zenvik (MIT) only runs it as a separate program and never links it, so shipping them together is mere aggregation, and zenvik's license doesn't change. Each GUI zip that bundles `mkvmerge` also includes:
 
-- **`MKVTOOLNIX-COPYING.txt`:** upstream's GPLv2 text, copied from the same upstream artifact as the binary. That's `COPYING.txt` at the DMG root, or the 7z's `mkvtoolnix/COPYING.txt`. If the 7z has none, it is taken from the pinned source tarball instead.
+- **`MKVTOOLNIX-COPYING.txt`:** upstream's GPLv2 text (`COPYING`), and **`MKVTOOLNIX-LICENSES/`**: upstream's `doc/licenses/` (the licenses of the code built into `mkvmerge` — Boost, fmt, pugixml, nlohmann-json — and `LGPL-3.0.txt`), plus the FSF's `GPL-3.0.txt` from `third_party/licenses/`. Both come from the pinned, checksum-checked source tarball, the same for every platform.
 - **`MKVTOOLNIX-NOTICE.txt`**, which says:
   - that the zip bundles `mkvmerge` from MKVToolNix `<ver>` (© Moritz Bunkus and contributors, GPLv2);
   - on macOS, together with the Qt Core library it needs (LGPLv3);
@@ -50,7 +50,7 @@ The macOS and Windows desktop downloads ship MKVToolNix's `mkvmerge`, so Zenvik 
 - **Settings:** marked neither "latest" nor pre-release. Its notes say which Zenvik versions bundle it.
 
 **Qt Core (macOS only, LGPLv3).** The bundled `libQt6Core` comes from the same MKVToolNix build, and the LGPLv3 brings obligations of its own:
-- **License texts:** the macOS zips also include `QT-LGPL-3.0.txt` and `QT-GPL-3.0.txt`. These are the FSF's LGPLv3 and GPLv3 texts, committed once under `third_party/licenses/`, since license texts don't change.
+- **License texts:** `MKVTOOLNIX-LICENSES/LGPL-3.0.txt` (from upstream's source) and `MKVTOOLNIX-LICENSES/GPL-3.0.txt` (the FSF's text, committed once as `third_party/licenses/GPL-3.0.txt`, since LGPLv3 incorporates GPLv3).
 - **Notice:** `MKVTOOLNIX-NOTICE.txt` names the Qt version, taken from the library's file name (`libQt6Core.6.11.1` → Qt 6.11.1), and says it is dynamically linked and replaceable.
 - **Source:** the `qtbase` source for that version. The notice links to the Qt Project's archive, `https://download.qt.io/archive/qt/<major.minor>/<version>/submodules/qtbase-everywhere-src-<version>.tar.xz`. It isn't copied into the source-only release, because it is about 50 MB and Qt keeps its archive online. If the user later wants it self-hosted too, `bump-mkvtoolnix.sh` can attach it to the same `mkvtoolnix-src-<ver>` release.
 
@@ -69,9 +69,10 @@ The macOS and Windows desktop downloads ship MKVToolNix's `mkvmerge`, so Zenvik 
 
   The checksums are the upstream `.sha256` values, recorded when the version is bumped.
 - **`scripts/fetch-mkvmerge.sh <os/arch> <outdir>`** downloads the pinned upstream file with `curl -fL` and checks it against its pinned SHA-256. A mismatch fails the script and says which file failed.
-  - **darwin/arm64 and darwin/amd64:** it attaches the DMG read-only (`hdiutil attach -nobrowse -readonly`). It copies `Contents/MacOS/mkvmerge` to `<outdir>/mkvmerge`. It copies the real file behind `Contents/MacOS/libs/libQt6Core.6.dylib` to `<outdir>/libs/libQt6Core.6.dylib`, which also records the Qt version for the notice. It copies `COPYING.txt` to `<outdir>/MKVTOOLNIX-COPYING.txt`. The image is detached on exit, even if the script fails.
-  - **windows/amd64:** it extracts `mkvtoolnix/mkvmerge.exe` and the license (§2) into `<outdir>`, using `7z` on the Windows runner or `tar` (libarchive) elsewhere.
+  - **darwin/arm64 and darwin/amd64:** it attaches the DMG read-only (`hdiutil attach -nobrowse -readonly`). It copies `Contents/MacOS/mkvmerge` to `<outdir>/mkvmerge`. It copies the real file behind `Contents/MacOS/libs/libQt6Core.6.dylib` to `<outdir>/libs/libQt6Core.6.dylib`, which also records the Qt version for the notice. The image is detached on exit, even if the script fails.
+  - **windows/amd64:** it extracts `mkvtoolnix/mkvmerge.exe` into `<outdir>`, using `7z` on the Windows runner or `tar` (libarchive) elsewhere.
   - **Any other target:** it exits 2 with "mkvmerge is not bundled for <target>".
+  - For every target it also downloads and checks the pinned source tarball and copies its `COPYING` and `doc/licenses/` (§2) into `<outdir>` as `MKVTOOLNIX-COPYING.txt` and `MKVTOOLNIX-LICENSES/`, adding `GPL-3.0.txt` from `third_party/licenses/`.
   - It writes `<outdir>/MKVTOOLNIX-NOTICE.txt` from the pinned version (and, on macOS, the Qt version).
 - **`scripts/bump-mkvtoolnix.sh <version> [<macos-build>]`** downloads upstream's `.sha256` files for the four artifacts and rewrites `third_party/mkvtoolnix.env`. It then prints the `gh release create mkvtoolnix-src-<version> …` command, but runs it only with `--publish`, because publishing a release needs the user's explicit go-ahead.
 
@@ -80,7 +81,7 @@ The macOS and Windows desktop downloads ship MKVToolNix's `mkvmerge`, so Zenvik 
 - **macOS (`release-gui.sh`, darwin targets).** After `wails build`, and before signing, the script runs `fetch-mkvmerge.sh` into a temp folder. It then copies:
   - `mkvmerge` to `Zenvik.app/Contents/Helpers/mkvmerge`;
   - `libs/libQt6Core.6.dylib` to `Zenvik.app/Contents/Helpers/libs/libQt6Core.6.dylib`;
-  - the two `MKVTOOLNIX-*.txt` files and the two `QT-*.txt` files into the zip's top folder, beside `LICENSE` and `README.md`.
+  - the two `MKVTOOLNIX-*.txt` files and the `MKVTOOLNIX-LICENSES/` folder into the zip's top folder, beside `LICENSE` and `README.md`.
 
   `mkvmerge` finds Qt through `@executable_path/libs/`, so that layout needs no changes.
 - **macOS signing.** `macos_sign <app>` signs inside out:
@@ -108,10 +109,10 @@ The macOS and Windows desktop downloads ship MKVToolNix's `mkvmerge`, so Zenvik 
 - **One shared answer.** `App.mkvmergePath()` returns the resolved path, so the mkvmerge check (startup, Recheck, config reload) and every rip use the same answer.
 - **About box.** The new bound method `MkvmergeInfo() string` returns, for example:
   - `mkvmerge 102.0 (bundled, from MKVToolNix — GPLv2)`
-  - `mkvmerge 101.0 (/usr/local/bin/mkvmerge)`
+  - `mkvmerge 101.0.0 (/usr/local/bin/mkvmerge)` (a copy found through the config or `PATH` shows the `X.Y.Z` version `mux.Find` reports)
   - `mkvmerge not found`
 
-  The version comes from `mux.Find`, which runs once per check and caches the result. The About dialog shows this line, and for the bundled copy it links to the source release.
+  `Deps.FindMkvmerge` returns that version, once per check, and the App keeps the result. The bundled copy's version is the MKVToolNix release baked in at build time with `-ldflags "-X main.mkvtoolnixVersion=<ver>"` (set by `release-gui.sh` for darwin and windows), which also builds the source link. The About dialog shows this line, and for the bundled copy it links to the source release.
 - **No change** to the CLI or to `zenvik doctor`.
 
 ## 6. Testing and verification
@@ -124,7 +125,7 @@ The macOS and Windows desktop downloads ship MKVToolNix's `mkvmerge`, so Zenvik 
 - **Shell tests (`scripts/fetch-mkvmerge_test.sh`):**
   - a checksum mismatch fails, naming the file (using a pinned-file override that points at a local fixture, not the network);
   - an unsupported target exits 2;
-  - on macOS, a real fetch of the pinned DMG produces exactly `mkvmerge`, `libs/libQt6Core.6.dylib`, `MKVTOOLNIX-COPYING.txt` and `MKVTOOLNIX-NOTICE.txt`, and `mkvmerge --version` runs. This test is network-tagged: it runs only with `ZENVIK_NET_TESTS=1`.
+  - on macOS, a real fetch of the pinned DMG produces `mkvmerge`, `libs/libQt6Core.6.dylib`, `MKVTOOLNIX-COPYING.txt`, `MKVTOOLNIX-NOTICE.txt` and `MKVTOOLNIX-LICENSES/` (with `LGPL-3.0.txt` and `GPL-3.0.txt`), and `mkvmerge --version` runs. This test is network-tagged: it runs only with `ZENVIK_NET_TESTS=1`.
 - **Lint:** `shellcheck -x` and `actionlint` stay clean.
 - **Local signed build:** `MACOS_SIGN_IDENTITY=… scripts/release-gui.sh v0.0.0-test darwin/arm64` produces an app whose helpers verify, carry the Developer ID, and run `--version` from inside the zip's copy.
 - **First real run, `v1.1.0-rc3`**, after merging. Before it, the source release `mkvtoolnix-src-102.0` is created, with the user's go-ahead. Then:
