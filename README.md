@@ -17,7 +17,8 @@ binary, this README and the license, and `SHA256SUMS` lists every archive's chec
 MKVToolNix (see [Requirements](#requirements)). `zenvik --version` prints the release.
 
 The macOS binaries are signed with a Developer ID and notarized by Apple, so they run without
-a Gatekeeper prompt.
+a Gatekeeper prompt. The first run of the command-line `zenvik` checks its notarization online
+(a bare binary can't carry the ticket the app has stapled inside it).
 
 To build from source instead: `go install github.com/chad3814/zenvik/cmd/zenvik@latest`
 (Go 1.27).

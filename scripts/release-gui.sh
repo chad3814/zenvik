@@ -38,12 +38,13 @@ wailsjson="$root/gui/wails.json"
 saved=$(mktemp)
 cp "$wailsjson" "$saved"
 restore() {
-	cp "$saved" "$wailsjson"
-	rm -f "$saved"
-	touch "$root/gui/frontend/dist/gitkeep"
+	# Signing material first, so it's gone even if a restore step fails.
 	if declare -F macos_sign_cleanup >/dev/null; then
 		macos_sign_cleanup
 	fi
+	cp "$saved" "$wailsjson"
+	rm -f "$saved"
+	touch "$root/gui/frontend/dist/gitkeep"
 }
 trap restore EXIT
 node -e '
@@ -67,9 +68,13 @@ fi
 if [[ $goos == darwin ]]; then
 	# shellcheck source=scripts/macos-sign.sh
 	source "$root/scripts/macos-sign.sh"
-	macos_sign_setup
+	macos_sign_preflight # fail fast on missing credentials, before the build
 fi
-(cd "$root/gui" && go run github.com/wailsapp/wails/v2/cmd/wails@v2.16.0 build \
+# The build runs npm install scripts and vite plugins, so it gets none of the
+# signing credentials, and the keychain isn't set up until it has finished.
+(cd "$root/gui" && env -u MACOS_CERT_P12 -u MACOS_CERT_PASSWORD -u APPLE_API_KEY_P8 \
+	-u APPLE_API_KEY_ID -u APPLE_API_ISSUER_ID \
+	go run github.com/wailsapp/wails/v2/cmd/wails@v2.16.0 build \
 	-clean -trimpath -platform "$target" -ldflags "-s -w -X main.version=$tag" ${tags[@]+"${tags[@]}"})
 
 bin="$root/gui/build/bin"
@@ -81,6 +86,7 @@ cp "$root/gui/README.md" "$stage/README.md"
 case $goos in
 darwin)
 	app="$bin/Zenvik.app"
+	macos_sign_setup
 	if [[ $MACOS_SIGN_ENABLED == 1 ]]; then
 		macos_sign "$app"
 		macos_verify_signature "$app"

@@ -14,7 +14,13 @@
 #   MACOS_CERT_PASSWORD   the .p12's password
 #   APPLE_API_KEY_P8      base64 App Store Connect API key (.p8)
 #   APPLE_API_KEY_ID, APPLE_API_ISSUER_ID
-#   SIGN_REQUIRED=1       fail instead of skipping signing or notarization
+#   SIGN_REQUIRED=1       fail instead of skipping signing or notarization;
+#                         also requires every CI credential above
+#
+# Call macos_sign_preflight early (before any long build) to fail fast on
+# missing credentials without touching them; macos_sign_setup runs it too.
+# Run macos_sign_setup only after untrusted build steps (npm, vite): it
+# decodes the credentials and unlocks the temporary keychain.
 #
 # Never prints a credential value; error messages name the missing variable.
 # Decoded key material lives only in $MACOS_SIGN_TMP, which
@@ -39,17 +45,35 @@ _ms_skip_or_fail() {
 	_ms_warn "$*"
 }
 
+# _ms_need fails, naming every listed variable that is unset or empty.
 _ms_need() {
-	local v
+	local v missing="" n=0
 	for v in "$@"; do
 		if [[ -z ${!v:-} ]]; then
-			_ms_die "$v is not set"
-			return 1
+			missing="$missing $v"
+			n=$((n + 1))
 		fi
 	done
+	if [[ $n -gt 0 ]]; then
+		_ms_die "not set:$missing"
+		return 1
+	fi
+}
+
+# macos_sign_preflight checks, without decoding or using any credential, that
+# a SIGN_REQUIRED run has everything it needs and runs on macOS.
+macos_sign_preflight() {
+	[[ ${SIGN_REQUIRED:-} == 1 ]] || return 0
+	if [[ ${MACOS_SIGN_UNAME:-$(uname -s)} != Darwin ]]; then
+		_ms_die "this host is not macOS (SIGN_REQUIRED=1)"
+		return 1
+	fi
+	_ms_need MACOS_SIGN_IDENTITY MACOS_CERT_P12 MACOS_CERT_PASSWORD \
+		APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER_ID || return 1
 }
 
 macos_sign_setup() {
+	macos_sign_preflight || return 1
 	MACOS_SIGN_TMP=$(mktemp -d "${TMPDIR:-/tmp}/zenvik-sign.XXXXXX")
 	if [[ ${MACOS_SIGN_UNAME:-$(uname -s)} != Darwin ]]; then
 		_ms_skip_or_fail "this host is not macOS; darwin builds will be unsigned" || return 1
@@ -69,7 +93,7 @@ macos_sign_setup() {
 			return 1
 		fi
 		if ! security import "$MACOS_SIGN_TMP/cert.p12" -k "$MACOS_SIGN_KEYCHAIN" \
-			-P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign >/dev/null 2>&1; then
+			-P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign -x >/dev/null 2>&1; then
 			rm -f "$MACOS_SIGN_TMP/cert.p12"
 			_ms_die "couldn't import MACOS_CERT_P12 (wrong MACOS_CERT_PASSWORD, or not a .p12)"
 			return 1
@@ -92,6 +116,17 @@ macos_sign_setup() {
 	else
 		_ms_skip_or_fail "no signing identity (set MACOS_SIGN_IDENTITY); darwin builds will be unsigned" || return 1
 		return 0
+	fi
+	# Catch a wrong identity name or a .p12 holding some other certificate now,
+	# not later as codesign's generic "no identity found". (Tests that never
+	# sign set MACOS_SIGN_SKIP_IDENTITY_CHECK=1.)
+	if [[ ${MACOS_SIGN_SKIP_IDENTITY_CHECK:-} != 1 ]]; then
+		local -a where=()
+		[[ -n $MACOS_SIGN_KEYCHAIN ]] && where=("$MACOS_SIGN_KEYCHAIN")
+		if ! security find-identity -v -p codesigning ${where[@]+"${where[@]}"} | grep -qF "\"$MACOS_SIGN_IDENTITY\""; then
+			_ms_die "signing identity \"$MACOS_SIGN_IDENTITY\" not found in the keychain"
+			return 1
+		fi
 	fi
 
 	if [[ -n ${APPLE_API_KEY_P8:-}${APPLE_API_KEY_ID:-}${APPLE_API_ISSUER_ID:-} || ${SIGN_REQUIRED:-} == 1 ]]; then

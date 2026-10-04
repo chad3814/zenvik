@@ -53,28 +53,38 @@ run_case "non-Darwin host with SIGN_REQUIRED fails" 1 'not macOS' -- MACOS_SIGN_
 	'macos_sign_setup'
 
 for missing in MACOS_CERT_PASSWORD MACOS_SIGN_IDENTITY; do
-	envs=(MACOS_SIGN_UNAME=Darwin SIGN_REQUIRED=1 MACOS_CERT_P12=c2Vrcml0 MACOS_CERT_PASSWORD=sekrit MACOS_SIGN_IDENTITY=x)
+	envs=(MACOS_SIGN_UNAME=Darwin SIGN_REQUIRED=1 MACOS_CERT_P12=c2Vrcml0 MACOS_CERT_PASSWORD=sekrit MACOS_SIGN_IDENTITY=x
+		APPLE_API_KEY_P8=c2Vrcml0 APPLE_API_KEY_ID=sekrit APPLE_API_ISSUER_ID=sekrit)
 	keep=()
 	for e in "${envs[@]}"; do [[ $e == "$missing="* ]] || keep+=("$e"); done
 	run_case "p12 without $missing fails naming it" 1 "$missing" -- "${keep[@]}" -- 'macos_sign_setup'
 done
 
-for missing in APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER_ID; do
-	envs=(MACOS_SIGN_UNAME=Darwin SIGN_REQUIRED=1 MACOS_SIGN_IDENTITY=x APPLE_API_KEY_P8=c2Vrcml0 APPLE_API_KEY_ID=sekrit APPLE_API_ISSUER_ID=sekrit)
+for missing in MACOS_CERT_P12 APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER_ID; do
+	envs=(MACOS_SIGN_UNAME=Darwin SIGN_REQUIRED=1 MACOS_SIGN_IDENTITY=x MACOS_CERT_P12=c2Vrcml0 MACOS_CERT_PASSWORD=sekrit
+		APPLE_API_KEY_P8=c2Vrcml0 APPLE_API_KEY_ID=sekrit APPLE_API_ISSUER_ID=sekrit)
 	keep=()
 	for e in "${envs[@]}"; do [[ $e == "$missing="* ]] || keep+=("$e"); done
-	run_case "notary without $missing fails naming it" 1 "$missing" -- "${keep[@]}" -- 'macos_sign_setup'
+	run_case "SIGN_REQUIRED without $missing fails naming it" 1 "$missing" -- "${keep[@]}" -- 'macos_sign_setup'
 done
 
-run_case "notary key decoded into the temp dir only" 0 '' -- MACOS_SIGN_UNAME=Darwin MACOS_SIGN_IDENTITY=x \
+run_case "notary key decoded into the temp dir only" 0 '' -- MACOS_SIGN_UNAME=Darwin MACOS_SIGN_IDENTITY=x MACOS_SIGN_SKIP_IDENTITY_CHECK=1 \
 	APPLE_API_KEY_P8=c2Vrcml0LWtleQ== APPLE_API_KEY_ID=sekrit APPLE_API_ISSUER_ID=sekrit -- \
 	'macos_sign_setup; [[ $MACOS_NOTARIZE == 1 && -f $MACOS_SIGN_TMP/AuthKey.p8 ]]; t=$MACOS_SIGN_TMP; macos_sign_cleanup; [[ ! -e $t ]]'
+
+run_case "SIGN_REQUIRED lists every missing credential at once" 1 'MACOS_CERT_P12.*APPLE_API_KEY_ID|APPLE_API_KEY_ID.*MACOS_CERT_P12' -- \
+	MACOS_SIGN_UNAME=Darwin SIGN_REQUIRED=1 MACOS_SIGN_IDENTITY=x MACOS_CERT_PASSWORD=sekrit APPLE_API_KEY_P8=c2Vrcml0 APPLE_API_ISSUER_ID=sekrit -- \
+	'macos_sign_setup'
 
 if [[ $(uname -s) == Darwin ]]; then
 	run_case "bad p12 fails and cleans up" 1 'import' -- MACOS_SIGN_IDENTITY=x MACOS_CERT_P12=bm90LWEtcDEy MACOS_CERT_PASSWORD=sekrit -- \
 		'trap macos_sign_cleanup EXIT; macos_sign_setup'
 	left=$(security list-keychains -d user | grep -c 'zenvik-sign' || true)
 	if [[ $left == 0 ]]; then ok "no temporary keychain left in the search list"; else bad "temporary keychain left in the search list"; fi
+
+	run_case "an identity that isn't in the keychain fails at setup" 1 "not found" -- \
+		MACOS_SIGN_IDENTITY="Developer ID Application: Nobody (ZZZZZZZZZZ)" -- \
+		'macos_sign_setup'
 
 	fake=$(mktemp -d)
 	cat >"$fake/xcrun" <<'EOF'
@@ -88,7 +98,7 @@ exit 1
 EOF
 	chmod +x "$fake/xcrun"
 	echo x >"$fake/a.zip"
-	run_case "rejected notarization fails with Apple's log" 1 'Invalid.*|not signed' -- PATH="$fake:$PATH" MACOS_SIGN_IDENTITY=x \
+	run_case "rejected notarization fails with Apple's log" 1 'Invalid.*|not signed' -- PATH="$fake:$PATH" MACOS_SIGN_IDENTITY=x MACOS_SIGN_SKIP_IDENTITY_CHECK=1 \
 		APPLE_API_KEY_P8=c2Vrcml0 APPLE_API_KEY_ID=sekrit APPLE_API_ISSUER_ID=sekrit -- \
 		"trap macos_sign_cleanup EXIT; macos_sign_setup; macos_notarize '$fake/a.zip'"
 	rm -rf "$fake"
