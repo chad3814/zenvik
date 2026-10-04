@@ -90,7 +90,7 @@ cask "zenvik-gui" do
     strategy :github_latest
   end
 
-  depends_on macos: ">= :ventura"
+  depends_on macos: :ventura
 
   app "Zenvik.app"
 
@@ -135,7 +135,7 @@ release before a bump is pushed:
 
 On push and pull request: `check.sh` on `macos-latest`, and
 `check.sh --formula-only` on `ubuntu-latest` (Homebrew set up with
-`Homebrew/actions/setup-homebrew`).
+`Homebrew/actions/setup-homebrew@main`).
 
 ### README.md
 
