@@ -123,5 +123,6 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newInfoCmd())
 	root.AddCommand(newRipCmd())
 	root.AddCommand(newDoctorCmd())
+	root.AddCommand(newRepairUDFCmd())
 	return root
 }

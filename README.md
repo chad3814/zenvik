@@ -44,6 +44,7 @@ zenvik rip --jsonl <path>             # machine-readable events (see below)
 zenvik rip --name "Big Buck Bunny" --year 2008 <path>   # → ./Big Buck Bunny (2008).mkv
 zenvik rip --preset plex <path>                          # use a config preset
 zenvik doctor                                            # check mkvmerge, mounting, config, leftovers
+zenvik repair-udf --dry-run <image>...                   # check images Linux can't mount (see below)
 ```
 
 `rip` names the file from the template (`--template`, else the config's) inside the output
@@ -53,6 +54,14 @@ and no `.mkv` added. A path starting with `/` (on Windows: a drive letter, `\` o
 absolute; any other path is inside the output directory and may leave it with `..`. A leading
 `~` is your home directory. `--output-file` can't be combined with `--template`, `--name` or
 `--year`.
+
+**Linux can't mount some images.** Some authoring tools write ISO images whose directory
+entries Linux's UDF driver rejects as corrupt (the kernel log shows `udf_verify_fi: … CRC
+length … does not match entry length`). zenvik reads them fine, and on Linux `zenvik rip`
+stops before mounting such an image and says so. `zenvik repair-udf <image>` fixes the
+entries in place: it changes a few 16-byte headers, never the video, and writes
+`<image>.udf-repair-backup` first; `zenvik repair-udf --undo <image>` restores the original
+exactly. Use `--dry-run` to check images without changing them.
 
 ### Driving `rip` from another program
 
