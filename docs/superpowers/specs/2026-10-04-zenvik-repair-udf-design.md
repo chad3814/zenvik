@@ -158,9 +158,12 @@ Per image, the outcome is one of:
 
 1. Read the backup. Fail if it's missing, unreadable, or its `image_size`
    differs from the image's size.
-2. Open the image `O_RDWR` and check every range equals `New`. If any
-   doesn't, fail without writing.
-3. Write every `Old`, fsync, then delete the backup.
+2. Open the image `O_RDWR`. Each range must hold `New` or `Old`: a
+   repair interrupted by a crash or a write error can leave a mix. If any
+   range holds neither, fail without writing.
+3. Write `Old` over every range that holds `New`, fsync, then delete the
+   backup. (Amended after review: undo used to require every range to be
+   `New`, which left an interrupted repair with no way forward.)
 
 **Dry run:** step 1 only. It writes nothing and lists the distinct
 directories, in walk order.

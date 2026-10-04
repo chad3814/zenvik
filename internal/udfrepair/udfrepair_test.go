@@ -13,6 +13,7 @@ import (
 
 	"github.com/chad3814/zenvik/internal/testdisc"
 	"github.com/chad3814/zenvik/internal/testdisc/udfimage"
+	"github.com/chad3814/zenvik/udf"
 )
 
 func flawed(t *testing.T, dir string, unpadded bool) string {
@@ -112,20 +113,111 @@ func TestUndoRestoresTheOriginal(t *testing.T) {
 	}
 }
 
-func TestUndoRefusesAnImageThatIsNoLongerRepaired(t *testing.T) {
+// A crash before the writes leaves the backup and an original image; undo
+// must accept that and just remove the backup.
+func TestUndoAcceptsAnImageThatWasNeverWritten(t *testing.T) {
 	p := flawed(t, t.TempDir(), true)
 	orig := read(t, p)
 	if _, err := Repair(p); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(p, orig, 0o644); err != nil { // reverted by hand
+	if err := os.WriteFile(p, orig, 0o644); err != nil { // as if the writes never happened
+		t.Fatal(err)
+	}
+	if err := Undo(p); err != nil {
+		t.Fatalf("Undo of an unwritten repair: %v, want nil", err)
+	}
+	if !bytes.Equal(read(t, p), orig) {
+		t.Fatal("Undo changed an original image")
+	}
+	if _, err := os.Stat(p + BackupSuffix); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Undo left the backup: %v", err)
+	}
+}
+
+// A crash part-way through the writes leaves some ranges new and some old;
+// undo must restore the original exactly.
+func TestUndoCompletesAPartialRepair(t *testing.T) {
+	p := flawed(t, t.TempDir(), true)
+	orig := read(t, p)
+	plan, err := Check(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Repair(p); err != nil {
+		t.Fatal(err)
+	}
+	half := read(t, p)
+	for _, pt := range plan.Patches[:len(plan.Patches)/2] {
+		copy(half[pt.Off:], pt.Old)
+	}
+	if err := os.WriteFile(p, half, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Undo(p); err != nil {
+		t.Fatalf("Undo of a partial repair: %v", err)
+	}
+	if !bytes.Equal(read(t, p), orig) {
+		t.Fatal("Undo of a partial repair didn't restore the original")
+	}
+}
+
+func TestUndoRefusesAByteThatIsNeitherOldNorNew(t *testing.T) {
+	p := flawed(t, t.TempDir(), true)
+	plan, err := Check(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Repair(p); err != nil {
+		t.Fatal(err)
+	}
+	b := read(t, p)
+	b[plan.Patches[0].Off+4] ^= 0x5A // the checksum byte, which differs between Old and New
+	if err := os.WriteFile(p, b, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := Undo(p); !errors.Is(err, ErrChanged) {
-		t.Fatalf("Undo of a hand-reverted image: %v, want ErrChanged", err)
+		t.Fatalf("Undo with a foreign byte: %v, want ErrChanged", err)
 	}
-	if !bytes.Equal(read(t, p), orig) {
-		t.Fatal("Undo wrote to the image")
+	if !bytes.Equal(read(t, p), b) {
+		t.Fatal("Undo wrote to an image it refused")
+	}
+}
+
+func TestRepairWithAnExistingBackupPointsToUndo(t *testing.T) {
+	p := flawed(t, t.TempDir(), true)
+	if err := os.WriteFile(p+BackupSuffix, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Repair(p); err == nil || !strings.Contains(err.Error(), "--undo") {
+		t.Fatalf("err = %v, want a pointer to --undo", err)
+	}
+}
+
+func TestRepairReportsWhetherTheRestoreAfterAWriteErrorWorked(t *testing.T) {
+	for _, restoreFails := range []bool{false, true} {
+		p := flawed(t, t.TempDir(), true)
+		old := writePatches
+		calls := 0
+		writePatches = func(f *os.File, ps []udf.Patch, undo bool) error {
+			calls++
+			if !undo || restoreFails {
+				return errors.New("injected write error")
+			}
+			return old(f, ps, undo)
+		}
+		_, err := Repair(p)
+		writePatches = old
+		if err == nil {
+			t.Fatalf("restoreFails=%v: want an error", restoreFails)
+		}
+		said := strings.Contains(err.Error(), "were written back")
+		if said == restoreFails {
+			t.Errorf("restoreFails=%v: error %q misreports the restore", restoreFails, err)
+		}
+		if _, serr := os.Stat(p + BackupSuffix); serr != nil {
+			t.Errorf("restoreFails=%v: the backup is gone: %v", restoreFails, serr)
+		}
 	}
 }
 

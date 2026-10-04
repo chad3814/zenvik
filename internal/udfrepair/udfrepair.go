@@ -79,8 +79,9 @@ type backupPatch struct {
 
 // Test hooks.
 var (
-	beforeWrite = func() {}
-	recheck     = recheckImage
+	beforeWrite  = func() {}
+	recheck      = recheckImage
+	writePatches = write
 )
 
 // Repair fixes image in place and returns the number of entries fixed (0
@@ -95,7 +96,7 @@ func Repair(image string) (int, error) {
 	}
 	bpath := image + BackupSuffix
 	if _, err := os.Lstat(bpath); err == nil {
-		return 0, fmt.Errorf("%w: %s", ErrBackupExists, bpath)
+		return 0, fmt.Errorf("%w: %s (if an earlier repair was interrupted, run `zenvik repair-udf --undo` on the image first)", ErrBackupExists, bpath)
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return 0, err
 	}
@@ -115,16 +116,21 @@ func Repair(image string) (int, error) {
 	if err := expect(f, plan.Patches, false); err != nil {
 		return 0, fmt.Errorf("%w; nothing was written, and the backup %s is safe to delete", err, bpath)
 	}
-	if err := write(f, plan.Patches, false); err != nil {
-		_ = write(f, plan.Patches, true)
-		_ = f.Sync()
+	if err := writePatches(f, plan.Patches, false); err != nil {
+		rerr := writePatches(f, plan.Patches, true)
+		if rerr == nil {
+			rerr = f.Sync()
+		}
+		if rerr != nil {
+			return 0, fmt.Errorf("writing %s: %w; restoring the original bytes also failed (%w): run `zenvik repair-udf --undo` on it, which uses %s", image, err, rerr, bpath)
+		}
 		return 0, fmt.Errorf("writing %s: %w (the original bytes were written back; %s holds them too)", image, err, bpath)
 	}
 	if err := f.Sync(); err != nil {
 		return 0, err
 	}
 	if err := recheck(image); err != nil {
-		werr := write(f, plan.Patches, true)
+		werr := writePatches(f, plan.Patches, true)
 		if werr == nil {
 			werr = f.Sync()
 		}
@@ -172,10 +178,22 @@ func Undo(image string) error {
 	if st.Size() != b.ImageSize {
 		return fmt.Errorf("%w: it is %d bytes, the backup is for %d", ErrChanged, st.Size(), b.ImageSize)
 	}
-	if err := expect(f, ps, true); err != nil {
-		return fmt.Errorf("%w; nothing was written", err)
+	// After an interrupted repair, each range may hold either the repaired
+	// or the original bytes; restore the repaired ones and keep the rest.
+	var restore []udf.Patch
+	for _, p := range ps {
+		got := make([]byte, len(p.New))
+		if _, err := f.ReadAt(got, p.Off); err != nil {
+			return fmt.Errorf("%w: reading offset %d: %w; nothing was written", ErrChanged, p.Off, err)
+		}
+		switch {
+		case bytes.Equal(got, p.New):
+			restore = append(restore, p)
+		case !bytes.Equal(got, p.Old):
+			return fmt.Errorf("%w: offset %d holds neither the original nor the repaired bytes; nothing was written", ErrChanged, p.Off)
+		}
 	}
-	if err := write(f, ps, true); err != nil {
+	if err := writePatches(f, restore, true); err != nil {
 		return err
 	}
 	if err := f.Sync(); err != nil {
