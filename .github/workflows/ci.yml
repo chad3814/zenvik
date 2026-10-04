@@ -54,6 +54,8 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y mkvtoolnix ffmpeg dvdauthor
       - run: mkvmerge --version && ffmpeg -version | sed -n 1p
       - run: go test -tags integration ./...
+      - name: UDF repair against the real kernel (root)
+        run: sudo -E env "PATH=$PATH" go test -tags integration -run TestKernelUDFRepair -v ./internal/udfrepair/
 
   gui:
     strategy:
