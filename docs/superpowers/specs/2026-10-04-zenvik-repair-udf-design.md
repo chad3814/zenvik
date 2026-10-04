@@ -18,9 +18,9 @@ is the number of bytes after the tag that its CRC covers. ECMA-167 4/14.4
 makes a FID's padding (to a multiple of 4 bytes) part of the descriptor,
 so the CRC length should be `padded length − 16`.
 
-This image's authoring tool wrote `unpadded length − 16` instead. That
-happens on every named entry in every directory checked so far; the parent
-entries have no padding, so they're correct. For example, `BDMV` is
+This image's authoring tool wrote `unpadded length − 16` instead, on every
+named entry in every directory checked so far. The parent entries are 38
+bytes padded to 40, and the tool wrote their CRC length correctly (24). For example, `BDMV` is
 `38 + 9 = 47` bytes, padded to 48: its CRC length is 31 but should be 32.
 Linux's UDF driver checks this field strictly, treats the directory as
 corrupt and can't see `BDMV`. macOS, and zenvik's own UDF reader (used by
@@ -133,13 +133,16 @@ Per image, the outcome is one of:
 1. Open the image read-only with `udf.OpenImage` and call
    `PaddingCRCFixes`. If there are no patches, the image needs nothing.
 2. If `<image>.udf-repair-backup` exists, fail without touching anything.
+   Open the image `O_RDWR`; if that fails, fail with `can't write <image>`.
+   Opening it before writing the backup means a read-only image never
+   leaves a backup behind.
 3. Write the backup to `<image>.udf-repair-backup.tmp`, fsync it and
    rename it to `<image>.udf-repair-backup`. The backup is JSON:
 
    ```json
    {"version":1,"image_size":59551694848,"patches":[{"off":1234,"old":"<hex>","new":"<hex>"}]}
    ```
-4. Open the image `O_RDWR`. Re-read every patch's range. If any range
+4. Re-read every patch's range through the open handle. If any range
    doesn't equal `Old`, fail without writing; the image changed since
    step 1. The backup stays, and the message says it's safe to delete.
 5. Write every `New` and fsync the image.
@@ -173,8 +176,9 @@ directories, in walk order.
 
 `internal/testdisc/udfimage` gains `Options.UnpaddedFIDCRC bool`. When it's
 set, the builder writes each FID's descriptor CRC length as
-`unpadded length − 16`, with the CRC computed over that length. It does
-this for UDF 1.02 and 2.50 images.
+`unpadded length − 16`, with the CRC computed over that length. Like the
+real image's tool, it does this only for named entries, not the parent
+entry. It does this for UDF 1.02 and 2.50 images.
 
 ## Testing
 
