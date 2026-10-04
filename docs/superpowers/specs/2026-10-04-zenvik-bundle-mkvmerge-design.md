@@ -80,7 +80,7 @@ The macOS and Windows desktop downloads ship MKVToolNix's `mkvmerge`, so Zenvik 
 - **macOS (`release-gui.sh`, darwin targets).** After `wails build`, and before signing, the script runs `fetch-mkvmerge.sh` into a temp folder. It then copies:
   - `mkvmerge` to `Zenvik.app/Contents/Helpers/mkvmerge`;
   - `libs/libQt6Core.6.dylib` to `Zenvik.app/Contents/Helpers/libs/libQt6Core.6.dylib`;
-  - the two `MKVTOOLNIX-*.txt` files into the zip's top folder, beside `LICENSE` and `README.md`.
+  - the two `MKVTOOLNIX-*.txt` files and the two `QT-*.txt` files into the zip's top folder, beside `LICENSE` and `README.md`.
 
   `mkvmerge` finds Qt through `@executable_path/libs/`, so that layout needs no changes.
 - **macOS signing.** `macos_sign <app>` signs inside out:
