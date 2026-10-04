@@ -130,3 +130,76 @@ jobs:
             flags+=(--prerelease)
           fi
           gh release create "$GITHUB_REF_NAME" "${flags[@]}" dist/*.tar.gz dist/*.zip dist/*.dmg dist/SHA256SUMS
+
+  # Homebrew (chad3814/homebrew-tap), final releases only: render the formula
+  # and cask from what was just published, prove them with the tap's own
+  # check.sh, then push. Only homebrew-push can read the deploy key. A failure
+  # leaves the release published and the tap on the previous version; re-run
+  # the failed job to retry.
+  homebrew-render:
+    if: ${{ !contains(github.ref_name, '-') }}
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: scripts/homebrew-render.sh "$GITHUB_REF_NAME" homebrew
+      - uses: actions/upload-artifact@v4
+        with:
+          name: homebrew
+          path: homebrew
+
+  homebrew-check:
+    needs: homebrew-render
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, args: "" }
+          - { os: ubuntu-latest, args: "--formula-only" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: Homebrew/actions/setup-homebrew@main
+      - run: git clone --depth 1 https://github.com/chad3814/homebrew-tap.git "$RUNNER_TEMP/tap"
+      - uses: actions/download-artifact@v5
+        with:
+          name: homebrew
+          path: ${{ runner.temp }}/rendered
+      - run: |
+          cp -R "$RUNNER_TEMP/rendered/." "$RUNNER_TEMP/tap/"
+          "$RUNNER_TEMP/tap/check.sh" ${{ matrix.args }}
+
+  homebrew-push:
+    needs: homebrew-check
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: homebrew
+          path: ${{ runner.temp }}/rendered
+      - name: Push the bump to chad3814/homebrew-tap
+        env:
+          DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          if [[ -z $DEPLOY_KEY ]]; then
+            echo "HOMEBREW_TAP_DEPLOY_KEY is not set in the release environment" >&2
+            exit 1
+          fi
+          eval "$(ssh-agent -s)" >/dev/null
+          trap 'ssh-agent -k >/dev/null' EXIT
+          ssh-add - <<<"$DEPLOY_KEY" >/dev/null 2>&1
+          unset DEPLOY_KEY
+          mkdir -p ~/.ssh
+          curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' >~/.ssh/known_hosts
+          git clone git@github.com:chad3814/homebrew-tap.git "$RUNNER_TEMP/tap"
+          cp -R "$RUNNER_TEMP/rendered/." "$RUNNER_TEMP/tap/"
+          cd "$RUNNER_TEMP/tap"
+          git add Formula Casks
+          if git diff --cached --quiet; then
+            echo "the tap already has zenvik ${GITHUB_REF_NAME#v}"
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "zenvik ${GITHUB_REF_NAME#v}"
+          git push origin HEAD:main

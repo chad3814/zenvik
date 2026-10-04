@@ -120,16 +120,21 @@ release before a bump is pushed:
 1. Links the working tree in as the tap: a symlink
    `$(brew --repository)/Library/Taps/chad3814/homebrew-tap` → the checkout,
    so uncommitted files are what get checked.
-2. Formula: `brew style`, `brew audit --strict --online --formula
+2. Trusts the formula and the cask (`brew trust --formula
+   chad3814/tap/zenvik`, `brew trust --cask chad3814/tap/zenvik-gui`):
+   Homebrew 6+ won't load a non-official tap's packages for audit, style or
+   test until they're trusted. Users don't need this step, because
+   installing by the full name trusts that one item.
+3. Formula: `brew style --formula`, `brew audit --strict --online --formula
    chad3814/tap/zenvik`, `brew install --build-from-source
    chad3814/tap/zenvik`, `brew test chad3814/tap/zenvik`.
-3. Cask (macOS, unless `--formula-only`): `brew audit --strict --online --cask
+4. Cask (macOS, unless `--formula-only`): `brew audit --strict --online --cask
    chad3814/tap/zenvik-gui`, `brew install --cask chad3814/tap/zenvik-gui`.
    Then `spctl -a -vv -t exec` on the installed `Zenvik.app` must report
    `source=Notarized Developer ID`, and its
    `Contents/Helpers/mkvmerge --version` must run. Finally `brew uninstall
    --cask --zap chad3814/tap/zenvik-gui`.
-4. Exits non-zero at the first failure, naming the step.
+5. Exits non-zero at the first failure, naming the step.
 
 ### .github/workflows/ci.yml
 
