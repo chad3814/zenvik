@@ -27,62 +27,92 @@ func writeISO(t *testing.T, dir string, opt udfimage.Options) string {
 	return p
 }
 
-func fakeMount(t *testing.T, goos string) *int {
+// fakeMount makes mounting "succeed" at dir (which may lack BDMV, as when
+// Linux rejects the image's directories) and fakes the host OS.
+func fakeMount(t *testing.T, goos, dir string) *int {
 	t.Helper()
 	oldA, oldG := mountAttach, mountGOOS
 	t.Cleanup(func() { mountAttach, mountGOOS = oldA, oldG })
 	calls := 0
 	mountAttach = func(context.Context, string) (*mount.Mount, error) {
 		calls++
-		return nil, errors.New("fake mount: not attached")
+		return &mount.Mount{Dir: dir}, nil
 	}
 	mountGOOS = goos
 	return &calls
 }
 
-func TestLinuxRefusesUnpaddedFIDCRCBeforeMounting(t *testing.T) {
+// mountedTree is a directory holding BDMV/index.bdmv, as a kernel that
+// accepts the image would show it.
+func mountedTree(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "BDMV"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "BDMV", "index.bdmv"), []byte("INDX0200"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func openDisc(t *testing.T, p string) *Disc {
+	t.Helper()
+	d, err := Open(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+	return d
+}
+
+func TestLinuxExplainsUnpaddedFIDCRCWhenTheMountShowsNoBDMV(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "Atomic Blonde (2017) - Director's Cut")
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	p := writeISO(t, dir, udfimage.Options{Revision: 0x0250, Label: "X", UnpaddedFIDCRC: true})
+	d := openDisc(t, p)
 	ctx := context.Background()
-	d, err := Open(ctx, p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer d.Close()
 
-	calls := fakeMount(t, "linux")
-	_, _, err = d.mountRoot(ctx, func(Phase, float64) {})
-	if !errors.Is(err, ErrNeedsUDFRepair) {
-		t.Fatalf("linux: err = %v, want ErrNeedsUDFRepair", err)
-	}
-	if *calls != 0 {
-		t.Fatalf("linux: mount attempted %d times, want 0", *calls)
+	calls := fakeMount(t, "linux", t.TempDir())
+	_, _, err := d.mountRoot(ctx, func(Phase, float64) {})
+	if !errors.Is(err, ErrNeedsUDFRepair) || *calls != 1 {
+		t.Fatalf("linux, empty mount: err = %v, mounts = %d; want ErrNeedsUDFRepair after one mount", err, *calls)
 	}
 	if want := "zenvik repair-udf " + shellArg(p); !strings.Contains(err.Error(), want) {
 		t.Errorf("linux: error %q doesn't contain %q", err, want)
 	}
+	if !strings.Contains(err.Error(), "found no BDMV/index.bdmv") {
+		t.Errorf("linux: error %q doesn't keep the mount check's own message", err)
+	}
 
-	calls = fakeMount(t, "darwin")
-	_, _, err = d.mountRoot(ctx, func(Phase, float64) {})
-	if errors.Is(err, ErrNeedsUDFRepair) || *calls != 1 {
-		t.Fatalf("darwin: err = %v, mounts = %d; want a mount attempt", err, *calls)
+	fakeMount(t, "darwin", t.TempDir())
+	if _, _, err := d.mountRoot(ctx, func(Phase, float64) {}); err == nil || errors.Is(err, ErrNeedsUDFRepair) {
+		t.Fatalf("darwin, empty mount: err = %v, want the plain mount-check error", err)
 	}
 }
 
-func TestLinuxMountsCleanImages(t *testing.T) {
-	p := writeISO(t, t.TempDir(), udfimage.Options{Revision: 0x0102, Label: "X"})
-	ctx := context.Background()
-	d, err := Open(ctx, p)
-	if err != nil {
-		t.Fatal(err)
+// An older kernel (without udf_verify_fi's strict check) mounts these images
+// fine: rip must not refuse them.
+func TestLinuxRipsAFlawedImageThatMounts(t *testing.T) {
+	p := writeISO(t, t.TempDir(), udfimage.Options{Revision: 0x0250, Label: "X", UnpaddedFIDCRC: true})
+	d := openDisc(t, p)
+	tree := mountedTree(t)
+	fakeMount(t, "linux", tree)
+	root, release, err := d.mountRoot(context.Background(), func(Phase, float64) {})
+	if err != nil || root != tree {
+		t.Fatalf("flawed image that mounts: root %q, err = %v; want %q, nil", root, err, tree)
 	}
-	defer d.Close()
-	calls := fakeMount(t, "linux")
-	if _, _, err := d.mountRoot(ctx, func(Phase, float64) {}); errors.Is(err, ErrNeedsUDFRepair) || *calls != 1 {
-		t.Fatalf("clean image on linux: err = %v, mounts = %d; want a mount attempt", err, *calls)
+	_ = release()
+}
+
+func TestLinuxCleanImageWithoutBDMVIsNotBlamedOnUDF(t *testing.T) {
+	p := writeISO(t, t.TempDir(), udfimage.Options{Revision: 0x0102, Label: "X"})
+	d := openDisc(t, p)
+	fakeMount(t, "linux", t.TempDir())
+	if _, _, err := d.mountRoot(context.Background(), func(Phase, float64) {}); err == nil || errors.Is(err, ErrNeedsUDFRepair) {
+		t.Fatalf("clean image, empty mount: err = %v, want the plain mount-check error", err)
 	}
 }
 

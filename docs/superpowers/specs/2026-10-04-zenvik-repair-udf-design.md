@@ -96,9 +96,13 @@ func (f *FS) PaddingCRCFixes() ([]Patch, error)
 - `source.Source` keeps the `*udf.Image` for ISO sources, as field
   `Image`, alongside `FS`.
 - In `Disc.mountRoot`, for ISO sources, when `mountGOOS` (a package
-  variable set to `runtime.GOOS`, overridable in tests) is `linux`, zenvik
-  calls `PaddingCRCFixes` before `mount.Attach`. If it returns any patch,
-  rip fails before attaching anything, with:
+  variable set to `runtime.GOOS`, overridable in tests) is `linux` and the
+  mounted image fails `discMarkerErr`, zenvik calls `PaddingCRCFixes`. If
+  it returns any patch, the mount is released and rip fails with the text
+  below, wrapping the mount check's own error. (Amended after review: an
+  earlier draft checked before mounting, which blocked rips on kernels
+  without the strict check, such as older ones, that mount these images
+  fine.)
 
       zenvik: Linux can't read this image's directories: their entries' CRC lengths leave out padding, which Linux's UDF driver rejects as corrupt. Run `zenvik repair-udf <path>` to fix them in place (it keeps a backup), or rip it on macOS.
 

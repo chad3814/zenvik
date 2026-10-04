@@ -195,13 +195,6 @@ func (d *Disc) mountRoot(ctx context.Context, report func(Phase, float64)) (stri
 		return d.src.Path, func() error { return nil }, nil
 	}
 	report(PhaseMounting, 0)
-	if mountGOOS == "linux" && d.src.Image != nil {
-		// Advisory: if the check itself fails, the mount below reports
-		// any real problem.
-		if fixes, err := d.src.Image.PaddingCRCFixes(); err == nil && len(fixes) > 0 {
-			return "", nil, fmt.Errorf("%w: run `zenvik repair-udf %s` to fix them in place (it keeps a backup), or rip it on macOS", ErrNeedsUDFRepair, shellArg(d.src.Path))
-		}
-	}
 	m, err := mountAttach(ctx, d.src.Path)
 	if err != nil {
 		return "", nil, mountHint(ctx, err)
@@ -209,6 +202,13 @@ func (d *Disc) mountRoot(ctx context.Context, report func(Phase, float64)) (stri
 	release := func() error { return m.Detach(ctx) }
 	if err := discMarkerErr(m.Dir, d.Format); err != nil {
 		err = fmt.Errorf("zenvik: mounted %s at %s but %w", d.src.Path, m.Dir, err)
+		// Only when the mount shows nothing usable, explain the known Linux
+		// cause: kernels without the strict check mount these images fine.
+		if mountGOOS == "linux" && d.src.Image != nil {
+			if fixes, ferr := d.src.Image.PaddingCRCFixes(); ferr == nil && len(fixes) > 0 {
+				err = fmt.Errorf("%w (%w): run `zenvik repair-udf %s` to fix them in place (it keeps a backup), or rip it on macOS", ErrNeedsUDFRepair, err, shellArg(d.src.Path))
+			}
+		}
 		return "", nil, errors.Join(err, release())
 	}
 	report(PhaseMounting, 1)

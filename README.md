@@ -57,8 +57,8 @@ absolute; any other path is inside the output directory and may leave it with `.
 
 **Linux can't mount some images.** Some authoring tools write ISO images whose directory
 entries Linux's UDF driver rejects as corrupt (the kernel log shows `udf_verify_fi: … CRC
-length … does not match entry length`). zenvik reads them fine, and on Linux `zenvik rip`
-stops before mounting such an image and says so. `zenvik repair-udf <image>` fixes the
+length … does not match entry length`). zenvik reads them fine, and on Linux, when such an image mounts
+without its `BDMV` folder, `zenvik rip` says why. `zenvik repair-udf <image>` fixes the
 entries in place: it changes a few 16-byte headers, never the video, and writes
 `<image>.udf-repair-backup` first; `zenvik repair-udf --undo <image>` restores the original
 exactly. Use `--dry-run` to check images without changing them.
