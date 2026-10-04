@@ -92,7 +92,7 @@ func newTestApp(t *testing.T, o testOpts) (*App, *fakeShell, string) {
 			}
 			return config.Settings{OutputDir: ".", Template: tmpl, MinDuration: config.DefaultMinDuration}, nil
 		},
-		FindMkvmerge: func(context.Context, string) error { return o.mkvmerge },
+		FindMkvmerge: func(context.Context, string) (string, error) { return "102.0.0", o.mkvmerge },
 		Ripper: func(discs.Opener, func() string) queue.Ripper {
 			if o.ripper != nil {
 				return o.ripper
@@ -177,7 +177,7 @@ func TestRecheckClearsBanner(t *testing.T) {
 	if _, ok := banners(sh)["mkvmerge"]; !ok {
 		t.Fatal("no mkvmerge banner")
 	}
-	a.deps.FindMkvmerge = func(context.Context, string) error { return nil }
+	a.deps.FindMkvmerge = func(context.Context, string) (string, error) { return "102.0.0", nil }
 	a.RecheckMkvmerge()
 	if _, ok := banners(sh)["mkvmerge"]; ok || !a.queue.Snapshot().Ready {
 		t.Errorf("banners = %+v, ready = %v", banners(sh), a.queue.Snapshot().Ready)
@@ -302,7 +302,7 @@ func TestBoundMethodsWaitForInit(t *testing.T) {
 		LoadSettings: func() (config.Settings, error) {
 			return config.Settings{OutputDir: ".", Template: config.DefaultTemplate}, nil
 		},
-		FindMkvmerge: func(context.Context, string) error { return nil },
+		FindMkvmerge: func(context.Context, string) (string, error) { return "102.0.0", nil },
 		Ripper:       func(discs.Opener, func() string) queue.Ripper { return blockRipper{release} },
 		Home:         t.TempDir(),
 		GOOS:         "linux",
@@ -344,7 +344,7 @@ func TestFailedInitReleasesCallers(t *testing.T) {
 		LoadSettings: func() (config.Settings, error) {
 			return config.Settings{OutputDir: ".", Template: config.DefaultTemplate}, nil
 		},
-		FindMkvmerge: func(context.Context, string) error { return nil },
+		FindMkvmerge: func(context.Context, string) (string, error) { return "102.0.0", nil },
 		Ripper:       func(discs.Opener, func() string) queue.Ripper { return nil },
 	})
 	if err := a.init(context.Background(), &fakeShell{}); err == nil {
@@ -367,12 +367,12 @@ func TestFailedInitReleasesCallers(t *testing.T) {
 }
 
 // mkvmergeAt fakes FindMkvmerge: only good finds mkvmerge.
-func mkvmergeAt(good string) func(context.Context, string) error {
-	return func(_ context.Context, path string) error {
+func mkvmergeAt(good string) func(context.Context, string) (string, error) {
+	return func(_ context.Context, path string) (string, error) {
 		if path == good {
-			return nil
+			return "102.0.0", nil
 		}
-		return fmt.Errorf("%w: %s", zenvik.ErrMkvmergeNotFound, path)
+		return "", fmt.Errorf("%w: %s", zenvik.ErrMkvmergeNotFound, path)
 	}
 }
 
@@ -468,5 +468,60 @@ func TestPlatformIsGOOS(t *testing.T) {
 	a, _, _ := newTestApp(t, testOpts{})
 	if got := a.Platform(); got != "linux" {
 		t.Errorf("Platform() = %q, want the Deps GOOS", got)
+	}
+}
+
+func TestBundledMkvmergeIsUsedAndReported(t *testing.T) {
+	a, _, _ := newTestApp(t, testOpts{})
+	exeDir := filepath.Join(t.TempDir(), "Zenvik.app", "Contents")
+	bundled := filepath.Join(exeDir, "Helpers", "mkvmerge")
+	if err := os.MkdirAll(filepath.Dir(bundled), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bundled, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a.deps.Executable = filepath.Join(exeDir, "MacOS", "zenvik-gui")
+	a.deps.GOOS = "darwin"
+	var checked string
+	a.deps.FindMkvmerge = func(_ context.Context, p string) (string, error) { checked = p; return "102.0.0", nil }
+	old := mkvtoolnixVersion
+	mkvtoolnixVersion = "102.0"
+	t.Cleanup(func() { mkvtoolnixVersion = old })
+
+	a.RecheckMkvmerge()
+	if checked != bundled || a.mkvmergePath() != bundled {
+		t.Errorf("checked %q, rip path %q; want %q", checked, a.mkvmergePath(), bundled)
+	}
+	if got := a.MkvmergeInfo(); got != "mkvmerge 102.0 (bundled, from MKVToolNix — GPLv2)" {
+		t.Errorf("info = %q", got)
+	}
+	if got := a.MkvmergeSourceURL(); got != mkvmergeSourceURL("102.0") {
+		t.Errorf("source URL = %q", got)
+	}
+}
+
+func TestBrokenConfiguredMkvmergeDoesNotFallBack(t *testing.T) {
+	a, sh, _ := newTestApp(t, testOpts{})
+	exeDir := filepath.Join(t.TempDir(), "Zenvik.app", "Contents")
+	bundled := filepath.Join(exeDir, "Helpers", "mkvmerge")
+	if err := os.MkdirAll(filepath.Dir(bundled), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bundled, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a.deps.Executable = filepath.Join(exeDir, "MacOS", "zenvik-gui")
+	a.deps.GOOS = "darwin"
+	a.deps.LoadSettings = func() (config.Settings, error) {
+		return config.Settings{OutputDir: ".", Template: config.DefaultTemplate, MkvmergePath: "/broken/mkvmerge"}, nil
+	}
+	a.deps.FindMkvmerge = mkvmergeAt(bundled) // only the bundled copy works
+	a.ReloadConfig()
+	if _, ok := banners(sh)["mkvmerge"]; !ok || a.queue.Snapshot().Ready {
+		t.Errorf("a broken mkvmerge_path must raise the banner and keep the queue stopped; banners %+v", banners(sh))
+	}
+	if a.mkvmergePath() != "/broken/mkvmerge" || a.MkvmergeSourceURL() != "" {
+		t.Errorf("path %q, source URL %q", a.mkvmergePath(), a.MkvmergeSourceURL())
 	}
 }

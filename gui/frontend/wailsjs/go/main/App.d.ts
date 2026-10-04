@@ -9,6 +9,10 @@ export function ClearFinished():Promise<void>;
 
 export function Enqueue(arg1:string,arg2:Array<string>,arg3:Array<string>):Promise<Array<string>>;
 
+export function MkvmergeInfo():Promise<string>;
+
+export function MkvmergeSourceURL():Promise<string>;
+
 export function Move(arg1:string,arg2:number):Promise<void>;
 
 export function PickFolder():Promise<void>;

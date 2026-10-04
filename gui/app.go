@@ -26,7 +26,8 @@ var errNotStarted = errors.New(msgNotStarted)
 type Deps struct {
 	StatePath    string
 	LoadSettings func() (config.Settings, error)
-	FindMkvmerge func(ctx context.Context, path string) error
+	FindMkvmerge func(ctx context.Context, path string) (string, error) // returns the version
+	Executable   string                                                 // the app's own executable, symlinks resolved
 	Ripper       func(open discs.Opener, mkvmergePath func() string) queue.Ripper
 	Home         string
 	GOOS         string
@@ -55,6 +56,7 @@ type App struct {
 
 	mu       sync.Mutex
 	settings config.Settings
+	mkvmerge mkvmergeState // the last mkvmerge check
 	banners  []Banner
 }
 
@@ -118,10 +120,17 @@ func (a *App) open(ctx context.Context, path string) (*zenvik.Disc, error) {
 	return zenvik.Open(ctx, path, zenvik.WithMinDuration(minDur))
 }
 
-func (a *App) mkvmergePath() string {
+// resolvedMkvmerge is the mkvmerge the app uses and where it comes from.
+func (a *App) resolvedMkvmerge() (path, source string) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.settings.MkvmergePath
+	configured := a.settings.MkvmergePath
+	a.mu.Unlock()
+	return resolveMkvmerge(configured, a.deps.Executable, a.deps.GOOS, fileExists)
+}
+
+func (a *App) mkvmergePath() string {
+	path, _ := a.resolvedMkvmerge()
+	return path
 }
 
 func (a *App) reloadSettings() {
@@ -200,6 +209,32 @@ func (a *App) Version() string { return version }
 // Platform is the OS the app runs on (Go's GOOS: "darwin", "windows",
 // "linux"), so the window can name the file manager.
 func (a *App) Platform() string { return a.deps.GOOS }
+
+// MkvmergeInfo is the About box's line about the mkvmerge in use.
+func (a *App) MkvmergeInfo() string {
+	if !a.wait() {
+		return ""
+	}
+	a.mu.Lock()
+	s := a.mkvmerge
+	a.mu.Unlock()
+	return mkvmergeInfo(s, mkvtoolnixVersion)
+}
+
+// MkvmergeSourceURL links the bundled MKVToolNix's source, or "" when the
+// mkvmerge in use isn't the bundled one.
+func (a *App) MkvmergeSourceURL() string {
+	if !a.wait() {
+		return ""
+	}
+	a.mu.Lock()
+	s := a.mkvmerge
+	a.mu.Unlock()
+	if s.err != nil || s.source != "bundled" || mkvtoolnixVersion == "" {
+		return ""
+	}
+	return mkvmergeSourceURL(mkvtoolnixVersion)
+}
 
 // AddPaths adds discs (dropped or picked) and selects the last one. Blank
 // paths and "/" are ignored: macOS reports an internal drag (a queue row) as
@@ -372,7 +407,11 @@ func (a *App) RecheckMkvmerge() {
 }
 
 func (a *App) recheckMkvmerge() {
-	err := a.deps.FindMkvmerge(a.ctx, a.mkvmergePath())
+	path, source := a.resolvedMkvmerge()
+	version, err := a.deps.FindMkvmerge(a.ctx, path)
+	a.mu.Lock()
+	a.mkvmerge = mkvmergeState{source: source, path: path, version: version, err: err}
+	a.mu.Unlock()
 	if err == nil {
 		a.clearBanner("mkvmerge")
 	} else {

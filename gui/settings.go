@@ -48,9 +48,12 @@ func stateFile() (string, error) {
 	return filepath.Join(d, "zenvik", "gui-queue.json"), nil
 }
 
-func findMkvmerge(ctx context.Context, path string) error {
-	_, err := mux.Find(ctx, path)
-	return err
+func findMkvmerge(ctx context.Context, path string) (string, error) {
+	m, err := mux.Find(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	return m.Version.String(), nil
 }
 
 func defaultDeps() (Deps, error) {
@@ -62,6 +65,14 @@ func defaultDeps() (Deps, error) {
 	if err != nil {
 		return Deps{}, err
 	}
+	exe, err := os.Executable()
+	if err == nil {
+		if real, rerr := filepath.EvalSymlinks(exe); rerr == nil {
+			exe = real
+		}
+	} else {
+		exe = ""
+	}
 	return Deps{
 		StatePath:    state,
 		LoadSettings: loadSettings,
@@ -69,7 +80,8 @@ func defaultDeps() (Deps, error) {
 		Ripper: func(open discs.Opener, mkvmerge func() string) queue.Ripper {
 			return queue.LibRipper{Open: open, MkvmergePath: mkvmerge}
 		},
-		Home: home,
-		GOOS: goruntime.GOOS,
+		Home:       home,
+		GOOS:       goruntime.GOOS,
+		Executable: exe,
 	}, nil
 }

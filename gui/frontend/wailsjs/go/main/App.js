@@ -18,6 +18,14 @@ export function Enqueue(arg1, arg2, arg3) {
   return window['go']['main']['App']['Enqueue'](arg1, arg2, arg3);
 }
 
+export function MkvmergeInfo() {
+  return window['go']['main']['App']['MkvmergeInfo']();
+}
+
+export function MkvmergeSourceURL() {
+  return window['go']['main']['App']['MkvmergeSourceURL']();
+}
+
 export function Move(arg1, arg2) {
   return window['go']['main']['App']['Move'](arg1, arg2);
 }

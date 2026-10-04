@@ -20,6 +20,10 @@ vi.mock('../api', () => ({
     pickOutputDir: vi.fn(() => Promise.resolve()),
     setPaused: vi.fn(() => Promise.resolve()),
     openURL: vi.fn(),
+    mkvmergeInfo: vi.fn(() => Promise.resolve('mkvmerge 102.0 (bundled, from MKVToolNix — GPLv2)')),
+    mkvmergeSourceURL: vi.fn(() =>
+      Promise.resolve('https://github.com/chad3814/zenvik/releases/download/mkvtoolnix-src-102.0/mkvtoolnix-102.0.tar.xz'),
+    ),
   },
   on: (event: string, cb: (v: unknown) => void) => {
     handlers.set(event, cb);
@@ -145,5 +149,24 @@ describe('App', () => {
     const notPrevented = fireEvent.click(link);
     expect(notPrevented).toBe(false);
     expect(api.openURL).toHaveBeenCalledWith('https://github.com/chad3814/zenvik');
+  });
+
+  it('shows the bundled mkvmerge and links its source in About', async () => {
+    render(<App />);
+    await userEvent.click(screen.getByRole('button', { name: 'About' }));
+    expect(await screen.findByText('mkvmerge 102.0 (bundled, from MKVToolNix — GPLv2)')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('link', { name: 'MKVToolNix source' }));
+    expect(api.openURL).toHaveBeenCalledWith(
+      'https://github.com/chad3814/zenvik/releases/download/mkvtoolnix-src-102.0/mkvtoolnix-102.0.tar.xz',
+    );
+  });
+
+  it('shows no source link when mkvmerge is not bundled', async () => {
+    vi.mocked(api.mkvmergeInfo).mockResolvedValueOnce('mkvmerge 101.0.0 (from PATH)');
+    vi.mocked(api.mkvmergeSourceURL).mockResolvedValueOnce('');
+    render(<App />);
+    await userEvent.click(screen.getByRole('button', { name: 'About' }));
+    expect(await screen.findByText('mkvmerge 101.0.0 (from PATH)')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'MKVToolNix source' })).not.toBeInTheDocument();
   });
 });
