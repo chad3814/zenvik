@@ -59,7 +59,8 @@ if [[ ${ZENVIK_NET_TESTS:-} == 1 ]]; then
 			else
 				bad "darwin fetch writes the helper, Qt and the license files" "missing:$missing; got: $got"
 			fi
-			if "$d/mkvmerge" --version | grep -q "mkvmerge v$MKVTOOLNIX_VERSION"; then
+			ver=$("$d/mkvmerge" --version 2>&1)
+			if [[ $ver == "mkvmerge v$MKVTOOLNIX_VERSION"* ]]; then
 				ok "fetched mkvmerge runs from its new place"
 			else
 				bad "fetched mkvmerge runs from its new place"

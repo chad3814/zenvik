@@ -148,10 +148,21 @@ macos_sign() {
 	local -a kc=()
 	[[ -n $MACOS_SIGN_KEYCHAIN ]] && kc=(--keychain "$MACOS_SIGN_KEYCHAIN")
 	if [[ -d $path && $path == *.app ]]; then
-		local exe
-		for exe in "$path"/Contents/MacOS/*; do
-			codesign --force --options runtime --timestamp ${kc[@]+"${kc[@]}"} \
-				--sign "$MACOS_SIGN_IDENTITY" "$exe"
+		# Inside out: bundled libraries, then helper tools, then the app's own
+		# executable; the bundle last. Helpers and their libraries must carry
+		# the same team ID or library validation stops them loading.
+		local f
+		if [[ -d $path/Contents/Helpers/libs ]]; then
+			while IFS= read -r f; do
+				codesign --force --options runtime --timestamp ${kc[@]+"${kc[@]}"} \
+					--sign "$MACOS_SIGN_IDENTITY" "$f"
+			done < <(find "$path/Contents/Helpers/libs" -type f -name '*.dylib')
+		fi
+		for f in "$path"/Contents/Helpers/* "$path"/Contents/MacOS/*; do
+			if [[ -f $f && -x $f ]]; then
+				codesign --force --options runtime --timestamp ${kc[@]+"${kc[@]}"} \
+					--sign "$MACOS_SIGN_IDENTITY" "$f"
+			fi
 		done
 	fi
 	codesign --force --options runtime --timestamp ${kc[@]+"${kc[@]}"} \
@@ -171,6 +182,19 @@ macos_verify_signature() {
 	if ! grep -qF "Authority=$MACOS_SIGN_IDENTITY" <<<"$info"; then
 		_ms_die "$path is not signed by $MACOS_SIGN_IDENTITY"
 		return 1
+	fi
+	if [[ -d $path && $path == *.app && -d $path/Contents/Helpers ]]; then
+		local f
+		while IFS= read -r f; do
+			codesign --verify --strict --verbose=2 "$f"
+			# (captured, not piped: under pipefail, grep -q closing the pipe
+			# early would make codesign's SIGPIPE count as a failure)
+			info=$(codesign -dvv "$f" 2>&1)
+			if ! grep -qF "Authority=$MACOS_SIGN_IDENTITY" <<<"$info"; then
+				_ms_die "$f is not signed by $MACOS_SIGN_IDENTITY"
+				return 1
+			fi
+		done < <(find "$path/Contents/Helpers" -type f \( -name '*.dylib' -o -perm -u+x \))
 	fi
 }
 

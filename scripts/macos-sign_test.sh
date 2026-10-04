@@ -111,6 +111,23 @@ EOF
 		printf 'x' >>"$work/tool"
 		run_case "tampered binary fails verification" 1 '' -- MACOS_SIGN_IDENTITY="$MACOS_SIGN_IDENTITY" -- \
 			"macos_sign_setup; macos_verify_signature '$work/tool'"
+		app="$work/Fake.app"
+		mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers/libs"
+		cp /usr/bin/true "$app/Contents/MacOS/fake"
+		cp /usr/bin/true "$app/Contents/Helpers/tool"
+		printf 'int zq(void) { return 1; }\n' >"$work/zq.c"
+		cc -dynamiclib -o "$app/Contents/Helpers/libs/libzq.dylib" "$work/zq.c"
+		cat >"$app/Contents/Info.plist" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>CFBundleExecutable</key><string>fake</string><key>CFBundleIdentifier</key><string>dev.cwalker.zenvik.test</string></dict></plist>
+EOF
+		run_case "app helpers and their libraries are signed with the app's identity" 0 '' -- MACOS_SIGN_IDENTITY="$MACOS_SIGN_IDENTITY" -- \
+			"macos_sign_setup; macos_sign '$app'; macos_verify_signature '$app'
+			for f in '$app/Contents/Helpers/tool' '$app/Contents/Helpers/libs/libzq.dylib'; do
+				i=\$(codesign -dvv \"\$f\" 2>&1)
+				grep -qF \"Authority=\$MACOS_SIGN_IDENTITY\" <<<\"\$i\"
+				grep -q 'flags=.*runtime' <<<\"\$i\"
+			done; macos_sign_cleanup"
 		rm -rf "$work"
 	else
 		echo "skip real signing (set MACOS_SIGN_IDENTITY to an identity in your keychain to run it)"
