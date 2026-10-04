@@ -70,7 +70,12 @@ for target in "${targets[@]}"; do
 	rm -rf "$stage"
 done
 
-(cd "$dist" && if command -v sha256sum >/dev/null; then sha256sum ./*.tar.gz ./*.zip; else shasum -a 256 ./*.tar.gz ./*.zip; fi |
-	sed 's| \./| |' >SHA256SUMS)
+# Only the archives this run built: a target list may have no .zip (Windows)
+# or no .tar.gz, and an unmatched glob would make the checksum tool fail.
+shopt -s nullglob
+archives=("$dist"/*.tar.gz "$dist"/*.zip)
+shopt -u nullglob
+(cd "$dist" && if command -v sha256sum >/dev/null; then sha256sum "${archives[@]##*/}"; else shasum -a 256 "${archives[@]##*/}"; fi \
+	>SHA256SUMS)
 echo "wrote:"
 ls -l "$dist"
