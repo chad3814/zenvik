@@ -172,7 +172,11 @@ jobs:
     needs: homebrew-check
     runs-on: ubuntu-latest
     environment: release
+    concurrency: { group: homebrew-tap-push, cancel-in-progress: false }
     steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v5
         with:
           name: homebrew
@@ -192,6 +196,15 @@ jobs:
           mkdir -p ~/.ssh
           curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' >~/.ssh/known_hosts
           git clone git@github.com:chad3814/homebrew-tap.git "$RUNNER_TEMP/tap"
+          # Never downgrade: a re-run of an older release's push (or two
+          # releases racing) leaves a newer tap alone.
+          st=0
+          scripts/homebrew-should-bump.sh "$GITHUB_REF_NAME" "$RUNNER_TEMP/tap" || st=$?
+          if [[ $st -eq 3 ]]; then
+            exit 0
+          elif [[ $st -ne 0 ]]; then
+            exit "$st"
+          fi
           cp -R "$RUNNER_TEMP/rendered/." "$RUNNER_TEMP/tap/"
           cd "$RUNNER_TEMP/tap"
           git add Formula Casks

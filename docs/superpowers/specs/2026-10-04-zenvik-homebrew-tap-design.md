@@ -206,7 +206,12 @@ Three new jobs, all gated on `if: ${{ !contains(github.ref_name, '-') }}`
    `environment: release`):
    - loads `HOMEBREW_TAP_DEPLOY_KEY` into `ssh-agent`; the key is never
      written to the log or the workspace;
-   - clones the tap over SSH and copies the rendered files in;
+   - clones the tap over SSH;
+   - stops, successfully, if the tap already has this version or a newer
+     one (`scripts/homebrew-should-bump.sh`), so a re-run of an older
+     release's push never downgrades it; pushes run one at a time
+     (concurrency group `homebrew-tap-push`);
+   - copies the rendered files in;
    - if anything changed, commits `zenvik X.Y.Z` as `github-actions[bot]`
      and pushes to `main`;
    - if nothing changed, does nothing.
