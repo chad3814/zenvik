@@ -45,8 +45,8 @@
 2. **Offsets past 4 GiB.** Real images are about 55 GiB, so `imageOffset` arithmetic must be int64 throughout, never `uint32 × 2048`. Task 2 has an internal test with block numbers whose byte offset exceeds 2³².
 3. **The backup can't be written** (a read-only directory, a full disk). The image must stay untouched. Task 4 tests a read-only directory holding a writable image.
 4. **Undo on an image that's already original,** or was changed by hand. Undo must refuse without writing. Task 4 tests undo after a manual revert.
-6. **A UDF 2.50 image with a separate metadata mirror.** The repair patches only the main metadata file's directories; Linux reads the mirror only when the main copy is unreadable. The builder's mirror shares the main copy's blocks, so no test covers a separate mirror. The reviewer should confirm this limit is acceptable and stated (`PaddingCRCFixes`'s doc says "reachable from the root").
 5. **A FID tag that crosses an extent boundary.** The builder can't produce one, so no test exercises the split into two patches. The coalescing code must be read with this in mind. The per-byte mapping in Task 2 is written so the split falls out naturally, and the final reviewer should check it by reading.
+6. **A UDF 2.50 image with a separate metadata mirror.** The repair patches only the main metadata file's directories; Linux reads the mirror only when the main copy is unreadable. The builder's mirror shares the main copy's blocks, so no test covers a separate mirror. The reviewer should confirm this limit is acceptable and stated (`PaddingCRCFixes`'s doc says "reachable from the root").
 
 Two consequences of this:
 - The builder can't embed directories, so `ErrEmbeddedDir` has no test either (Task 2 says so).
