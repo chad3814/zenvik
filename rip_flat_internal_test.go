@@ -68,8 +68,8 @@ func TestMountRootFlat(t *testing.T) {
 	if filepath.Dir(root) != tmp || !strings.HasPrefix(filepath.Base(root), "zenvik-bdmv-") {
 		t.Errorf("root = %s, want zenvik-bdmv-* in %s", root, tmp)
 	}
-	if !hasDiscMarker(root, Bluray) {
-		t.Error("tree has no BDMV/index.bdmv")
+	if err := discMarkerErr(root, Bluray); err != nil {
+		t.Errorf("tree has no BDMV/index.bdmv: %v", err)
 	}
 	files := d.src.Files()
 	for _, std := range []string{"BDMV/PLAYLIST/00800.mpls", "BDMV/CLIPINF/00001.clpi", "BDMV/STREAM/00001.m2ts", "BDMV/MovieObject.bdmv"} {

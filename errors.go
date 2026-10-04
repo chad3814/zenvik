@@ -33,4 +33,8 @@ var (
 	ErrUnsupportedTitle = errors.New("zenvik: title is not supported")
 	// ErrNoSpace: the output drive lacks the free space a DVD title's temporary copy needs.
 	ErrNoSpace = errors.New("zenvik: not enough free space")
+	// ErrNeedsUDFRepair: on Linux, the image's directory entries have tag CRC
+	// lengths that leave out padding, which Linux's UDF driver rejects;
+	// `zenvik repair-udf` fixes them.
+	ErrNeedsUDFRepair = errors.New("zenvik: Linux can't read this image's directories: their entries' CRC lengths leave out padding, which Linux's UDF driver rejects as corrupt")
 )

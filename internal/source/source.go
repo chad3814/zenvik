@@ -72,6 +72,7 @@ type Source struct {
 	Path    string            // the ISO file, or the folder containing BDMV or VIDEO_TS
 	Label   string            // UDF volume identifier, or the folder's name
 	FS      fs.FS             // root contains BDMV/index.bdmv or <VideoTS>/VIDEO_TS.IFO
+	Image   *udf.Image        // the opened UDF image (ISO only)
 	VideoTS string            // name of the VIDEO_TS directory in FS (DVD only)
 	files   map[string]string // FlatBDMVDir: standard path → absolute real path
 	close   func() error
@@ -156,14 +157,14 @@ func openImage(name string) (*Source, error) {
 	}
 	_, err = fs.Stat(img, "BDMV/index.bdmv")
 	if err == nil {
-		return &Source{Kind: ISO, Format: Bluray, Path: name, Label: img.Label(), FS: img, close: img.Close}, nil
+		return &Source{Kind: ISO, Format: Bluray, Path: name, Label: img.Label(), FS: img, Image: img, close: img.Close}, nil
 	}
 	if !errors.Is(err, fs.ErrNotExist) {
 		img.Close()
 		return nil, err
 	}
 	if vts := videoTSDir(img); vts != "" {
-		return &Source{Kind: ISO, Format: DVD, Path: name, Label: img.Label(), FS: img, VideoTS: vts, close: img.Close}, nil
+		return &Source{Kind: ISO, Format: DVD, Path: name, Label: img.Label(), FS: img, Image: img, VideoTS: vts, close: img.Close}, nil
 	}
 	img.Close()
 	return nil, explain(name)

@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -14,6 +15,13 @@ import (
 	"github.com/chad3814/zenvik/internal/mount"
 	"github.com/chad3814/zenvik/internal/mux"
 	"github.com/chad3814/zenvik/internal/source"
+)
+
+// mountAttach and mountGOOS are variables so tests can fake mounting and
+// the host OS.
+var (
+	mountAttach = mount.Attach
+	mountGOOS   = runtime.GOOS
 )
 
 // Phase identifies a stage of Rip.
@@ -187,13 +195,20 @@ func (d *Disc) mountRoot(ctx context.Context, report func(Phase, float64)) (stri
 		return d.src.Path, func() error { return nil }, nil
 	}
 	report(PhaseMounting, 0)
-	m, err := mount.Attach(ctx, d.src.Path)
+	if mountGOOS == "linux" && d.src.Image != nil {
+		// Advisory: if the check itself fails, the mount below reports
+		// any real problem.
+		if fixes, err := d.src.Image.PaddingCRCFixes(); err == nil && len(fixes) > 0 {
+			return "", nil, fmt.Errorf("%w: run `zenvik repair-udf %s` to fix them in place (it keeps a backup), or rip it on macOS", ErrNeedsUDFRepair, shellArg(d.src.Path))
+		}
+	}
+	m, err := mountAttach(ctx, d.src.Path)
 	if err != nil {
 		return "", nil, mountHint(ctx, err)
 	}
 	release := func() error { return m.Detach(ctx) }
-	if !hasDiscMarker(m.Dir, d.Format) {
-		err := fmt.Errorf("zenvik: mounted %s at %s but found no %s", d.src.Path, m.Dir, discMarker(d.Format))
+	if err := discMarkerErr(m.Dir, d.Format); err != nil {
+		err = fmt.Errorf("zenvik: mounted %s at %s but %w", d.src.Path, m.Dir, err)
 		return "", nil, errors.Join(err, release())
 	}
 	report(PhaseMounting, 1)
@@ -208,16 +223,46 @@ func discMarker(f Format) string {
 	return "BDMV/index.bdmv"
 }
 
-// hasDiscMarker reports whether root holds format f's marker file; DVD
-// names are matched ignoring case.
-func hasDiscMarker(root string, f Format) bool {
+// discMarkerErr reports whether root holds format f's marker file: nil if
+// it does, "found no …" if it's missing, and "can't read …: <err>" for any
+// other error (a permission or I/O error, or a kernel's corruption error).
+// DVD names are matched case-insensitively.
+func discMarkerErr(root string, f Format) error {
 	if f == DVD {
+		if _, err := os.ReadDir(root); err != nil {
+			return fmt.Errorf("can't read %s: %w", discMarker(f), err)
+		}
 		fsys := os.DirFS(root)
 		dir := source.FindName(fsys, ".", "VIDEO_TS", true)
-		return dir != "" && source.FindName(fsys, dir, "VIDEO_TS.IFO", false) != ""
+		if dir == "" || source.FindName(fsys, dir, "VIDEO_TS.IFO", false) == "" {
+			return fmt.Errorf("found no %s", discMarker(f))
+		}
+		return nil
 	}
 	st, err := os.Stat(filepath.Join(root, "BDMV", "index.bdmv"))
-	return err == nil && st.Mode().IsRegular()
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return fmt.Errorf("found no %s", discMarker(f))
+	case err != nil:
+		return fmt.Errorf("can't read %s: %w", discMarker(f), err)
+	case !st.Mode().IsRegular():
+		return fmt.Errorf("found no %s", discMarker(f))
+	}
+	return nil
+}
+
+// shellSafe reports whether r needs no shell quoting.
+func shellSafe(r rune) bool {
+	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("./_-+:@%,=", r)
+}
+
+// shellArg quotes s for a POSIX shell when it holds anything but letters,
+// digits and ./_-+:@%,= so a suggested command can be pasted as is.
+func shellArg(s string) string {
+	if s != "" && strings.IndexFunc(s, func(r rune) bool { return !shellSafe(r) }) < 0 {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // blurayJob identifies the title's playlist under root and maps its tracks.
