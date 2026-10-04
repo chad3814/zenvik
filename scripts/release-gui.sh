@@ -41,6 +41,9 @@ restore() {
 	cp "$saved" "$wailsjson"
 	rm -f "$saved"
 	touch "$root/gui/frontend/dist/gitkeep"
+	if declare -F macos_sign_cleanup >/dev/null; then
+		macos_sign_cleanup
+	fi
 }
 trap restore EXIT
 node -e '
@@ -61,6 +64,11 @@ if [[ $goos == darwin ]]; then
 	export CGO_CFLAGS="${CGO_CFLAGS:+$CGO_CFLAGS }-mmacosx-version-min=13.0"
 	export CGO_LDFLAGS="${CGO_LDFLAGS:+$CGO_LDFLAGS }-mmacosx-version-min=13.0"
 fi
+if [[ $goos == darwin ]]; then
+	# shellcheck source=scripts/macos-sign.sh
+	source "$root/scripts/macos-sign.sh"
+	macos_sign_setup
+fi
 (cd "$root/gui" && go run github.com/wailsapp/wails/v2/cmd/wails@v2.16.0 build \
 	-clean -trimpath -platform "$target" -ldflags "-s -w -X main.version=$tag" ${tags[@]+"${tags[@]}"})
 
@@ -72,7 +80,17 @@ cp "$root/LICENSE" "$stage/"
 cp "$root/gui/README.md" "$stage/README.md"
 case $goos in
 darwin)
-	cp -R "$bin/Zenvik.app" "$stage/"
+	app="$bin/Zenvik.app"
+	if [[ $MACOS_SIGN_ENABLED == 1 ]]; then
+		macos_sign "$app"
+		macos_verify_signature "$app"
+		ditto -c -k --keepParent "$app" "$MACOS_SIGN_TMP/$name-notary.zip"
+		macos_notarize "$MACOS_SIGN_TMP/$name-notary.zip"
+		macos_staple "$app"
+		macos_verify_signature "$app"
+		macos_verify_gatekeeper "$app"
+	fi
+	cp -R "$app" "$stage/"
 	(cd "$dist" && rm -f "$name.zip" && ditto -c -k --norsrc --noextattr --noacl --keepParent "$name" "$name.zip")
 	if stray=$(unzip -l "$dist/$name.zip" | grep -E '/\._|__MACOSX'); then
 		echo "AppleDouble entries in $name.zip:" >&2
