@@ -17,7 +17,7 @@ jobs:
           go-version-file: go.mod
       - run: go vet ./...
       - run: go test -race ./...
-      - run: scripts/release-build.sh "$GITHUB_REF_NAME"
+      - run: scripts/release-build.sh "$GITHUB_REF_NAME" linux/amd64 windows/amd64
       - uses: actions/upload-artifact@v4
         with:
           name: cli
@@ -25,13 +25,67 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
 
-  gui:
+  cli-darwin:
+    runs-on: macos-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Build, sign and notarize the darwin CLI
+        env:
+          SIGN_REQUIRED: "1"
+          MACOS_SIGN_IDENTITY: ${{ vars.MACOS_SIGN_IDENTITY }}
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: scripts/release-build.sh "$GITHUB_REF_NAME" darwin/arm64 darwin/amd64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-darwin
+          path: dist/*.tar.gz
+
+  gui-darwin:
+    strategy:
+      fail-fast: true
+      matrix:
+        target: [darwin/arm64, darwin/amd64]
+    runs-on: macos-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: gui/go.mod
+          cache-dependency-path: gui/go.sum
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: gui/frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: gui/frontend/package-lock.json
+      - name: Build, sign, notarize and staple Zenvik.app
+        env:
+          SIGN_REQUIRED: "1"
+          MACOS_SIGN_IDENTITY: ${{ vars.MACOS_SIGN_IDENTITY }}
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: scripts/release-gui.sh "$GITHUB_REF_NAME" "${{ matrix.target }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gui-darwin-${{ strategy.job-index }}
+          path: dist/zenvik-gui_*
+
+  gui-other:
     strategy:
       fail-fast: true
       matrix:
         include:
-          - { os: macos-latest, target: darwin/arm64 }
-          - { os: macos-latest, target: darwin/amd64 }
           - { os: windows-latest, target: windows/amd64 }
           - { os: ubuntu-latest, target: linux/amd64 }
     runs-on: ${{ matrix.os }}
@@ -54,11 +108,11 @@ jobs:
       - run: scripts/release-gui.sh "$GITHUB_REF_NAME" "${{ matrix.target }}"
       - uses: actions/upload-artifact@v4
         with:
-          name: gui-${{ strategy.job-index }}
+          name: gui-other-${{ strategy.job-index }}
           path: dist/zenvik-gui_*
 
   publish:
-    needs: [cli, gui]
+    needs: [cli, cli-darwin, gui-darwin, gui-other]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

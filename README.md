@@ -16,19 +16,15 @@ binary, this README and the license, and `SHA256SUMS` lists every archive's chec
 (`shasum -a 256 -c SHA256SUMS`). Put `zenvik` somewhere on your `PATH`. zenvik also needs
 MKVToolNix (see [Requirements](#requirements)). `zenvik --version` prints the release.
 
-The macOS binaries are not signed or notarized, so Gatekeeper blocks the first run. Allow
-it under System Settings → Privacy & Security, or clear the quarantine flag:
-
-```
-xattr -d com.apple.quarantine zenvik
-```
+The macOS binaries are signed with a Developer ID and notarized by Apple, so they run without
+a Gatekeeper prompt.
 
 To build from source instead: `go install github.com/chad3814/zenvik/cmd/zenvik@latest`
 (Go 1.27).
 
 ## Desktop app
 
-`Zenvik` is a desktop app for the same job: add disc images or folders (drop them on the window), tick the titles you want, name each file, and queue rips that run one at a time. It uses your zenvik config. Download `zenvik-gui_<version>_<os>_<arch>` from the [releases](https://github.com/chad3814/zenvik/releases) (macOS: separate Apple Silicon and Intel builds). See [gui/README.md](gui/README.md) for requirements; the macOS app isn't signed yet.
+`Zenvik` is a desktop app for the same job: add disc images or folders (drop them on the window), tick the titles you want, name each file, and queue rips that run one at a time. It uses your zenvik config. Download `zenvik-gui_<version>_<os>_<arch>` from the [releases](https://github.com/chad3814/zenvik/releases) (macOS: separate Apple Silicon and Intel builds). See [gui/README.md](gui/README.md) for requirements. The macOS app is signed and notarized.
 
 ## Usage
 

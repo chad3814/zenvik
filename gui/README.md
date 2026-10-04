@@ -6,4 +6,4 @@ Requirements: [MKVToolNix](https://mkvtoolnix.download) (mkvmerge). The macOS ap
 
 Zenvik reads the same config file as the `zenvik` command (`zenvik doctor` shows where it is): `output_dir`, `template`, `preset`, `min_duration` and `mkvmerge_path` apply here too.
 
-The macOS app is not signed yet: the first time, right-click `Zenvik.app` and choose Open (or run `xattr -dr com.apple.quarantine Zenvik.app`).
+The macOS app is signed with a Developer ID and notarized by Apple (macOS 13 or later).
