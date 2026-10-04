@@ -52,7 +52,7 @@ src="mkvtoolnix-$v.tar.xz"
 work=$(mktemp -d)
 mnt=""
 cleanup() {
-	if [[ -n $mnt ]]; then hdiutil detach "$mnt" -quiet || true; fi
+	if [[ -n $mnt ]]; then hdiutil detach "$mnt" -quiet || hdiutil detach "$mnt" -force -quiet || true; fi
 	rm -rf "$work"
 }
 trap cleanup EXIT
@@ -83,6 +83,7 @@ fetch "$url" "$file" "$sum"
 fetch "$base/sources/$src" "$src" "$MKVTOOLNIX_SHA256_SOURCE"
 
 qt=""
+qt_static=0
 case $target in
 darwin/*)
 	mnt="$work/mnt"
@@ -95,7 +96,7 @@ darwin/*)
 	cp -L "$bin/libs/libQt6Core.6.dylib" "$out/libs/libQt6Core.6.dylib"
 	qt=${real#libQt6Core.}
 	qt=${qt%.dylib}
-	hdiutil detach "$mnt" -quiet
+	hdiutil detach "$mnt" -quiet || hdiutil detach "$mnt" -force -quiet
 	mnt=""
 	;;
 windows/*)
@@ -107,6 +108,17 @@ windows/*)
 		mv "$work/w/mkvtoolnix/mkvmerge.exe" "$work/w/mkvmerge.exe"
 	fi
 	cp "$work/w/mkvmerge.exe" "$out/mkvmerge.exe"
+	# mkvmerge.exe links Qt statically; its version string names the release
+	# ("Qt 6.10.2 (x86_64-little_endian-llp64 static release build; …)").
+	# (Captured, not piped into head: under pipefail grep's SIGPIPE fails it.)
+	found=$(LC_ALL=C grep -aoE 'Qt [0-9]+\.[0-9]+\.[0-9]+ \([^)]*static' "$out/mkvmerge.exe" || true)
+	if [[ $found =~ Qt\ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+		qt=${BASH_REMATCH[1]}
+		qt_static=1
+	else
+		echo "can't find the statically linked Qt version in mkvmerge.exe" >&2
+		exit 1
+	fi
 	;;
 esac
 
@@ -120,12 +132,24 @@ cp "$root/third_party/licenses/GPL-3.0.txt" "$out/MKVTOOLNIX-LICENSES/GPL-3.0.tx
 	echo "This download includes mkvmerge from MKVToolNix $v"
 	echo "(https://mkvtoolnix.download/), (c) Moritz Bunkus and contributors,"
 	echo "licensed under the GNU General Public License version 2 (MKVTOOLNIX-COPYING.txt)."
-	if [[ -n $qt ]]; then
+	if [[ -n $qt && $qt_static == 1 ]]; then
+		echo
+		echo "mkvmerge.exe contains the Qt $qt Core library, statically linked, licensed"
+		echo "under the GNU Lesser General Public License version 3"
+		echo "(MKVTOOLNIX-LICENSES/LGPL-3.0.txt and GPL-3.0.txt). To relink mkvmerge.exe"
+		echo "against a modified Qt, build it from the MKVToolNix source below: all of"
+		echo "MKVToolNix is GPLv2, so its complete source is provided."
+		echo "Qt source: https://download.qt.io/archive/qt/${qt%.*}/$qt/submodules/qtbase-everywhere-src-$qt.tar.xz"
+	elif [[ -n $qt ]]; then
 		echo
 		echo "On macOS it is accompanied by the Qt $qt Core library (libQt6Core),"
 		echo "licensed under the GNU Lesser General Public License version 3"
-		echo "(MKVTOOLNIX-LICENSES/LGPL-3.0.txt and GPL-3.0.txt). It is dynamically linked:"
-		echo "you may replace Zenvik.app/Contents/Helpers/libs/libQt6Core.6.dylib with your own build."
+		echo "(MKVTOOLNIX-LICENSES/LGPL-3.0.txt and GPL-3.0.txt). It is dynamically linked,"
+		echo "so you may replace Zenvik.app/Contents/Helpers/libs/libQt6Core.6.dylib with"
+		echo "your own build. macOS only lets mkvmerge load a library signed by the same"
+		echo "team, so then re-sign both files with one identity, for example ad hoc:"
+		echo "  codesign --force --sign - Zenvik.app/Contents/Helpers/libs/libQt6Core.6.dylib"
+		echo "  codesign --force --sign - Zenvik.app/Contents/Helpers/mkvmerge"
 		echo "Qt source: https://download.qt.io/archive/qt/${qt%.*}/$qt/submodules/qtbase-everywhere-src-$qt.tar.xz"
 	fi
 	echo

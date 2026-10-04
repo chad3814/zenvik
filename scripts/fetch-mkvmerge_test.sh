@@ -65,10 +65,11 @@ if [[ ${ZENVIK_NET_TESTS:-} == 1 ]]; then
 			else
 				bad "fetched mkvmerge runs from its new place"
 			fi
-			if grep -q "Qt 6\." "$d/MKVTOOLNIX-NOTICE.txt" && grep -q "mkvtoolnix-src-$MKVTOOLNIX_VERSION" "$d/MKVTOOLNIX-NOTICE.txt"; then
-				ok "darwin notice names Qt and the source release"
+			if grep -q "Qt 6\." "$d/MKVTOOLNIX-NOTICE.txt" && grep -q "mkvtoolnix-src-$MKVTOOLNIX_VERSION" "$d/MKVTOOLNIX-NOTICE.txt" &&
+				grep -qF "codesign --force --sign -" "$d/MKVTOOLNIX-NOTICE.txt"; then
+				ok "darwin notice names Qt, the source release and how to replace Qt"
 			else
-				bad "darwin notice names Qt and the source release" "$(cat "$d/MKVTOOLNIX-NOTICE.txt")"
+				bad "darwin notice names Qt, the source release and how to replace Qt" "$(cat "$d/MKVTOOLNIX-NOTICE.txt")"
 			fi
 		else
 			bad "darwin fetch succeeds"
@@ -77,12 +78,26 @@ if [[ ${ZENVIK_NET_TESTS:-} == 1 ]]; then
 	fi
 	w=$(mktemp -d)
 	if MKVTOOLNIX_CACHE=$cache "$here/fetch-mkvmerge.sh" windows/amd64 "$w" >/dev/null 2>&1 &&
-		head -c 2 "$w/mkvmerge.exe" | grep -q MZ && [[ -f $w/MKVTOOLNIX-COPYING.txt ]] && ! grep -q "Qt" "$w/MKVTOOLNIX-NOTICE.txt"; then
-		ok "windows fetch writes mkvmerge.exe and the notices"
+		[[ $(head -c 2 "$w/mkvmerge.exe") == MZ ]] && [[ -f $w/MKVTOOLNIX-COPYING.txt ]] &&
+		grep -qE "Qt 6\.[0-9]+\.[0-9]+" "$w/MKVTOOLNIX-NOTICE.txt" && grep -q "statically linked" "$w/MKVTOOLNIX-NOTICE.txt" &&
+		grep -q "qtbase-everywhere-src-" "$w/MKVTOOLNIX-NOTICE.txt"; then
+		ok "windows fetch writes mkvmerge.exe and notices naming its statically linked Qt"
 	else
-		bad "windows fetch writes mkvmerge.exe and the notices" "$(ls -la "$w")"
+		bad "windows fetch writes mkvmerge.exe and notices naming its statically linked Qt" "$(cat "$w/MKVTOOLNIX-NOTICE.txt" 2>&1)"
 	fi
 	rm -rf "$w" "$cache"
+	if "$here/check-mkvtoolnix-source.sh" "$MKVTOOLNIX_VERSION" >/dev/null 2>&1; then
+		ok "the pinned version's source release exists"
+	else
+		bad "the pinned version's source release exists"
+	fi
+	out=$("$here/check-mkvtoolnix-source.sh" 0.0 2>&1)
+	status=$?
+	if [[ $status -eq 1 && $out == *"mkvtoolnix-src-0.0"* ]]; then
+		ok "a missing source release fails naming it"
+	else
+		bad "a missing source release fails naming it" "status $status: $out"
+	fi
 else
 	echo "skip network fetches (set ZENVIK_NET_TESTS=1)"
 fi

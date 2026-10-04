@@ -33,6 +33,19 @@ func resolveMkvmerge(configured, exe, goos string, exists func(string) bool) (pa
 	return "", "path"
 }
 
+// resolveExecutable follows symlinks to the app's real executable, so the
+// bundled mkvmerge beside it is found; a path it can't resolve is returned
+// unchanged.
+func resolveExecutable(exe string) string {
+	if exe == "" {
+		return ""
+	}
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		return real
+	}
+	return exe
+}
+
 func fileExists(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && fi.Mode().IsRegular()

@@ -93,3 +93,29 @@ jobs:
         run: go test -tags integration ./internal/queue/
       - working-directory: gui
         run: go run github.com/wailsapp/wails/v2/cmd/wails@v2.16.0 build -clean ${{ runner.os == 'Linux' && '-tags webkit2_41' || '' }}
+
+  bundled-mkvmerge:
+    # Proves the desktop app's mkvmerge fetch (download, checksum, extraction,
+    # notices) on each bundling platform before a release tag depends on it.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, target: darwin/arm64, exe: mkvmerge }
+          - { os: windows-latest, target: windows/amd64, exe: mkvmerge.exe }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - run: scripts/fetch-mkvmerge_test.sh
+      - run: scripts/fetch-mkvmerge.sh "${{ matrix.target }}" "$RUNNER_TEMP/mtx"
+      - run: |
+          "$RUNNER_TEMP/mtx/${{ matrix.exe }}" --version
+          ls "$RUNNER_TEMP/mtx" "$RUNNER_TEMP/mtx/MKVTOOLNIX-LICENSES"
+          cat "$RUNNER_TEMP/mtx/MKVTOOLNIX-NOTICE.txt"
+      - run: |
+          # shellcheck source=/dev/null
+          source third_party/mkvtoolnix.env
+          scripts/check-mkvtoolnix-source.sh "$MKVTOOLNIX_VERSION"

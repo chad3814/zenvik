@@ -53,10 +53,9 @@ echo "wrote third_party/mkvtoolnix.env for MKVToolNix $v (macOS build $build)" >
 
 tag="mkvtoolnix-src-$v"
 tarball="mkvtoolnix-$v.tar.xz"
-notes="Source of MKVToolNix $v, whose mkvmerge is bundled with the Zenvik desktop app (GPLv2). Unmodified from $base/sources/$tarball."
+notes="Source of MKVToolNix $v, whose mkvmerge is bundled with the Zenvik desktop app for macOS and Windows from the first Zenvik release built with it (GPLv2). Unmodified from $base/sources/$tarball."
 if [[ $publish != 1 ]]; then
-	echo "next, host the source (creates a public release; run with --publish to do it here):" >&2
-	echo "  gh release create $tag $tarball $tarball.sha256 --title 'MKVToolNix $v source' --notes '$notes' --latest=false" >&2
+	echo "next, host the source as release $tag (public): rerun with --publish" >&2
 	exit 0
 fi
 work=$(mktemp -d)
@@ -67,6 +66,11 @@ if [[ $got != "$src" ]]; then
 	echo "checksum mismatch for $tarball: got $got, want $src" >&2
 	exit 1
 fi
-printf '%s  %s\n' "$src" "$tarball" >"$work/$tarball.sha256"
+# Upload upstream's own .sha256, exactly as published, after checking it.
+curl -fsSL -o "$work/$tarball.sha256" "$base/sources/$tarball.sha256"
+if [[ $(cut -d' ' -f1 <"$work/$tarball.sha256") != "$src" ]]; then
+	echo "upstream $tarball.sha256 doesn't match $src" >&2
+	exit 1
+fi
 (cd "$work" && gh release create "$tag" "$tarball" "$tarball.sha256" \
 	--repo chad3814/zenvik --title "MKVToolNix $v source" --notes "$notes" --latest=false)

@@ -194,6 +194,10 @@ macos_verify_signature() {
 				_ms_die "$f is not signed by $MACOS_SIGN_IDENTITY"
 				return 1
 			fi
+			if ! grep -q 'flags=.*runtime' <<<"$info"; then
+				_ms_die "$f is not signed with the hardened runtime"
+				return 1
+			fi
 		done < <(find "$path/Contents/Helpers" -type f \( -name '*.dylib' -o -perm -u+x \))
 	fi
 }

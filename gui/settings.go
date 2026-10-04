@@ -66,13 +66,10 @@ func defaultDeps() (Deps, error) {
 		return Deps{}, err
 	}
 	exe, err := os.Executable()
-	if err == nil {
-		if real, rerr := filepath.EvalSymlinks(exe); rerr == nil {
-			exe = real
-		}
-	} else {
+	if err != nil {
 		exe = ""
 	}
+	exe = resolveExecutable(exe)
 	return Deps{
 		StatePath:    state,
 		LoadSettings: loadSettings,

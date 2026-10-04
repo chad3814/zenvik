@@ -29,7 +29,7 @@ The macOS and Windows desktop downloads ship MKVToolNix's `mkvmerge`, so Zenvik 
   - Copied out with the library at `libs/libQt6Core.6.dylib` beside it, `mkvmerge --version` runs.
   - Re-signed with `Developer ID Application: Chad Walker (SZUN8RDF5D)` and `--options runtime --timestamp`, it still runs.
   - Re-signing `mkvmerge` but not the library fails library validation ("different Team IDs"). The two must always carry the same team's signature.
-- **Windows:** `mkvtoolnix.download/windows/releases/<ver>/mkvtoolnix-64-bit-<ver>.7z` has a `.sha256`. Its `mkvtoolnix/mkvmerge.exe` (23 MB) imports only DLLs that ship with Windows.
+- **Windows:** `mkvtoolnix.download/windows/releases/<ver>/mkvtoolnix-64-bit-<ver>.7z` has a `.sha256`. Its `mkvtoolnix/mkvmerge.exe` (23 MB) imports only DLLs that ship with Windows. It does, however, link Qt Core **statically**: its version string reads `Qt 6.10.2 (x86_64-little_endian-llp64 static release build; …)`.
 - **Source:** `mkvtoolnix.download/sources/mkvtoolnix-<ver>.tar.xz` (11 MB) has `.sha256` and `.sig` files.
 
 ## 2. Licensing (GPLv2)
@@ -49,9 +49,9 @@ The macOS and Windows desktop downloads ship MKVToolNix's `mkvmerge`, so Zenvik 
 - **Assets:** `mkvtoolnix-<ver>.tar.xz` and `mkvtoolnix-<ver>.tar.xz.sha256`, both exactly as published upstream.
 - **Settings:** marked neither "latest" nor pre-release. Its notes say which Zenvik versions bundle it.
 
-**Qt Core (macOS only, LGPLv3).** The bundled `libQt6Core` comes from the same MKVToolNix build, and the LGPLv3 brings obligations of its own:
+**Qt Core (LGPLv3).** Both platforms ship Qt Core: on macOS as the bundled `libQt6Core` dylib, on Windows statically linked inside `mkvmerge.exe`, both from the same MKVToolNix build, and the LGPLv3 brings obligations of its own:
 - **License texts:** `MKVTOOLNIX-LICENSES/LGPL-3.0.txt` (from upstream's source) and `MKVTOOLNIX-LICENSES/GPL-3.0.txt` (the FSF's text, committed once as `third_party/licenses/GPL-3.0.txt`, since LGPLv3 incorporates GPLv3).
-- **Notice:** `MKVTOOLNIX-NOTICE.txt` names the Qt version, taken from the library's file name (`libQt6Core.6.11.1` → Qt 6.11.1), and says it is dynamically linked and replaceable.
+- **Notice:** `MKVTOOLNIX-NOTICE.txt` names the Qt version — on macOS from the library's file name (`libQt6Core.6.11.1` → Qt 6.11.1), on Windows from the version string in `mkvmerge.exe` (the fetch fails if it can't find one). On macOS it says the library is dynamically linked and replaceable, and that a replacement needs both it and `mkvmerge` re-signed with one identity (ad hoc works: `codesign --force --sign -`), because library validation rejects a library from another team. On Windows it says Qt is statically linked and that relinking against a modified Qt is done by building `mkvmerge.exe` from the complete MKVToolNix source, which is provided.
 - **Source:** the `qtbase` source for that version. The notice links to the Qt Project's archive, `https://download.qt.io/archive/qt/<major.minor>/<version>/submodules/qtbase-everywhere-src-<version>.tar.xz`. It isn't copied into the source-only release, because it is about 50 MB and Qt keeps its archive online. If the user later wants it self-hosted too, `bump-mkvtoolnix.sh` can attach it to the same `mkvtoolnix-src-<ver>` release.
 
 ## 3. Pinning and fetching
@@ -74,6 +74,7 @@ The macOS and Windows desktop downloads ship MKVToolNix's `mkvmerge`, so Zenvik 
   - **Any other target:** it exits 2 with "mkvmerge is not bundled for <target>".
   - For every target it also downloads and checks the pinned source tarball and copies its `COPYING` and `doc/licenses/` (§2) into `<outdir>` as `MKVTOOLNIX-COPYING.txt` and `MKVTOOLNIX-LICENSES/`, adding `GPL-3.0.txt` from `third_party/licenses/`.
   - It writes `<outdir>/MKVTOOLNIX-NOTICE.txt` from the pinned version (and, on macOS, the Qt version).
+- **`scripts/check-mkvtoolnix-source.sh <version>`** checks that the source release `mkvtoolnix-src-<version>` serves its tarball. `release-gui.sh` runs it whenever it bundles: in CI (`CI=true` or `SIGN_REQUIRED=1`) a missing source release fails the build; locally it warns. The CI job `bundled-mkvmerge` runs the real fetch on `macos-latest` and `windows-latest`, and this check, on every push to `main`.
 - **`scripts/bump-mkvtoolnix.sh <version> [<macos-build>]`** downloads upstream's `.sha256` files for the four artifacts and rewrites `third_party/mkvtoolnix.env`. It then prints the `gh release create mkvtoolnix-src-<version> …` command, but runs it only with `--publish`, because publishing a release needs the user's explicit go-ahead.
 
 ## 4. Packaging

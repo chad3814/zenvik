@@ -94,6 +94,13 @@ fi
 if [[ $bundle == 1 ]]; then
 	mtx=$(mktemp -d)
 	"$root/scripts/fetch-mkvmerge.sh" "$target" "$mtx"
+	# The notices link this source release; a CI release must not ship without it.
+	if ! "$root/scripts/check-mkvtoolnix-source.sh" "$MKVTOOLNIX_VERSION"; then
+		if [[ ${CI:-} == true || ${SIGN_REQUIRED:-} == 1 ]]; then
+			exit 1
+		fi
+		echo "warning: building anyway (not CI); don't publish this build" >&2
+	fi
 fi
 
 bin="$root/gui/build/bin"
@@ -114,6 +121,10 @@ darwin)
 	# build always runs it).
 	runnable=1
 	if [[ $goarch == amd64 && $(uname -m) == arm64 ]] && ! /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null; then
+		if [[ ${SIGN_REQUIRED:-} == 1 ]]; then
+			echo "no Rosetta on this host, so the x86_64 mkvmerge can't be checked (SIGN_REQUIRED=1)" >&2
+			exit 1
+		fi
 		runnable=0
 		echo "warning: no Rosetta on this host; can't run the x86_64 mkvmerge to check it" >&2
 	fi

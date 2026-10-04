@@ -65,3 +65,28 @@ func TestMkvmergeInfo(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveExecutableFollowsSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "Zenvik.app", "Contents", "MacOS", "zenvik-gui")
+	if err := os.MkdirAll(filepath.Dir(real), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(real, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "zenvik-gui")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := filepath.EvalSymlinks(real) // the temp dir itself may be a symlink (/var → /private/var)
+	if got := resolveExecutable(link); got != want {
+		t.Errorf("resolveExecutable(link) = %q, want %q", got, want)
+	}
+	if got := resolveExecutable(filepath.Join(dir, "missing")); got != filepath.Join(dir, "missing") {
+		t.Errorf("unresolvable path = %q, want it unchanged", got)
+	}
+	if got := resolveExecutable(""); got != "" {
+		t.Errorf("empty = %q", got)
+	}
+}
