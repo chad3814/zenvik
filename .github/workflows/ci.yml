@@ -110,6 +110,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: scripts/fetch-mkvmerge_test.sh
+      - run: scripts/make-dmg_test.sh
       - run: scripts/fetch-mkvmerge.sh "${{ matrix.target }}" "$RUNNER_TEMP/mtx"
       - run: |
           "$RUNNER_TEMP/mtx/${{ matrix.exe }}" --version

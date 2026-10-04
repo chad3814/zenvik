@@ -120,7 +120,7 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      - run: cd dist && sha256sum ./*.tar.gz ./*.zip | sed 's| \./| |' > SHA256SUMS && cat SHA256SUMS
+      - run: cd dist && sha256sum ./*.tar.gz ./*.zip ./*.dmg | sed 's| \./| |' > SHA256SUMS && cat SHA256SUMS
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -129,4 +129,4 @@ jobs:
           if [[ $GITHUB_REF_NAME == *-* ]]; then
             flags+=(--prerelease)
           fi
-          gh release create "$GITHUB_REF_NAME" "${flags[@]}" dist/*.tar.gz dist/*.zip dist/SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" "${flags[@]}" dist/*.tar.gz dist/*.zip dist/*.dmg dist/SHA256SUMS

@@ -7,6 +7,9 @@
 #   macos_sign "$path"; macos_verify_signature "$path"
 #   macos_notarize "$zip"; macos_staple "$app"; macos_verify_gatekeeper "$app"
 #
+# The same calls take a disk image (*.dmg): it is signed without the hardened
+# runtime (that applies to code, not images), notarized and stapled directly.
+#
 # Inputs (environment):
 #   MACOS_SIGN_IDENTITY   "Developer ID Application: Name (TEAMID)"
 #   MACOS_CERT_P12        base64 .p12 (CI); without it the identity comes
@@ -165,7 +168,9 @@ macos_sign() {
 			fi
 		done
 	fi
-	codesign --force --options runtime --timestamp ${kc[@]+"${kc[@]}"} \
+	local -a runtime=(--options runtime)
+	[[ $path == *.dmg ]] && runtime=()
+	codesign --force ${runtime[@]+"${runtime[@]}"} --timestamp ${kc[@]+"${kc[@]}"} \
 		--sign "$MACOS_SIGN_IDENTITY" "$path"
 }
 
@@ -175,7 +180,7 @@ macos_verify_signature() {
 	codesign --verify --strict --deep --verbose=2 "$path"
 	local info
 	info=$(codesign -dvv "$path" 2>&1)
-	if ! grep -q 'flags=.*runtime' <<<"$info"; then
+	if [[ $path != *.dmg ]] && ! grep -q 'flags=.*runtime' <<<"$info"; then
 		_ms_die "$path is not signed with the hardened runtime"
 		return 1
 	fi
@@ -235,12 +240,14 @@ macos_staple() {
 }
 
 macos_verify_gatekeeper() {
-	local app=$1
+	local path=$1
 	[[ $MACOS_NOTARIZE == 1 ]] || return 0
+	local -a assess=(-t exec)
+	[[ $path == *.dmg ]] && assess=(-t open --context context:primary-signature)
 	local out
-	out=$(spctl -a -vv -t exec "$app" 2>&1 || true)
+	out=$(spctl -a -vv "${assess[@]}" "$path" 2>&1 || true)
 	if ! grep -q 'source=Notarized Developer ID' <<<"$out"; then
-		_ms_die "Gatekeeper does not accept $app: $out"
+		_ms_die "Gatekeeper does not accept $path: $out"
 		return 1
 	fi
 }

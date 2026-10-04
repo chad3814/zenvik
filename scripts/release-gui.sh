@@ -7,8 +7,10 @@
 # windows/amd64 (on Windows, with 7-Zip), linux/amd64 (on Linux, needs
 # libgtk-3-dev and libwebkit2gtk-4.1-dev). The GUI uses cgo, so each OS
 # builds its own; the CLI archives come from scripts/release-build.sh.
-# The darwin and windows zips bundle MKVToolNix's mkvmerge and its license
-# notices (see scripts/fetch-mkvmerge.sh and third_party/mkvtoolnix.env).
+# The darwin download is a disk image (Zenvik.app beside an Applications
+# link to drag it onto), the others are archives. The darwin and windows
+# builds bundle MKVToolNix's mkvmerge and its license notices (see
+# scripts/fetch-mkvmerge.sh and third_party/mkvtoolnix.env).
 set -euo pipefail
 
 if [[ $# -ne 2 || ! $1 =~ ^v[0-9] ]]; then
@@ -40,7 +42,12 @@ wailsjson="$root/gui/wails.json"
 saved=$(mktemp)
 cp "$wailsjson" "$saved"
 mtx=""
+dmgmnt=""
 restore() {
+	if [[ -n $dmgmnt ]]; then
+		hdiutil detach "$dmgmnt" -quiet 2>/dev/null || hdiutil detach "$dmgmnt" -force -quiet 2>/dev/null || true
+		rm -rf "$dmgmnt"
+	fi
 	rm -rf "${mtx:-}"
 	# Signing material first, so it's gone even if a restore step fails.
 	if declare -F macos_sign_cleanup >/dev/null; then
@@ -115,6 +122,10 @@ darwin)
 	mkdir -p "$app/Contents/Helpers/libs"
 	cp "$mtx/mkvmerge" "$app/Contents/Helpers/mkvmerge"
 	cp "$mtx/libs/libQt6Core.6.dylib" "$app/Contents/Helpers/libs/libQt6Core.6.dylib"
+	# The notices travel inside the app too, for whoever drags only the app
+	# out of the disk image.
+	cp "$root/LICENSE" "$mtx"/MKVTOOLNIX-*.txt "$app/Contents/Resources/"
+	cp -R "$mtx/MKVTOOLNIX-LICENSES" "$app/Contents/Resources/"
 	# check_mkvmerge proves the bundled helper still runs (and loads its Qt)
 	# at each step. An x86_64 helper can only run here through Rosetta; without
 	# it the check is skipped (the signature checks still apply, and the arm64
@@ -128,10 +139,11 @@ darwin)
 		runnable=0
 		echo "warning: no Rosetta on this host; can't run the x86_64 mkvmerge to check it" >&2
 	fi
+	# check_mkvmerge REASON [APP]
 	check_mkvmerge() {
 		local out
 		[[ $runnable == 1 ]] || return 0
-		out=$("$app/Contents/Helpers/mkvmerge" --version 2>&1) || true
+		out=$("${2:-$app}/Contents/Helpers/mkvmerge" --version 2>&1) || true
 		if [[ $out != "mkvmerge v$MKVTOOLNIX_VERSION"* ]]; then
 			echo "the bundled mkvmerge doesn't run ($1): $out" >&2
 			exit 1
@@ -153,12 +165,32 @@ darwin)
 	cp -R "$app" "$stage/"
 	cp "$mtx"/MKVTOOLNIX-*.txt "$stage/"
 	cp -R "$mtx/MKVTOOLNIX-LICENSES" "$stage/"
-	(cd "$dist" && rm -f "$name.zip" && ditto -c -k --norsrc --noextattr --noacl --keepParent "$name" "$name.zip")
-	if stray=$(unzip -l "$dist/$name.zip" | grep -E '/\._|__MACOSX'); then
-		echo "AppleDouble entries in $name.zip:" >&2
-		echo "$stray" >&2
+	dmg="$dist/$name.dmg"
+	"$root/scripts/make-dmg.sh" "$stage" Zenvik "$dmg"
+	macos_sign "$dmg"
+	macos_verify_signature "$dmg"
+	macos_notarize "$dmg"
+	macos_staple "$dmg"
+	macos_verify_gatekeeper "$dmg"
+	# Check what a user gets: the image opens, the link points at
+	# /Applications, and the app in it is intact and still runs its mkvmerge.
+	dmgmnt=$(mktemp -d)
+	hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$dmgmnt" "$dmg" -quiet
+	if [[ ! -L $dmgmnt/Applications || $(readlink "$dmgmnt/Applications") != /Applications ]]; then
+		echo "$name.dmg has no Applications link" >&2
 		exit 1
 	fi
+	for f in Zenvik.app/Contents/Resources/MKVTOOLNIX-NOTICE.txt MKVTOOLNIX-NOTICE.txt LICENSE README.md; do
+		if [[ ! -f $dmgmnt/$f ]]; then
+			echo "$name.dmg is missing $f" >&2
+			exit 1
+		fi
+	done
+	macos_verify_signature "$dmgmnt/Zenvik.app"
+	check_mkvmerge "from the disk image" "$dmgmnt/Zenvik.app"
+	hdiutil detach "$dmgmnt" -quiet
+	rm -rf "$dmgmnt"
+	dmgmnt=""
 	;;
 windows)
 	cp "$bin/zenvik-gui.exe" "$stage/"

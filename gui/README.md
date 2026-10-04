@@ -2,7 +2,7 @@
 
 Zenvik is the desktop front end for [zenvik](https://github.com/chad3814/zenvik): add unencrypted Blu-ray and DVD images (`.iso`) or folders (`BDMV`, `VIDEO_TS`, or a folder containing one), tick the titles you want, name each file, and queue rips. Rips run one at a time with mkvmerge and the queue is kept between launches.
 
-The macOS app needs macOS 13 or later. The macOS and Windows apps include `mkvmerge` from [MKVToolNix](https://mkvtoolnix.download) (GPLv2; see `MKVTOOLNIX-NOTICE.txt` in the download for the license and source). On Linux, install MKVToolNix (mkvmerge) and WebKitGTK 4.1 (`libwebkit2gtk-4.1-0` on Debian/Ubuntu). Setting `mkvmerge_path` in the config makes the app use that mkvmerge instead of the bundled one.
+The macOS app needs macOS 13 or later. The macOS and Windows apps include `mkvmerge` from [MKVToolNix](https://mkvtoolnix.download) (GPLv2; see `MKVTOOLNIX-NOTICE.txt` in the download, or in `Zenvik.app/Contents/Resources` on macOS, for the license and source). On Linux, install MKVToolNix (mkvmerge) and WebKitGTK 4.1 (`libwebkit2gtk-4.1-0` on Debian/Ubuntu). Setting `mkvmerge_path` in the config makes the app use that mkvmerge instead of the bundled one.
 
 Zenvik reads the same config file as the `zenvik` command (`zenvik doctor` shows where it is): `output_dir`, `template`, `preset`, `min_duration` and `mkvmerge_path` apply here too.
 

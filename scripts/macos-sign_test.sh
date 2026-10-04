@@ -128,6 +128,18 @@ EOF
 				grep -qF \"Authority=\$MACOS_SIGN_IDENTITY\" <<<\"\$i\"
 				grep -q 'flags=.*runtime' <<<\"\$i\"
 			done; macos_sign_cleanup"
+		mkdir -p "$work/dmgsrc"
+		echo x >"$work/dmgsrc/file"
+		hdiutil create -quiet -volname T -srcfolder "$work/dmgsrc" -format UDZO "$work/t.dmg"
+		run_case "an unsigned disk image fails verification" 1 '' -- MACOS_SIGN_IDENTITY="$MACOS_SIGN_IDENTITY" -- \
+			"macos_sign_setup; macos_verify_signature '$work/t.dmg'"
+		run_case "a disk image is signed with the identity, without the hardened runtime" 0 '' -- MACOS_SIGN_IDENTITY="$MACOS_SIGN_IDENTITY" -- \
+			"macos_sign_setup; macos_sign '$work/t.dmg'; macos_verify_signature '$work/t.dmg'
+			i=\$(codesign -dvv '$work/t.dmg' 2>&1)
+			grep -qF \"Authority=\$MACOS_SIGN_IDENTITY\" <<<\"\$i\"
+			grep -q 'Timestamp=' <<<\"\$i\"
+			if grep -q 'flags=.*runtime' <<<\"\$i\"; then echo 'image has the runtime flag'; exit 1; fi
+			macos_sign_cleanup"
 		rm -rf "$work"
 	else
 		echo "skip real signing (set MACOS_SIGN_IDENTITY to an identity in your keychain to run it)"

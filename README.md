@@ -25,7 +25,7 @@ To build from source instead: `go install github.com/chad3814/zenvik/cmd/zenvik@
 
 ## Desktop app
 
-`Zenvik` is a desktop app for the same job: add disc images or folders (drop them on the window), tick the titles you want, name each file, and queue rips that run one at a time. It uses your zenvik config, and the macOS and Windows downloads include mkvmerge from MKVToolNix. Download `zenvik-gui_<version>_<os>_<arch>` from the [releases](https://github.com/chad3814/zenvik/releases) (macOS: separate Apple Silicon and Intel builds). See [gui/README.md](gui/README.md) for requirements. The macOS app is signed and notarized.
+`Zenvik` is a desktop app for the same job: add disc images or folders (drop them on the window), tick the titles you want, name each file, and queue rips that run one at a time. It uses your zenvik config, and the macOS and Windows downloads include mkvmerge from MKVToolNix. Download `zenvik-gui_<version>_<os>_<arch>` from the [releases](https://github.com/chad3814/zenvik/releases) (macOS: separate Apple Silicon and Intel builds; open the `.dmg` and drag Zenvik to Applications). See [gui/README.md](gui/README.md) for requirements. The macOS app is signed and notarized.
 
 ## Usage
 
