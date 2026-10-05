@@ -11,6 +11,8 @@ License: MIT.
 
 With [Homebrew](https://brew.sh) (macOS or Linux), `brew install chad3814/tap/zenvik` builds zenvik and installs MKVToolNix with it; on macOS, `brew install --cask chad3814/tap/zenvik-gui` installs the desktop app.
 
+With [Scoop](https://scoop.sh) on Windows: `scoop bucket add extras`, `scoop bucket add chad3814 https://github.com/chad3814/scoop-bucket`, then `scoop install chad3814/zenvik` (it installs MKVToolNix with it) or `scoop install chad3814/zenvik-gui` for the desktop app.
+
 Or download the archive for your platform from the
 [releases page](https://github.com/chad3814/zenvik/releases): macOS (Apple silicon `arm64`
 or Intel `amd64`), Linux `amd64` or Windows `amd64`. Each archive holds the `zenvik`

@@ -216,3 +216,93 @@ jobs:
             -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
             commit -m "zenvik ${GITHUB_REF_NAME#v}"
           git push origin HEAD:main
+
+  # Scoop (chad3814/scoop-bucket), final releases only: render the manifests
+  # from what was just published, prove them with the bucket's own check.ps1
+  # on Windows, then push. Only scoop-push can read the deploy key. A failure
+  # leaves the release published and the bucket on the previous version;
+  # re-run the failed job to retry.
+  scoop-render:
+    if: ${{ !contains(github.ref_name, '-') }}
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - run: scripts/scoop-render.sh "$GITHUB_REF_NAME" scoop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scoop
+          path: scoop
+
+  scoop-check:
+    needs: scoop-render
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Install Scoop
+        run: |
+          iex "& {$(irm get.scoop.sh)} -RunAsAdmin"
+          "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - run: git clone --depth 1 https://github.com/chad3814/scoop-bucket.git "$env:RUNNER_TEMP\bucket"
+      - uses: actions/download-artifact@v5
+        with:
+          name: scoop
+          path: ${{ runner.temp }}/rendered
+      - run: |
+          Copy-Item -Recurse -Force "$env:RUNNER_TEMP\rendered\bucket\*" "$env:RUNNER_TEMP\bucket\bucket\"
+          & "$env:RUNNER_TEMP\bucket\check.ps1"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  scoop-push:
+    needs: scoop-check
+    runs-on: ubuntu-latest
+    environment: release
+    concurrency: { group: scoop-bucket-push, cancel-in-progress: false }
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v5
+        with:
+          name: scoop
+          path: ${{ runner.temp }}/rendered
+      - name: Push the bump to chad3814/scoop-bucket
+        env:
+          DEPLOY_KEY: ${{ secrets.SCOOP_BUCKET_DEPLOY_KEY }}
+        run: |
+          if [[ -z $DEPLOY_KEY ]]; then
+            echo "SCOOP_BUCKET_DEPLOY_KEY is not set in the release environment" >&2
+            exit 1
+          fi
+          eval "$(ssh-agent -s)" >/dev/null
+          trap 'ssh-agent -k >/dev/null' EXIT
+          ssh-add - <<<"$DEPLOY_KEY" >/dev/null
+          unset DEPLOY_KEY
+          mkdir -p ~/.ssh
+          curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' >~/.ssh/known_hosts
+          git clone git@github.com:chad3814/scoop-bucket.git "$RUNNER_TEMP/bucket"
+          # Never downgrade: a re-run of an older release's push (or two
+          # releases racing) leaves a newer bucket alone.
+          have=$(jq -r '.version // empty' "$RUNNER_TEMP/bucket/bucket/zenvik.json" 2>/dev/null || true)
+          st=0
+          scripts/newer-version.sh "$GITHUB_REF_NAME" "$have" || st=$?
+          if [[ $st -eq 3 ]]; then
+            exit 0
+          elif [[ $st -ne 0 ]]; then
+            exit "$st"
+          fi
+          cp -R "$RUNNER_TEMP/rendered/bucket/." "$RUNNER_TEMP/bucket/bucket/"
+          cd "$RUNNER_TEMP/bucket"
+          git add bucket
+          if git diff --cached --quiet; then
+            echo "the bucket already has zenvik ${GITHUB_REF_NAME#v}"
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "zenvik ${GITHUB_REF_NAME#v}"
+          git push origin HEAD:main
