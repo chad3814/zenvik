@@ -195,6 +195,11 @@ func (c *Checker) readCache() (cacheFile, bool) {
 	if json.Unmarshal(b, &cf) != nil || cf.CheckedAt.IsZero() {
 		return cacheFile{}, false
 	}
+	if cf.Error == "" {
+		if _, err := Parse(cf.Latest); err != nil {
+			return cacheFile{}, false
+		}
+	}
 	return cf, true
 }
 
@@ -217,9 +222,21 @@ func (c *Checker) writeCache(cf cacheFile) {
 	if err != nil {
 		return
 	}
-	_, werr := tmp.Write(b)
-	if err := errors.Join(werr, tmp.Close(), os.Chmod(tmp.Name(), 0o644), os.Rename(tmp.Name(), p)); err != nil {
-		os.Remove(tmp.Name())
+	if _, err := tmp.Write(b); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmp.Name())
+		return
+	}
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+		_ = os.Remove(tmp.Name())
+		return
+	}
+	if err := os.Rename(tmp.Name(), p); err != nil {
+		_ = os.Remove(tmp.Name())
 	}
 }
 

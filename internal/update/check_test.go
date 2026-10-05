@@ -163,7 +163,9 @@ func TestFetchFailuresAreCached(t *testing.T) {
 }
 
 func TestMalformedCacheIsIgnored(t *testing.T) {
-	for name, body := range map[string]string{"garbage": "{not json", "empty": "", "no time": `{"latest":"v9.0.0"}`} {
+	for name, body := range map[string]string{"garbage": "{not json", "empty": "", "no time": `{"latest":"v9.0.0"}`,
+		"bad latest":   `{"checked_at":"2026-10-05T11:00:00Z","latest":"nightly"}`,
+		"empty latest": `{"checked_at":"2026-10-05T11:00:00Z","latest":"","error":""}`} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t, nil)
 			if err := os.MkdirAll(filepath.Dir(f.cache), 0o755); err != nil {
@@ -277,5 +279,27 @@ func TestDefaultCachePath(t *testing.T) {
 	p, err = DefaultCachePath()
 	if err != nil || filepath.Base(p) != "update-check.json" || strings.Contains(p, "relative") {
 		t.Errorf("DefaultCachePath with relative XDG = %q, %v", p, err)
+	}
+}
+
+func TestFailedRenameLeavesNoTempFile(t *testing.T) {
+	f := newFixture(t, nil)
+	// A directory at the cache path makes the final rename fail.
+	if err := os.MkdirAll(filepath.Join(f.cache, "keep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r, err := f.c.Check(context.Background(), "v1.2.0")
+	if err != nil || !r.Newer {
+		t.Errorf("Check = %+v, %v", r, err)
+	}
+	if st, err := os.Stat(filepath.Join(f.cache, "keep")); err != nil || !st.IsDir() {
+		t.Errorf("existing directory disturbed: %v", err)
+	}
+	ents, err := os.ReadDir(filepath.Dir(f.cache))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ents) != 1 {
+		t.Errorf("stray files next to the cache: %v", ents)
 	}
 }
