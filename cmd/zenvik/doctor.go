@@ -134,19 +134,29 @@ func checkConfig() (mark, msg, mkvmergePath string, ok bool) {
 	return "✓", msg, s.MkvmergePath, true
 }
 
-// updateLine asks GitHub now (ignoring the daily cache) whether a newer
-// release exists and describes the answer. It never affects the exit code.
+// updateLine asks this install's source now (ignoring the daily cache)
+// whether a newer release exists and describes the answer, naming the
+// package manager when one owns the install. It never affects the exit
+// code.
 func updateLine(ctx context.Context) string {
 	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
 	defer cancel()
-	r, err := newUpdateChecker().Force(ctx, buildVersion())
+	c := newUpdateChecker()
+	r, err := c.Force(ctx, buildVersion())
+	ch := c.Channel
 	switch {
 	case errors.Is(err, update.ErrDevBuild):
 		return "- update check: skipped in development builds"
+	case err != nil && ch.Managed():
+		return fmt.Sprintf("! update check on %s: %s", ch.Name, strings.TrimPrefix(err.Error(), update.ErrFetch.Error()+": "))
 	case err != nil:
 		return "! update check: " + strings.TrimPrefix(err.Error(), update.ErrFetch.Error()+": ")
+	case r.Newer && ch.Managed():
+		return fmt.Sprintf("! zenvik %s is available on %s: %s", r.Latest, ch.Name, ch.Upgrade)
 	case r.Newer:
 		return fmt.Sprintf("! zenvik %s is available: %s", r.Latest, update.LatestPage)
+	case ch.Managed():
+		return fmt.Sprintf("✓ zenvik %s is the latest on %s", r.Current, ch.Name)
 	}
 	return fmt.Sprintf("✓ zenvik %s is the latest release", r.Current)
 }

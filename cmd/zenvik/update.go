@@ -13,10 +13,11 @@ import (
 	"github.com/chad3814/zenvik/internal/update"
 )
 
-// newUpdateChecker builds the checker the CLI uses; tests point it at a
-// local server and a temporary cache.
+// newUpdateChecker builds the checker the CLI uses, for the channel this
+// binary was installed from; tests point it at a local server and a
+// temporary cache.
 var newUpdateChecker = func() *update.Checker {
-	return &update.Checker{UserAgent: "zenvik/" + version}
+	return &update.Checker{UserAgent: "zenvik/" + version, Channel: update.DetectSelf(update.CLI)}
 }
 
 // isTerminal reports whether f is a character device (a terminal rather
@@ -47,6 +48,7 @@ var errStoppedWaiting = fmt.Errorf("%w: zenvik stopped waiting for the update ch
 // command has finished.
 type updateNotice struct {
 	started bool
+	checker *update.Checker
 	cancel  context.CancelCauseFunc
 	result  chan update.Result // one value, Newer false on any failure
 }
@@ -64,7 +66,8 @@ func (n *updateNotice) start(cmd *cobra.Command) {
 	tctx, stop := context.WithTimeout(cmd.Context(), checkTimeout)
 	ctx, cancel := context.WithCancelCause(tctx)
 	n.cancel = cancel
-	checker := newUpdateChecker()
+	n.checker = newUpdateChecker()
+	checker := n.checker
 	current := version
 	go func() {
 		defer stop()
@@ -113,7 +116,7 @@ func (n *updateNotice) print(w io.Writer) {
 	select {
 	case r := <-n.result:
 		if r.Newer {
-			fmt.Fprintf(w, "zenvik: %s is available (you have %s): %s\n", r.Latest, r.Current, update.LatestPage)
+			fmt.Fprintln(w, noticeLine(r, n.checker.Channel))
 		}
 	case <-time.After(noticeWait):
 		// Stop the request and let the checker record the attempt, so a
@@ -124,4 +127,14 @@ func (n *updateNotice) print(w io.Writer) {
 		case <-time.After(recordGrace):
 		}
 	}
+}
+
+// noticeLine is the one-line notice: the upgrade command for a managed
+// install, the releases page for a direct download.
+func noticeLine(r update.Result, ch update.Channel) string {
+	head := fmt.Sprintf("zenvik: %s is available (you have %s)", r.Latest, r.Current)
+	if ch.Managed() {
+		return head + "; upgrade with: " + ch.Upgrade
+	}
+	return head + ": " + update.LatestPage
 }

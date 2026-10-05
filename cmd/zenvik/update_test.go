@@ -202,3 +202,47 @@ func TestDoctorUpdateLine(t *testing.T) {
 		}
 	})
 }
+
+// installedVia makes the CLI's checker report ch as the install channel.
+// Call after releaseBuild.
+func installedVia(t *testing.T, ch update.Channel) {
+	t.Helper()
+	prev := newUpdateChecker
+	newUpdateChecker = func() *update.Checker {
+		c := prev()
+		c.Channel = ch
+		return c
+	}
+	t.Cleanup(func() { newUpdateChecker = prev })
+}
+
+var viaHomebrew = update.Detect(update.CLI, "/opt/homebrew/Cellar/zenvik/1.2.0/bin/zenvik", nil)
+
+func TestUpdateNoticeNamesTheUpgradeCommand(t *testing.T) {
+	releaseBuild(t, "v1.3.0")
+	installedVia(t, viaHomebrew)
+	_, _, errOut := runCLI("info", writeDisc(t, testdisc.SampleMovie()))
+	if want := "zenvik: v1.3.0 is available (you have v1.2.0); upgrade with: brew upgrade zenvik\n"; errOut != want {
+		t.Errorf("stderr %q, want %q", errOut, want)
+	}
+}
+
+func TestDoctorUpdateLineNamesTheChannel(t *testing.T) {
+	cases := map[string]struct{ latest, want string }{
+		"newer":   {"v1.3.0", "! zenvik v1.3.0 is available on Homebrew: brew upgrade zenvik"},
+		"current": {"v1.2.0", "✓ zenvik v1.2.0 is the latest on Homebrew"},
+		"failure": {"500", "! update check on Homebrew: HTTP 500 Internal Server Error"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			releaseBuild(t, tc.latest)
+			installedVia(t, viaHomebrew)
+			isolateConfig(t)
+			t.Setenv("PATH", t.TempDir())
+			_, out, _ := runCLI("doctor")
+			if !strings.Contains(out, tc.want+"\n") {
+				t.Errorf("output lacks %q:\n%s", tc.want, out)
+			}
+		})
+	}
+}
