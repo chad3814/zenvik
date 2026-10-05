@@ -86,6 +86,10 @@ export function SetPaused(arg1) {
   return window['go']['main']['App']['SetPaused'](arg1);
 }
 
+export function UpgradeHint() {
+  return window['go']['main']['App']['UpgradeHint']();
+}
+
 export function Version() {
   return window['go']['main']['App']['Version']();
 }

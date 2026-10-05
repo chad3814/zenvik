@@ -43,4 +43,6 @@ export function Reveal(arg1:string):Promise<string>;
 
 export function SetPaused(arg1:boolean):Promise<void>;
 
+export function UpgradeHint():Promise<string>;
+
 export function Version():Promise<string>;
