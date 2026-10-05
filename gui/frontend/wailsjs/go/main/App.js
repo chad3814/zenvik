@@ -10,6 +10,10 @@ export function Cancel(arg1) {
   return window['go']['main']['App']['Cancel'](arg1);
 }
 
+export function CheckForUpdate() {
+  return window['go']['main']['App']['CheckForUpdate']();
+}
+
 export function ClearFinished() {
   return window['go']['main']['App']['ClearFinished']();
 }

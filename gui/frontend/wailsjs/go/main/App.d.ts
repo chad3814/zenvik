@@ -5,6 +5,8 @@ export function AddPaths(arg1:Array<string>):Promise<void>;
 
 export function Cancel(arg1:string):Promise<void>;
 
+export function CheckForUpdate():Promise<string>;
+
 export function ClearFinished():Promise<void>;
 
 export function Enqueue(arg1:string,arg2:Array<string>,arg3:Array<string>):Promise<Array<string>>;
