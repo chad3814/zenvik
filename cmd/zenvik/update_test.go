@@ -136,3 +136,53 @@ func TestUpdateNoticeDoesNotWaitForASlowServer(t *testing.T) {
 		t.Errorf("info took %v with a hung update server", took)
 	}
 }
+
+func TestDoctorUpdateLine(t *testing.T) {
+	cases := map[string]struct {
+		latest string
+		dev    bool
+		want   string
+	}{
+		"newer":   {"v1.3.0", false, "! zenvik v1.3.0 is available: " + latestPage},
+		"current": {"v1.2.0", false, "✓ zenvik v1.2.0 is the latest release"},
+		"failure": {"500", false, "! update check: HTTP 500 Internal Server Error"},
+		"dev":     {"v1.3.0", true, "- update check: skipped in development builds"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			hits := releaseBuild(t, tc.latest)
+			if tc.dev {
+				version = ""
+			}
+			isolateConfig(t)
+			t.Setenv("PATH", t.TempDir())
+			code, out, errOut := runCLI("doctor")
+			if code != 4 {
+				t.Errorf("exit %d, want 4 (mkvmerge missing; the update line must not change it)", code)
+			}
+			if !strings.Contains(out, tc.want+"\n") {
+				t.Errorf("output lacks %q:\n%s", tc.want, out)
+			}
+			if strings.Contains(errOut, "is available") {
+				t.Errorf("doctor also printed the passive notice: %q", errOut)
+			}
+			want := int32(1)
+			if tc.dev {
+				want = 0
+			}
+			if hits.Load() != want {
+				t.Errorf("%d requests, want %d", hits.Load(), want)
+			}
+		})
+	}
+	t.Run("forces a fresh check", func(t *testing.T) {
+		hits := releaseBuild(t, "v1.3.0")
+		isolateConfig(t)
+		t.Setenv("PATH", t.TempDir())
+		runCLI("doctor")
+		runCLI("doctor")
+		if hits.Load() != 2 {
+			t.Errorf("%d requests across two doctor runs, want 2", hits.Load())
+		}
+	})
+}

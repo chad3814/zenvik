@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -11,15 +13,17 @@ import (
 	"github.com/chad3814/zenvik/internal/config"
 	"github.com/chad3814/zenvik/internal/mount"
 	"github.com/chad3814/zenvik/internal/mux"
+	"github.com/chad3814/zenvik/internal/update"
 )
 
 func newDoctorCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
-		Short: "Check mkvmerge, ISO mounting, the config file and leftover mounts",
+		Short: "Check mkvmerge, ISO mounting, the config file, leftover mounts and for a newer release",
 		Long: `Check that mkvmerge is installed, whether ISO images can be mounted, that the
-config file is valid, and whether a crashed rip left mounts behind. If there is no config
-file, doctor creates one with the defaults; it never changes an existing file.`,
+config file is valid, whether a crashed rip left mounts behind, and whether a newer zenvik
+has been released. If there is no config file, doctor creates one with the defaults; it
+never changes an existing file.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return usageError{fmt.Errorf("doctor takes no arguments")}
@@ -88,6 +92,8 @@ func runDoctor(ctx context.Context, out io.Writer) error {
 		fmt.Fprintln(out, "✓ no leftover mounts")
 	}
 
+	fmt.Fprintln(out, updateLine(ctx))
+
 	if code := doctorCode(mkOK, cfgOK, live); code != 0 {
 		return doctorError{code: code}
 	}
@@ -126,4 +132,21 @@ func checkConfig() (mark, msg, mkvmergePath string, ok bool) {
 		msg += fmt.Sprintf(" (default preset %q)", s.Preset)
 	}
 	return "✓", msg, s.MkvmergePath, true
+}
+
+// updateLine asks GitHub now (ignoring the daily cache) whether a newer
+// release exists and describes the answer. It never affects the exit code.
+func updateLine(ctx context.Context) string {
+	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
+	defer cancel()
+	r, err := newUpdateChecker().Force(ctx, buildVersion())
+	switch {
+	case errors.Is(err, update.ErrDevBuild):
+		return "- update check: skipped in development builds"
+	case err != nil:
+		return "! update check: " + strings.TrimPrefix(err.Error(), update.ErrFetch.Error()+": ")
+	case r.Newer:
+		return fmt.Sprintf("! zenvik %s is available: %s", r.Latest, update.LatestPage)
+	}
+	return fmt.Sprintf("✓ zenvik %s is the latest release", r.Current)
 }
