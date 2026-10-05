@@ -56,6 +56,6 @@ foreach ($id in 'chad3814.Zenvik', 'chad3814.ZenvikGUI') {
   if ($out -notlike 'mkvmerge v*') { throw "$id's mkvmerge.exe printed: $out" }
 }
 foreach ($id in 'chad3814.ZenvikGUI', 'chad3814.Zenvik') {
-  Run winget uninstall --id $id --disable-interactivity
+  Run winget uninstall --id $id --exact --accept-source-agreements --disable-interactivity
 }
 Write-Host 'winget-check: all checks passed'
