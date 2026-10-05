@@ -56,5 +56,6 @@ export interface Progress {
 export interface Banner {
   id: string;
   message: string;
-  action?: 'recheck';
+  action?: 'recheck' | 'download';
+  url?: string;
 }

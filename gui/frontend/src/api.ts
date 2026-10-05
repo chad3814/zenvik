@@ -23,6 +23,8 @@ export const api = {
   clearFinished: (): Promise<void> => App.ClearFinished(),
   setPaused: (paused: boolean): Promise<void> => App.SetPaused(paused),
   recheckMkvmerge: (): Promise<void> => App.RecheckMkvmerge(),
+  /** checkForUpdate asks GitHub now; it resolves to the newer tag, or '' when current, and rejects with a message. */
+  checkForUpdate: (): Promise<string> => App.CheckForUpdate(),
   reloadConfig: (): Promise<void> => App.ReloadConfig(),
   reveal: (id: string): Promise<string> => App.Reveal(id),
   /** openURL opens url in the system browser; the app's window never navigates. */
