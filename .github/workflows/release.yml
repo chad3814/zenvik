@@ -476,3 +476,6 @@ jobs:
               throw "choco push $id exited with $LASTEXITCODE"
             }
           }
+          # Every package was pushed or deliberately skipped (real failures
+          # threw above); don't let a skipped push's exit code fail the step.
+          exit 0
