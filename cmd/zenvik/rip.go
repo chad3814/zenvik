@@ -135,7 +135,7 @@ directory.`,
 			}
 			var prog *progressPrinter
 			if ev == nil {
-				prog = newProgressPrinter(stdout, isTerminal(stdout))
+				prog = newProgressPrinter(stdout, writerIsTerminal(stdout))
 				opts.OnProgress = prog.update
 			}
 			res, err := d.Rip(cmd.Context(), t, opts)

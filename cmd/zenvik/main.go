@@ -37,11 +37,13 @@ func main() {
 
 // run executes the CLI and returns the process exit code.
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	root := newRootCmd()
+	notice := newUpdateNotice()
+	root := newRootCmd(notice)
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	err := root.ExecuteContext(ctx)
+	defer notice.print(stderr)
 	if err == nil {
 		return 0
 	}
@@ -99,13 +101,16 @@ func exitCode(err error) int {
 	return 1
 }
 
-func newRootCmd() *cobra.Command {
+func newRootCmd(notice *updateNotice) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "zenvik",
 		Short:         "Inspect and remux unencrypted Blu-ray and DVD disc images",
 		Version:       buildVersion(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			notice.start(cmd)
+		},
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return usageError{fmt.Errorf("unknown command %q", args[0])}
