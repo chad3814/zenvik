@@ -4,8 +4,8 @@
 #
 #   scripts/scoop-render.sh v1.2.0 <outdir>
 #
-# writes <outdir>/bucket/zenvik.json (the CLI zip; depends on Extras'
-# mkvtoolnix) and <outdir>/bucket/zenvik-gui.json (the desktop app zip),
+# writes <outdir>/bucket/zenvik.json (the CLI zip, which bundles
+# mkvmerge.exe) and <outdir>/bucket/zenvik-gui.json (the desktop app zip),
 # hashes from the release's SHA256SUMS. Nothing in <outdir> changes unless
 # both render. Downloads come from ZENVIK_RELEASE_BASE_URL (default the
 # GitHub repo; tests use file://); the URLs written are always GitHub's.
@@ -48,7 +48,6 @@ jq -n --indent 4 --arg ver "$ver" --arg hash "$cli" '{
     description: "Remux Blu-ray and DVD disc images to MKV",
     homepage: "https://github.com/chad3814/zenvik",
     license: "MIT",
-    depends: "extras/mkvtoolnix",
     architecture: {"64bit": {
         url: "https://github.com/chad3814/zenvik/releases/download/v\($ver)/zenvik_\($ver)_windows_amd64.zip",
         hash: $hash,

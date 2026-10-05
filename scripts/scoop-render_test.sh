@@ -59,7 +59,7 @@ eq "CLI url" "$(q zenvik '.architecture."64bit".url')" https://github.com/chad38
 eq "CLI hash is the CLI zip's" "$(q zenvik '.architecture."64bit".hash')" "$cli"
 eq "CLI extract_dir" "$(q zenvik '.architecture."64bit".extract_dir')" zenvik_9.9.9_windows_amd64
 eq "CLI bin" "$(q zenvik .bin)" zenvik.exe
-eq "CLI depends on Extras' mkvtoolnix" "$(q zenvik .depends)" extras/mkvtoolnix
+eq "CLI has no dependency (it bundles mkvmerge.exe)" "$(q zenvik '.depends // "none"')" none
 eq "CLI checkver" "$(q zenvik .checkver)" github
 eq "CLI autoupdate url" "$(q zenvik '.autoupdate.architecture."64bit".url')" 'https://github.com/chad3814/zenvik/releases/download/v$version/zenvik_$version_windows_amd64.zip'
 eq "autoupdate hash regex is literal" "$(q zenvik .autoupdate.hash.regex)" '$sha256\s+$basename'
