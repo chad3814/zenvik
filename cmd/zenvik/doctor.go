@@ -59,7 +59,7 @@ func runDoctor(ctx context.Context, out io.Writer) error {
 	mk, err := mux.Find(ctx, mkvmergePath)
 	mkOK := err == nil
 	if mkOK {
-		fmt.Fprintf(out, "✓ mkvmerge: %s (v%s)\n", mk.Path, mk.Version)
+		fmt.Fprintf(out, "✓ mkvmerge: %s (v%s, %s)\n", mk.Path, mk.Version, mk.Source)
 	} else {
 		fmt.Fprintf(out, "✗ mkvmerge: %v\n", err)
 	}

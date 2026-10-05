@@ -9,7 +9,9 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 )
 
@@ -61,25 +63,56 @@ func ParseVersion(out string) (Version, error) {
 type Mkvmerge struct {
 	Path    string
 	Version Version
+	Source  string   // "config" (an explicit path), "bundled" or "PATH"
 	pre     []string // leading arguments (tests run the test binary as a fake)
 	env     []string // extra environment (tests)
 }
 
-// Find locates mkvmerge at path, or on PATH when path is empty, and checks
-// that it is at least MinVersion.
+// Test hooks.
+var (
+	goos       = runtime.GOOS
+	executable = os.Executable
+	lookPath   = exec.LookPath
+)
+
+// Find locates mkvmerge at path, or when path is empty, beside the running
+// program on Windows (the release zip bundles it) and then on PATH. It
+// checks that it is at least MinVersion.
 func Find(ctx context.Context, path string) (*Mkvmerge, error) {
+	source := "config"
 	if path == "" {
-		p, err := exec.LookPath("mkvmerge")
-		if err != nil {
-			return nil, fmt.Errorf("%w: %s", ErrNotFound, err.Error())
+		var err error
+		if path, source, err = locate(); err != nil {
+			return nil, err
 		}
-		path = p
 	}
-	m := &Mkvmerge{Path: path}
+	m := &Mkvmerge{Path: path, Source: source}
 	if err := m.checkVersion(ctx); err != nil {
 		return nil, err
 	}
 	return m, nil
+}
+
+// locate finds mkvmerge when no path is configured: on Windows, the
+// mkvmerge.exe beside the running program, following symlinks because
+// winget's portable installs start it through one; otherwise PATH.
+func locate() (string, string, error) {
+	if goos == "windows" {
+		if exe, err := executable(); err == nil {
+			if real, err := filepath.EvalSymlinks(exe); err == nil {
+				exe = real
+			}
+			p := filepath.Join(filepath.Dir(exe), "mkvmerge.exe")
+			if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() {
+				return p, "bundled", nil
+			}
+		}
+	}
+	p, err := lookPath("mkvmerge")
+	if err != nil {
+		return "", "", fmt.Errorf("%w: %s", ErrNotFound, err.Error())
+	}
+	return p, "PATH", nil
 }
 
 func (m *Mkvmerge) checkVersion(ctx context.Context) error {

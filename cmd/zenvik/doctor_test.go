@@ -76,7 +76,7 @@ func TestDoctorUsesConfiguredMkvmerge(t *testing.T) {
 	stub := stubMkvmerge(t)
 	writeUserConfig(t, "mkvmerge_path = "+tomlPath(stub))
 	_, out, _ := runCLI("doctor")
-	if line := lineWith(out, "mkvmerge:"); line != "✓ mkvmerge: "+stub+" (v90.0.0)" {
+	if line := lineWith(out, "mkvmerge:"); line != "✓ mkvmerge: "+stub+" (v90.0.0, config)" {
 		t.Errorf("mkvmerge line = %q", line)
 	}
 }
