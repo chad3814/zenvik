@@ -100,7 +100,7 @@ the file-exists check are injected through package variables, as
     <outdir>/manifests/c/chad3814/ZenvikGUI/<ver>/chad3814.ZenvikGUI.installer.yaml
     <outdir>/manifests/c/chad3814/ZenvikGUI/<ver>/chad3814.ZenvikGUI.locale.en-US.yaml
 
-The schema is manifest 1.9.0. Each file starts with the
+The schema is manifest 1.12.0, the version current in winget-pkgs (checked 2026-10-05 against BurntSushi.ripgrep.MSVC). Each file starts with the
 `# yaml-language-server: $schema=…` comment, and
 `ManifestType: version | installer | defaultLocale`.
 
@@ -120,7 +120,7 @@ Installers:
     InstallerUrl: https://github.com/chad3814/zenvik/releases/download/v<ver>/zenvik_<ver>_windows_amd64.zip
     InstallerSha256: <SHA-256 from SHA256SUMS, uppercase>
 ManifestType: installer
-ManifestVersion: 1.9.0
+ManifestVersion: 1.12.0
 ```
 
 The app uses `zenvik-gui_<ver>_windows_amd64\zenvik-gui.exe` with alias
@@ -184,8 +184,9 @@ on any missing or malformed hash.
      then the ref update.
   5. Open the PR into `microsoft/winget-pkgs` `master`, from
      `chad3814:<PackageIdentifier>-<ver>`.
-     - Its title is `New version: <PackageIdentifier> version <ver>`, or
-       `New package: …` the first time.
+     - Its title follows winget-pkgs' PR template: `Update:
+       <PackageIdentifier> to <ver>`, or `New package: <PackageIdentifier>
+       version <ver>` the first time.
      - Its body is winget-pkgs' PR checklist, with the boxes that apply
        ticked and a link to the release.
 
@@ -325,7 +326,9 @@ nothing written on failure.
    environment. I check that the names `WINGET_TOKEN` and `CHOCO_API_KEY`
    are there with `gh secret list --env release`, without reading values.
    `WINGET_TOKEN` is a classic token; `public_repo` scope is enough, and
-   it's suggested if it currently has the full `repo` scope.
+   it's suggested if it currently has the full `repo` scope. On the first
+   winget PR, Microsoft's CLA bot asks the user to sign the Contributor
+   License Agreement once.
 2. **Scoop bucket:** commit the `check.ps1`, README and CI changes, after
    asking.
 3. **zenvik:** merge and push, after asking.
