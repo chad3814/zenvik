@@ -17,7 +17,14 @@ jobs:
           go-version-file: go.mod
       - run: go vet ./...
       - run: go test -race ./...
+      - run: sudo apt-get update && sudo apt-get install -y 7zip
       - run: scripts/release-build.sh "$GITHUB_REF_NAME" linux/amd64 windows/amd64
+      - name: The Windows CLI zip bundles mkvmerge.exe and its notices
+        run: |
+          list=$(unzip -Z1 dist/zenvik_*_windows_amd64.zip)
+          for f in mkvmerge.exe MKVTOOLNIX-NOTICE.txt MKVTOOLNIX-COPYING.txt; do
+            grep -q "/$f\$" <<<"$list" || { echo "missing $f"; exit 1; }
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: cli

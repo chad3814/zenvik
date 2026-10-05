@@ -62,6 +62,24 @@ for target in "${targets[@]}"; do
 		macos_notarize "$MACOS_SIGN_TMP/$name-notary.zip"
 	fi
 	cp "$root/README.md" "$root/LICENSE" "$stage/"
+	# The Windows CLI bundles MKVToolNix's mkvmerge.exe, as the desktop app
+	# does (see third_party/mkvtoolnix.env); zenvik finds it beside itself.
+	if [[ $goos == windows ]]; then
+		# shellcheck source=third_party/mkvtoolnix.env
+		source "$root/third_party/mkvtoolnix.env"
+		mtx=$(mktemp -d)
+		"$root/scripts/fetch-mkvmerge.sh" "$target" "$mtx"
+		if ! "$root/scripts/check-mkvtoolnix-source.sh" "$MKVTOOLNIX_VERSION"; then
+			if [[ ${CI:-} == true ]]; then
+				rm -rf "$mtx"
+				exit 1
+			fi
+			echo "warning: building anyway (not CI); don't publish this build" >&2
+		fi
+		cp "$mtx/mkvmerge.exe" "$mtx"/MKVTOOLNIX-*.txt "$stage/"
+		cp -R "$mtx/MKVTOOLNIX-LICENSES" "$stage/"
+		rm -rf "$mtx"
+	fi
 	if [[ $goos == windows ]]; then
 		(cd "$dist" && zip -qr "$name.zip" "$name")
 	else
