@@ -116,8 +116,10 @@ func caskInstalled(dirExists func(string) bool) bool {
 }
 
 // DetectSelf is Detect for the running binary: os.Executable with symlinks
-// (and Windows junctions) resolved, and os.Stat for the Caskroom check. A
-// binary whose path cannot be found counts as a direct download.
+// resolved, and os.Stat for the Caskroom check. Windows junctions are left as
+// they are (Go 1.23 and later do not resolve mount points in EvalSymlinks);
+// Scoop's current still contains scoop/apps/<name>/. A symlink that cannot be
+// resolved falls back to the raw path, which usually classifies as direct.
 func DetectSelf(p Product) Channel {
 	exe, err := os.Executable()
 	if err != nil {

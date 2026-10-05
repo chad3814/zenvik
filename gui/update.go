@@ -56,7 +56,7 @@ func updateBanner(r update.Result, ch update.Channel) Banner {
 // download, where the About dialog links the releases page instead.
 func (a *App) UpgradeHint() string { return a.deps.Channel.Upgrade }
 
-// CheckForUpdate asks GitHub now and returns the newer release's tag, or ""
+// CheckForUpdate asks this install's source now and returns the newer release's tag, or ""
 // when this build is the latest. Development builds and network problems
 // return an error whose message is shown as is.
 func (a *App) CheckForUpdate() (string, error) {

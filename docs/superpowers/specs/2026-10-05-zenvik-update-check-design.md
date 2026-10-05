@@ -432,7 +432,9 @@ never replaced by a GitHub answer; that would reintroduce the notice the
 channel cannot satisfy.
 
 Both channel sources accept versions without the `v`; the fetchers add it
-before `Parse`. Pre-release builds can only be direct downloads, so they
+before `Parse`. Both offer only final versions: a pre-release directory or an
+approved pre-release package is skipped, matching GitHub's `releases/latest`.
+Pre-release builds can only be direct downloads, so they
 keep asking GitHub.
 
 ### Cache per source

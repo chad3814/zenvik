@@ -23,7 +23,7 @@ export const api = {
   clearFinished: (): Promise<void> => App.ClearFinished(),
   setPaused: (paused: boolean): Promise<void> => App.SetPaused(paused),
   recheckMkvmerge: (): Promise<void> => App.RecheckMkvmerge(),
-  /** checkForUpdate asks GitHub now; it resolves to the newer tag, or '' when current, and rejects with a message. */
+  /** checkForUpdate asks this install's source now; it resolves to the newer tag, or '' when current, and rejects with a message. */
   checkForUpdate: (): Promise<string> => App.CheckForUpdate(),
   /** upgradeHint is the package manager command that upgrades this install, or '' for a direct download. */
   upgradeHint: (): Promise<string> => App.UpgradeHint(),

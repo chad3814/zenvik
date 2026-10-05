@@ -65,8 +65,10 @@ func (c *Checker) fetchWinget(ctx context.Context) (Version, string, error) {
 		if e.Type != "dir" {
 			continue
 		}
+		// Only final versions: GitHub's releases/latest never offers a
+		// pre-release, and winget upgrade would not install one.
 		v, err := Parse("v" + e.Name)
-		if err != nil {
+		if err != nil || v.Pre != "" {
 			continue
 		}
 		if !found || best.Less(v) {
@@ -92,6 +94,7 @@ func (c *Checker) fetchChocolatey(ctx context.Context) (Version, string, error) 
 		return Version{}, "", errors.New("HTTP " + resp.Status)
 	}
 	var feed struct {
+		XMLName xml.Name `xml:"feed"`
 		Entries []struct {
 			Props struct {
 				Version    string `xml:"Version"`
@@ -105,14 +108,18 @@ func (c *Checker) fetchChocolatey(ctx context.Context) (Version, string, error) 
 	if len(feed.Entries) == 0 {
 		return Version{}, "", errors.New(c.Channel.pkg + " is not on Chocolatey yet")
 	}
+	// The community feed returns 40 entries per page, newest first (checked
+	// live 2026-10-05); the rel="next" link is deliberately ignored.
 	var best Version
 	found := false
 	for _, e := range feed.Entries {
 		if !strings.EqualFold(strings.TrimSpace(e.Props.IsApproved), "true") {
 			continue
 		}
+		// Only final versions: GitHub's releases/latest never offers a
+		// pre-release, and choco upgrade would not install one without --pre.
 		v, err := Parse("v" + strings.TrimSpace(e.Props.Version))
-		if err != nil {
+		if err != nil || v.Pre != "" {
 			continue
 		}
 		if !found || best.Less(v) {

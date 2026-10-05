@@ -18,6 +18,7 @@ const wingetListing = `[
   {"name": "1.2.0", "type": "dir"},
   {"name": "1.10.0", "type": "dir"},
   {"name": "1.3.0", "type": "dir"},
+  {"name": "1.11.0-rc1", "type": "dir"},
   {"name": "README.md", "type": "file"},
   {"name": "notes", "type": "dir"},
   {"name": "2.0.0", "type": "file"}
@@ -37,6 +38,10 @@ const chocolateyFeed = `<?xml version="1.0" encoding="utf-8"?>
   <entry>
     <id>https://community.chocolatey.org/api/v2/Packages(Id='zenvik',Version='1.3.0')</id>
     <m:properties><d:Version>1.3.0</d:Version><d:IsApproved m:type="Edm.Boolean">false</d:IsApproved><d:PackageStatus>Submitted</d:PackageStatus></m:properties>
+  </entry>
+  <entry>
+    <id>https://community.chocolatey.org/api/v2/Packages(Id='zenvik',Version='1.4.0-rc1')</id>
+    <m:properties><d:Version>1.4.0-rc1</d:Version><d:IsApproved m:type="Edm.Boolean">true</d:IsApproved><d:PackageStatus>Approved</d:PackageStatus></m:properties>
   </entry>
 </feed>`
 
@@ -114,7 +119,7 @@ func TestChocolateySource(t *testing.T) {
 		t.Errorf("Check on the approved version = %+v, %v; want not newer", r, err)
 	}
 	unapprovedOnly := strings.ReplaceAll(chocolateyFeed, `>true<`, `>false<`)
-	for body, want := range map[string]string{emptyFeed: "not on Chocolatey yet", unapprovedOnly: "no approved version on Chocolatey", "500": "HTTP 500", "{not xml": "invalid response"} {
+	for body, want := range map[string]string{emptyFeed: "not on Chocolatey yet", unapprovedOnly: "no approved version on Chocolatey", "500": "HTTP 500", "{not xml": "invalid response", "<html><body>maintenance</body></html>": "invalid response"} {
 		srv2, _, _ := serve(t, body)
 		_, err := checkerFor(t, chocoGUI, srv2).Force(context.Background(), "v1.1.0")
 		if !errors.Is(err, ErrFetch) || !strings.Contains(err.Error(), want) {
