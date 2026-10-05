@@ -346,11 +346,13 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           function Run { $cmd = $args[0]; $rest = @($args | Select-Object -Skip 1); & $cmd @rest; if ($LASTEXITCODE -ne 0) { throw "$($args -join ' ') exited with $LASTEXITCODE" } }
-          if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-            Install-PackageProvider -Name NuGet -Force | Out-Null
-            Install-Module Microsoft.WinGet.Client -Force -Scope AllUsers
-            Repair-WinGetPackageManager -Latest -Force
-          }
+          # Always bring winget up to date: the runner's can predate the
+          # manifests' schema (1.12), and it then warns on every header.
+          Install-PackageProvider -Name NuGet -Force | Out-Null
+          Install-Module Microsoft.WinGet.Client -Force -Scope AllUsers
+          Repair-WinGetPackageManager -Latest -Force
+          if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { throw 'winget is not on PATH after Repair-WinGetPackageManager' }
+          Run winget --version
           Run winget settings --enable LocalManifestFiles
           $ver = "$env:GITHUB_REF_NAME".TrimStart('v')
           $root = "$env:RUNNER_TEMP\winget\manifests\c\chad3814"
@@ -359,7 +361,11 @@ jobs:
           $pkgs = @("$env:LOCALAPPDATA\Microsoft\WinGet\Packages", "$env:ProgramFiles\WinGet\Packages")
           foreach ($p in 'Zenvik', 'ZenvikGUI') {
             $dir = "$root\$p\$ver"
-            Run winget validate --manifest $dir
+            # winget validate exits non-zero on mere warnings; what counts
+            # is that validation succeeded.
+            $v = (& winget validate --manifest $dir 2>&1) -join "`n"
+            Write-Host $v
+            if ($v -notmatch 'Manifest validation succeeded') { throw "winget validate failed for ${p}: $v" }
             Run winget install --manifest $dir --accept-package-agreements --accept-source-agreements --disable-interactivity
           }
           $cli = $links | ForEach-Object { Join-Path $_ 'zenvik.exe' } | Where-Object { Test-Path $_ } | Select-Object -First 1
