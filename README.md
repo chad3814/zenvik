@@ -11,7 +11,7 @@ License: MIT.
 
 With [Homebrew](https://brew.sh) (macOS or Linux), `brew install chad3814/tap/zenvik` builds zenvik and installs MKVToolNix with it; on macOS, `brew install --cask chad3814/tap/zenvik-gui` installs the desktop app.
 
-With [Scoop](https://scoop.sh) on Windows: `scoop bucket add extras`, `scoop bucket add chad3814 https://github.com/chad3814/scoop-bucket`, then `scoop install chad3814/zenvik` (it installs MKVToolNix with it) or `scoop install chad3814/zenvik-gui` for the desktop app.
+On Windows, with [winget](https://learn.microsoft.com/windows/package-manager/): `winget install chad3814.Zenvik` (the CLI) or `winget install chad3814.ZenvikGUI` (the desktop app). With [Chocolatey](https://chocolatey.org): `choco install zenvik` or `choco install zenvik-gui`. With [Scoop](https://scoop.sh): `scoop bucket add chad3814 https://github.com/chad3814/scoop-bucket`, then `scoop install chad3814/zenvik` or `chad3814/zenvik-gui`. The Windows CLI includes `mkvmerge.exe` from MKVToolNix (GPLv2; the notices and a source link are in the download), so it needs nothing else installed.
 
 Or download the archive for your platform from the
 [releases page](https://github.com/chad3814/zenvik/releases): macOS (Apple silicon `arm64`
