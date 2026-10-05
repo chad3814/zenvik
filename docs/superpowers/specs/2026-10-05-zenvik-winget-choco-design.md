@@ -310,7 +310,7 @@ nothing written on failure.
 - **`scripts/winget-submit_test.sh`:** a fake `gh` on PATH records the
   calls and replies from fixtures. It covers:
   - a new package, which gets the "New package" title;
-  - an existing older version, which gets "New version";
+  - an existing older version, which gets "Update: … to …";
   - the same or a newer version upstream, which is skipped;
   - an existing open PR, which is skipped;
   - the branch and head names, the one-commit tree with exactly three
