@@ -18,4 +18,4 @@ Go module `github.com/chad3814/zenvik/gui` (Wails v2 + React/TypeScript). Design
 - `internal/discs`, `internal/queue` and `internal/errs` never import Wails.
 - TypeScript: strict, never `any`; don't edit `frontend/wailsjs/` by hand.
 - Tests must not touch real config/state (TestMain sets XDG dirs); disc fixtures come from the root module's `internal/testdisc`.
-- Update check: `startUpdateCheck` (launch banner `update`, action `download`) and the bound `CheckForUpdate` go through `Deps.CheckUpdate`/`Deps.ForceUpdate`; tests inject fakes and set `version` to a release tag, since `dev` never checks.
+- Update check: `startUpdateCheck` (launch banner `update`, action `download`) and the bound `CheckForUpdate` go through `Deps.CheckUpdate`/`Deps.ForceUpdate`; tests inject fakes and set `version` to a release tag, since `dev` never checks. `Deps.Channel` (from `update.DetectSelf(update.GUI)`) drives the banner wording and the bound `UpgradeHint`; tests set it directly.

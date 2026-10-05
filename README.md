@@ -20,14 +20,19 @@ binary, this README and the license, and `SHA256SUMS` lists every archive's chec
 (`shasum -a 256 -c SHA256SUMS`). Put `zenvik` somewhere on your `PATH`. zenvik also needs
 MKVToolNix (see [Requirements](#requirements)). `zenvik --version` prints the release.
 
-**Update notifications.** Release builds check GitHub for a newer release at most once a day
-and, when there is one, print a line to stderr after `info`, `rip` or `repair-udf`:
+**Update notifications.** Release builds check for a newer release at most once a day and,
+when there is one, print a line to stderr after `info`, `rip` or `repair-udf`. zenvik works out
+how it was installed from its own path and names the matching command: `brew upgrade zenvik`,
+`scoop update zenvik`, `winget upgrade chad3814.Zenvik` or `choco upgrade zenvik`; a direct
+download gets the releases page instead:
 `zenvik: v1.3.0 is available (you have v1.2.0): https://github.com/chad3814/zenvik/releases/latest`.
-Nothing else is sent, and the answer is cached in `$XDG_STATE_HOME/zenvik/update-check.json`
-(else the user cache directory). The check is skipped when stderr isn't a terminal, with
-`--jsonl`, when `CI` is set, in development builds, when the config has `update_check = false`,
-or when `ZENVIK_NO_UPDATE_CHECK` is set to anything. `zenvik doctor` always checks and reports
-the result on its own line.
+Homebrew, Scoop and direct downloads ask GitHub's releases API; winget and Chocolatey installs ask
+that manager's own feed, so the notice appears only once the package is installable there. The
+request carries only a `zenvik/<version>` user agent, and the answer is cached per source in
+`$XDG_STATE_HOME/zenvik/` (else the user cache directory). The check is skipped when stderr isn't a
+terminal, with `--jsonl`, when `CI` is set, in development builds, when the config has
+`update_check = false`, or when `ZENVIK_NO_UPDATE_CHECK` is set to anything. `zenvik doctor` always
+checks and reports the result on its own line.
 
 The macOS binaries are signed with a Developer ID and notarized by Apple, so they run without
 a Gatekeeper prompt. The first run of the command-line `zenvik` checks its notarization online

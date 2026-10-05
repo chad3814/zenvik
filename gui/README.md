@@ -6,6 +6,6 @@ The macOS app needs macOS 13 or later. The macOS and Windows apps include `mkvme
 
 Zenvik reads the same config file as the `zenvik` command (`zenvik doctor` shows where it is): `output_dir`, `template`, `preset`, `min_duration` and `mkvmerge_path` apply here too.
 
-Release builds check GitHub for a newer release at most once a day when the app opens and show a banner with a Download button; **About → Check for updates** checks on demand. `update_check = false` in the config or the `ZENVIK_NO_UPDATE_CHECK` environment variable turns the launch check off.
+Release builds check for a newer release at most once a day when the app opens and show a banner: with the upgrade command for an app installed by Homebrew, Scoop, winget or Chocolatey (winget and Chocolatey are asked directly, so the banner waits until the package is installable there), or with a Download button for a direct download; **About → Check for updates** checks on demand. `update_check = false` in the config or the `ZENVIK_NO_UPDATE_CHECK` environment variable turns the launch check off.
 
 The macOS app is signed with a Developer ID and notarized by Apple (macOS 13 or later).
