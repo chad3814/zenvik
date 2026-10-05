@@ -20,6 +20,15 @@ binary, this README and the license, and `SHA256SUMS` lists every archive's chec
 (`shasum -a 256 -c SHA256SUMS`). Put `zenvik` somewhere on your `PATH`. zenvik also needs
 MKVToolNix (see [Requirements](#requirements)). `zenvik --version` prints the release.
 
+**Update notifications.** Release builds check GitHub for a newer release at most once a day
+and, when there is one, print a line to stderr after `info`, `rip` or `repair-udf`:
+`zenvik: v1.3.0 is available (you have v1.2.0): https://github.com/chad3814/zenvik/releases/latest`.
+Nothing else is sent, and the answer is cached in `$XDG_STATE_HOME/zenvik/update-check.json`
+(else the user cache directory). The check is skipped when stderr isn't a terminal, with
+`--jsonl`, when `CI` is set, in development builds, when the config has `update_check = false`,
+or when `ZENVIK_NO_UPDATE_CHECK` is set to anything. `zenvik doctor` always checks and reports
+the result on its own line.
+
 The macOS binaries are signed with a Developer ID and notarized by Apple, so they run without
 a Gatekeeper prompt. The first run of the command-line `zenvik` checks its notarization online
 (a bare binary can't carry the ticket the app has stapled inside it).
@@ -45,7 +54,7 @@ zenvik rip --dry-run <path>           # show the output path and mkvmerge comman
 zenvik rip --jsonl <path>             # machine-readable events (see below)
 zenvik rip --name "Big Buck Bunny" --year 2008 <path>   # → ./Big Buck Bunny (2008).mkv
 zenvik rip --preset plex <path>                          # use a config preset
-zenvik doctor                                            # check mkvmerge, mounting, config, leftovers
+zenvik doctor                                            # check mkvmerge, mounting, config, leftovers, updates
 zenvik repair-udf --dry-run <image>...                   # check images Linux can't mount (see below)
 ```
 
@@ -177,6 +186,7 @@ template      = "{name}[ ({year})].mkv"  # default shown
 min_duration  = "2m"                     # shorter titles are never the main feature
 mkvmerge_path = ""                       # default: search PATH
 preset        = ""                       # preset applied when --preset isn't given
+update_check  = true                     # say when a newer release exists (daily check)
 
 [presets.plex]
 output_dir = "/Volumes/Media/Movies"
