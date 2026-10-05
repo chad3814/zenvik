@@ -146,15 +146,15 @@ func TestResolvePrecedence(t *testing.T) {
 		flags Flags
 		want  Settings
 	}{
-		{"defaults", &File{}, Flags{}, Settings{OutputDir: ".", Template: DefaultTemplate, MinDuration: 2 * time.Minute}},
+		{"defaults", &File{}, Flags{}, Settings{OutputDir: ".", Template: DefaultTemplate, MinDuration: 2 * time.Minute, UpdateCheck: true}},
 		{"file default preset", file, Flags{}, Settings{OutputDir: "/media/plex", Template: "{name}/{name}.mkv", MinDuration: 90 * time.Second,
-			MkvmergePath: filepath.Join(home, "bin", "mkvmerge"), Preset: "plex"}},
+			MkvmergePath: filepath.Join(home, "bin", "mkvmerge"), Preset: "plex", UpdateCheck: true}},
 		{"flag preset wins", file, Flags{Preset: ptr("kodi")}, Settings{OutputDir: filepath.Join(home, "Movies"), Template: DefaultTemplate,
-			MinDuration: 10 * time.Minute, MkvmergePath: filepath.Join(home, "bin", "mkvmerge"), Preset: "kodi"}},
+			MinDuration: 10 * time.Minute, MkvmergePath: filepath.Join(home, "bin", "mkvmerge"), Preset: "kodi", UpdateCheck: true}},
 		{"flags win over preset", file, Flags{OutputDir: ptr("/tmp/out"), Template: ptr("{label}.mkv")}, Settings{OutputDir: "/tmp/out",
-			Template: "{label}.mkv", MinDuration: 90 * time.Second, MkvmergePath: filepath.Join(home, "bin", "mkvmerge"), Preset: "plex"}},
+			Template: "{label}.mkv", MinDuration: 90 * time.Second, MkvmergePath: filepath.Join(home, "bin", "mkvmerge"), Preset: "plex", UpdateCheck: true}},
 		{"empty flag preset disables default preset", file, Flags{Preset: ptr("")}, Settings{OutputDir: filepath.Join(home, "Movies"),
-			Template: DefaultTemplate, MinDuration: 90 * time.Second, MkvmergePath: filepath.Join(home, "bin", "mkvmerge")}},
+			Template: DefaultTemplate, MinDuration: 90 * time.Second, MkvmergePath: filepath.Join(home, "bin", "mkvmerge"), UpdateCheck: true}},
 	}
 	for _, tt := range tests {
 		got, err := Resolve(tt.file, tt.flags)
@@ -201,5 +201,35 @@ func TestExpandHome(t *testing.T) {
 		if got, err := ExpandHome(in); err != nil || got != want {
 			t.Errorf("ExpandHome(%q) = %q, %v; want %q", in, got, err, want)
 		}
+	}
+}
+
+func TestUpdateCheck(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body string
+		want bool
+	}{
+		"absent": {"", true},
+		"true":   {"update_check = true", true},
+		"false":  {"update_check = false", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, err := Load(writeConfig(t, tc.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			s, err := Resolve(f, Flags{})
+			if err != nil || s.UpdateCheck != tc.want {
+				t.Errorf("UpdateCheck = %v, %v; want %v", s.UpdateCheck, err, tc.want)
+			}
+		})
+	}
+	_, err := Load(writeConfig(t, `update_check = "yes"`))
+	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "update_check") {
+		t.Errorf("non-boolean update_check: %v, want ErrInvalid naming the key", err)
+	}
+	_, err = Load(writeConfig(t, "[presets.plex]\nupdate_check = false"))
+	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "update_check") {
+		t.Errorf("update_check in a preset: %v, want ErrInvalid naming the key", err)
 	}
 }

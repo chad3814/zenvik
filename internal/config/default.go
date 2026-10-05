@@ -28,6 +28,10 @@ min_duration = %s
 # mkvmerge executable; empty searches PATH.
 mkvmerge_path = ""
 
+# Tell me when a newer zenvik is released (checks GitHub at most once a day;
+# the ZENVIK_NO_UPDATE_CHECK environment variable also turns this off).
+update_check = true
+
 # preset = "plex"
 #
 # [presets.plex]

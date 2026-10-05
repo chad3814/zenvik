@@ -42,6 +42,7 @@ type File struct {
 	Template     *string           `toml:"template"`
 	MinDuration  *string           `toml:"min_duration"`
 	MkvmergePath *string           `toml:"mkvmerge_path"`
+	UpdateCheck  *bool             `toml:"update_check"`
 	Preset       *string           `toml:"preset"`
 	Presets      map[string]Preset `toml:"presets"`
 }
@@ -148,6 +149,7 @@ type Settings struct {
 	Template     string
 	MinDuration  time.Duration
 	MkvmergePath string // empty: search PATH
+	UpdateCheck  bool   // tell the user about newer releases (default true)
 	Preset       string // preset applied, "" if none
 }
 
@@ -173,7 +175,7 @@ func (f *File) Invalid(format string, args ...any) error {
 // empty name selects none), then flags. "~" is expanded in paths. Errors
 // wrap ErrInvalid and name f.Path.
 func Resolve(f *File, flags Flags) (Settings, error) {
-	s := Settings{OutputDir: ".", Template: DefaultTemplate, MinDuration: DefaultMinDuration}
+	s := Settings{OutputDir: ".", Template: DefaultTemplate, MinDuration: DefaultMinDuration, UpdateCheck: true}
 	apply := func(prefix string, out, tmpl, minDur *string) error {
 		if out != nil {
 			s.OutputDir = *out
@@ -195,6 +197,9 @@ func Resolve(f *File, flags Flags) (Settings, error) {
 	}
 	if f.MkvmergePath != nil {
 		s.MkvmergePath = *f.MkvmergePath
+	}
+	if f.UpdateCheck != nil {
+		s.UpdateCheck = *f.UpdateCheck
 	}
 	name := ""
 	if f.Preset != nil {

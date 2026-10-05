@@ -33,7 +33,7 @@ func TestWriteDefault(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("written file resolves to %+v, built-in defaults are %+v", got, want)
 	}
-	for _, key := range []string{"output_dir", "template", "min_duration", "mkvmerge_path"} {
+	for _, key := range []string{"output_dir", "template", "min_duration", "mkvmerge_path", "update_check"} {
 		if f2 := mustRead(t, path); !strings.Contains(f2, "\n"+key+" = ") {
 			t.Errorf("file does not set %s:\n%s", key, f2)
 		}
