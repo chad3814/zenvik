@@ -37,13 +37,24 @@ func (a *App) startUpdateCheck(ctx context.Context) {
 		if err != nil || !r.Newer {
 			return
 		}
-		a.setBanner(updateBanner(r))
+		a.setBanner(updateBanner(r, a.deps.Channel))
 	}()
 }
 
-func updateBanner(r update.Result) Banner {
-	return Banner{ID: "update", Message: "Zenvik " + r.Latest.String() + " is available.", Action: "download", URL: update.LatestPage}
+// updateBanner says a newer release exists: with the package manager's
+// upgrade command for a managed install, or with a Download button for a
+// direct download.
+func updateBanner(r update.Result, ch update.Channel) Banner {
+	msg := "Zenvik " + r.Latest.String() + " is available."
+	if ch.Managed() {
+		return Banner{ID: "update", Message: msg + " Upgrade with: " + ch.Upgrade}
+	}
+	return Banner{ID: "update", Message: msg, Action: "download", URL: update.LatestPage}
 }
+
+// UpgradeHint is the command that upgrades this install, or "" for a direct
+// download, where the About dialog links the releases page instead.
+func (a *App) UpgradeHint() string { return a.deps.Channel.Upgrade }
 
 // CheckForUpdate asks GitHub now and returns the newer release's tag, or ""
 // when this build is the latest. Development builds and network problems

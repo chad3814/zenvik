@@ -78,6 +78,7 @@ type testOpts struct {
 	noUpdateCheck bool                                                             // config update_check = false
 	checkUpdate   func(ctx context.Context, current string) (update.Result, error) // default: nil (never called)
 	forceUpdate   func(ctx context.Context, current string) (update.Result, error)
+	channel       update.Channel // where the app was installed from; zero: direct
 }
 
 func newTestApp(t *testing.T, o testOpts) (*App, *fakeShell, string) {
@@ -108,6 +109,7 @@ func newTestApp(t *testing.T, o testOpts) (*App, *fakeShell, string) {
 		GOOS:        "linux",
 		CheckUpdate: o.checkUpdate,
 		ForceUpdate: o.forceUpdate,
+		Channel:     o.channel,
 	}
 	sh := &fakeShell{confirm: true}
 	a := NewApp(deps)

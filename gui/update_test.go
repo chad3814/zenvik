@@ -137,3 +137,31 @@ func TestCheckForUpdateInDevBuild(t *testing.T) {
 		t.Errorf("CheckForUpdate = %q, %v", got, err)
 	}
 }
+
+var viaChocolatey = update.Detect(update.GUI, `C:\ProgramData\chocolatey\lib\zenvik-gui\tools\zenvik-gui_1.2.0_windows_amd64\zenvik-gui.exe`, nil)
+
+func TestUpdateBannerForManagedInstall(t *testing.T) {
+	asRelease(t)
+	_, sh, _ := newTestApp(t, testOpts{
+		channel: viaChocolatey,
+		checkUpdate: func(_ context.Context, current string) (update.Result, error) {
+			return fakeResult(t, current, "v1.3.0"), nil
+		},
+	})
+	waitFor(t, "update banner", func() bool { _, ok := banners(sh)["update"]; return ok })
+	b := banners(sh)["update"]
+	if b.Message != "Zenvik v1.3.0 is available. Upgrade with: choco upgrade zenvik-gui" || b.Action != "" || b.URL != "" {
+		t.Errorf("banner = %+v", b)
+	}
+}
+
+func TestUpgradeHint(t *testing.T) {
+	a, _, _ := newTestApp(t, testOpts{channel: viaChocolatey})
+	if got := a.UpgradeHint(); got != "choco upgrade zenvik-gui" {
+		t.Errorf("UpgradeHint = %q", got)
+	}
+	direct, _, _ := newTestApp(t, testOpts{})
+	if got := direct.UpgradeHint(); got != "" {
+		t.Errorf("UpgradeHint for a direct install = %q", got)
+	}
+}

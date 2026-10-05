@@ -34,6 +34,7 @@ type Deps struct {
 	GOOS         string
 	CheckUpdate  func(ctx context.Context, current string) (update.Result, error) // passive, cached; nil: never
 	ForceUpdate  func(ctx context.Context, current string) (update.Result, error) // About's explicit check
+	Channel      update.Channel                                                   // where the app was installed from; zero: a direct download
 }
 
 // Banner is a message across the top of the window.

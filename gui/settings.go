@@ -71,7 +71,8 @@ func defaultDeps() (Deps, error) {
 		exe = ""
 	}
 	exe = resolveExecutable(exe)
-	checker := &update.Checker{UserAgent: "zenvik-gui/" + version}
+	channel := update.DetectSelf(update.GUI)
+	checker := &update.Checker{UserAgent: "zenvik-gui/" + version, Channel: channel}
 	return Deps{
 		StatePath:    state,
 		LoadSettings: loadSettings,
@@ -84,5 +85,6 @@ func defaultDeps() (Deps, error) {
 		Executable:  exe,
 		CheckUpdate: checker.Check,
 		ForceUpdate: checker.Force,
+		Channel:     channel,
 	}, nil
 }
