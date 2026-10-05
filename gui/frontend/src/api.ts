@@ -25,6 +25,8 @@ export const api = {
   recheckMkvmerge: (): Promise<void> => App.RecheckMkvmerge(),
   /** checkForUpdate asks GitHub now; it resolves to the newer tag, or '' when current, and rejects with a message. */
   checkForUpdate: (): Promise<string> => App.CheckForUpdate(),
+  /** upgradeHint is the package manager command that upgrades this install, or '' for a direct download. */
+  upgradeHint: (): Promise<string> => App.UpgradeHint(),
   reloadConfig: (): Promise<void> => App.ReloadConfig(),
   reveal: (id: string): Promise<string> => App.Reveal(id),
   /** openURL opens url in the system browser; the app's window never navigates. */

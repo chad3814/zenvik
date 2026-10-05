@@ -9,6 +9,7 @@ vi.mock('../api', () => ({
     mkvmergeInfo: vi.fn(() => Promise.resolve('')),
     mkvmergeSourceURL: vi.fn(() => Promise.resolve('')),
     checkForUpdate: vi.fn(() => Promise.resolve('')),
+    upgradeHint: vi.fn(() => Promise.resolve('')),
     openURL: vi.fn(),
   },
 }));
@@ -40,6 +41,23 @@ describe('About', () => {
     expect(await screen.findByText('v1.3.0 is available')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('link', { name: 'Download' }));
     expect(api.openURL).toHaveBeenCalledWith('https://github.com/chad3814/zenvik/releases/latest');
+  });
+
+  it('names the upgrade command for a managed install instead of a download link', async () => {
+    vi.mocked(api.checkForUpdate).mockResolvedValueOnce('v1.3.0');
+    vi.mocked(api.upgradeHint).mockResolvedValueOnce('brew upgrade --cask zenvik-gui');
+    await open();
+    await userEvent.click(screen.getByRole('link', { name: 'Check for updates' }));
+    expect(await screen.findByText('v1.3.0 is available')).toBeInTheDocument();
+    expect(screen.getByText('brew upgrade --cask zenvik-gui')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Download' })).toBeNull();
+  });
+
+  it('does not ask for the upgrade hint when already current', async () => {
+    await open();
+    await userEvent.click(screen.getByRole('link', { name: 'Check for updates' }));
+    await screen.findByText('You have the latest version');
+    expect(api.upgradeHint).not.toHaveBeenCalled();
   });
 
   it('shows the error text when the check fails', async () => {

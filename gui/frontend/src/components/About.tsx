@@ -14,7 +14,7 @@ type UpdateState =
   | { kind: 'idle' }
   | { kind: 'checking' }
   | { kind: 'current' }
-  | { kind: 'available'; tag: string }
+  | { kind: 'available'; tag: string; hint: string }
   | { kind: 'error'; message: string };
 
 export function About() {
@@ -35,7 +35,12 @@ export function About() {
     setUpdate({ kind: 'checking' });
     try {
       const tag = await api.checkForUpdate();
-      setUpdate(tag ? { kind: 'available', tag } : { kind: 'current' });
+      if (!tag) {
+        setUpdate({ kind: 'current' });
+        return;
+      }
+      const hint = await api.upgradeHint();
+      setUpdate({ kind: 'available', tag, hint });
     } catch (e) {
       setUpdate({ kind: 'error', message: e instanceof Error ? e.message : String(e) });
     }
@@ -60,7 +65,20 @@ export function About() {
       case 'current':
         return <> · <span>You have the latest version</span></>;
       case 'available':
-        return <> · <span>{update.tag} is available</span> · {link(releasesURL, 'Download')}</>;
+        return (
+          <>
+            {' · '}
+            <span>{update.tag} is available</span>
+            {update.hint ? (
+              <>
+                {' · upgrade with: '}
+                <code>{update.hint}</code>
+              </>
+            ) : (
+              <> · {link(releasesURL, 'Download')}</>
+            )}
+          </>
+        );
       case 'error':
         return <> · <span>{update.message}</span></>;
     }
