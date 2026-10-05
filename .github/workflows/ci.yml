@@ -122,3 +122,21 @@ jobs:
           # shellcheck source=/dev/null
           source third_party/mkvtoolnix.env
           scripts/check-mkvtoolnix-source.sh "$MKVTOOLNIX_VERSION"
+
+  winget-check:
+    # Runs the release's winget check on the latest published release's
+    # manifests, so a change to it is proven before a tag depends on it.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Render the latest release's winget manifests
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release view -R "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          echo "TAG=$tag" >>"$GITHUB_ENV"
+          scripts/winget-render.sh "$tag" "$RUNNER_TEMP/winget"
+      - name: winget-check.ps1
+        shell: pwsh
+        run: ./scripts/winget-check.ps1 -Manifests "$env:RUNNER_TEMP\winget\manifests\c\chad3814" -Version ("$env:TAG".TrimStart('v'))
