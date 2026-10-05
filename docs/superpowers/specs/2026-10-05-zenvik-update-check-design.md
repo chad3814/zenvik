@@ -15,16 +15,15 @@ and never changes what a command does or returns.
 | Question | Decision |
 |---|---|
 | Where it shows | Passive: CLI stderr after a command, GUI banner at launch. Explicit: `zenvik doctor`, About dialog |
-| Source of truth | GitHub Releases API, `GET https://api.github.com/repos/chad3814/zenvik/releases/latest` (final releases only; pre-releases are never offered) |
-| What the notice says | Version numbers and the releases page URL. No install-method hints |
-| How often | At most one request per 24 hours per machine, shared by the CLI and the app through one cache file |
+| Source of truth | GitHub Releases API, `GET https://api.github.com/repos/chad3814/zenvik/releases/latest` (final releases only; pre-releases are never offered), except winget and Chocolatey installs, which ask their own feed so the notice appears only once the package is installable there (see Install channels) |
+| What the notice says | Version numbers, then the upgrade command for the package manager zenvik was installed with, or the releases page URL for a direct download (see Install channels) |
+| How often | At most one request per 24 hours per machine and source, shared by the CLI and the app through one cache file per source |
 | Opt-out | Config `update_check = false`, or env `ZENVIK_NO_UPDATE_CHECK` set. Either disables the passive check; neither disables `doctor` or About |
 | Development builds | Never check. Keeps `go test` offline and `dev` builds quiet |
 | Shared code | One package, `internal/update`, in the root module, standard library only |
 | Failures | Silent for passive checks, shown as text in `doctor` and About. Never affect exit codes |
 
 Out of scope, each a possible later change:
-- hints that depend on how zenvik was installed (`brew upgrade`, `scoop update`);
 - a pre-release channel;
 - downloading or installing the update;
 - a dismiss control on the GUI banner;
@@ -340,3 +339,182 @@ CI is unchanged. No test reaches the network.
   and the skip conditions.
 - `docs/superpowers/specs/2026-10-01-zenvik-v1-design.md` is not edited; this
   document stands alone.
+
+## Install channels (amendment, 2026-10-05)
+
+Approved in conversation after the first implementation landed. It replaces
+"no install-method hints" above: the notice now names the upgrade command
+for the package manager zenvik came from, and for the two managers that lag
+the GitHub release it asks that manager's own feed, so a user is told about
+an update only when their manager can install it.
+
+### Detection
+
+Detection is local and runs before any network request. The binary's own
+path (`os.Executable`, symlinks resolved) is normalised to forward slashes
+and lower case and matched against the locations the published packages
+unpack to. Each product matches only its own package names.
+
+| Match (CLI / GUI) | Channel | Latest comes from | Upgrade command (CLI / GUI) |
+|---|---|---|---|
+| `/cellar/zenvik/` / — | Homebrew | GitHub | `brew upgrade zenvik` / — |
+| — / path contains `/zenvik.app/` and a directory `Caskroom/zenvik-gui` exists under `/opt/homebrew` or `/usr/local` | Homebrew | GitHub | — / `brew upgrade --cask zenvik-gui` |
+| `/scoop/apps/zenvik/` / `/scoop/apps/zenvik-gui/` | Scoop | GitHub | `scoop update zenvik` / `scoop update zenvik-gui` |
+| `/winget/packages/chad3814.zenvik_` / `/winget/packages/chad3814.zenvikgui_` | winget | winget-pkgs | `winget upgrade chad3814.Zenvik` / `winget upgrade chad3814.ZenvikGUI` |
+| `/chocolatey/lib/zenvik/` / `/chocolatey/lib/zenvik-gui/` | Chocolatey | Chocolatey community feed | `choco upgrade zenvik` / `choco upgrade zenvik-gui` |
+| anything else, or no executable path | direct | GitHub | the releases page URL |
+
+Homebrew's formula builds from source into the Cellar, and Scoop unpacks
+our release zip; both are bumped by the release workflow within minutes of
+a release, so GitHub is their truth and only the message changes. The tap
+and bucket files are never fetched or parsed.
+
+```go
+// Product says which binary is asking, so detection matches its own
+// package names.
+type Product int
+
+const (
+	CLI Product = iota
+	GUI
+)
+
+// Channel is where this binary was installed from. The zero value is a
+// direct download: GitHub is the source and the notice links the releases
+// page.
+type Channel struct {
+	Name    string // "Homebrew", "Scoop", "winget", "Chocolatey"; "" for direct
+	Upgrade string // the command that upgrades; "" for direct
+	// unexported: which source answers and the package id it asks about
+}
+
+// Detect classifies exe for p. dirExists answers the Caskroom check;
+// tests inject it. Detect never touches the network.
+func Detect(p Product, exe string, dirExists func(string) bool) Channel
+
+// DetectSelf is Detect for the running binary (os.Executable, symlinks
+// resolved, os.Stat). A failure to find the executable is "direct".
+func DetectSelf(p Product) Channel
+
+// Managed reports whether a package manager owns this install.
+func (c Channel) Managed() bool
+```
+
+### Sources
+
+`Checker` gains `Channel Channel`. Its zero value keeps today's behaviour
+exactly (GitHub, `update-check.json`), so existing callers and tests are
+unchanged. `URL` still overrides the endpoint, whichever source is in use,
+which is how tests point each source at an `httptest` server.
+
+- **GitHub** (direct, Homebrew, Scoop): unchanged.
+- **winget**: `GET https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/c/chad3814/<Zenvik|ZenvikGUI>`
+  with the same headers as the GitHub source. The body is a JSON array of
+  `{"name": "...", "type": "dir"}` entries, one per published version. The
+  latest is the highest directory name that parses as a version once `v`
+  is prefixed. A 404 means the package is not on winget yet; it is an
+  `ErrFetch` with that detail. No parseable directory is an `ErrFetch`
+  too. `Result.URL` is empty for this source.
+- **Chocolatey**: `GET https://community.chocolatey.org/api/v2/FindPackagesById()?id='<zenvik|zenvik-gui>'`
+  with `Accept: application/atom+xml` and the user agent. The body is an
+  Atom feed; each `entry` has `properties` with `Version`, `IsApproved`
+  (`"true"`/`"false"`) and `PackageStatus`. The latest is the highest
+  `Version` (with `v` prefixed) whose `IsApproved` is `true`. A version
+  still in moderation is never offered. An empty feed, or no approved
+  version, is an `ErrFetch` with that detail. `Result.URL` is empty.
+
+  Checked against the live feed on 2026-10-05: the `git` package's entry
+  carries `IsApproved` and `PackageStatus = Approved`; zenvik itself has
+  no entries yet, since no release has run the new publisher.
+
+A channel source that fails is cached as a failure like any other and is
+never replaced by a GitHub answer; that would reintroduce the notice the
+channel cannot satisfy.
+
+Both channel sources accept versions without the `v`; the fetchers add it
+before `Parse`. Pre-release builds can only be direct downloads, so they
+keep asking GitHub.
+
+### Cache per source
+
+The formula CLI and the cask app share one state directory but may ask
+different sources, so the cache is one file per source:
+
+| Source | File |
+|---|---|
+| GitHub | `update-check.json` (unchanged) |
+| winget | `update-check-winget-<id>.json`, e.g. `update-check-winget-chad3814.Zenvik.json` |
+| Chocolatey | `update-check-chocolatey-<id>.json`, e.g. `update-check-chocolatey-zenvik.json` |
+
+Each file also records `"source"` (`"github"`, `"winget:chad3814.Zenvik"`,
+`"chocolatey:zenvik"`); a file whose source does not match the checker's is
+treated as absent. `Checker.CachePath`, when set, still wins (tests).
+
+### Messages
+
+For a managed install the upgrade command replaces the link; a direct
+install reads as before.
+
+CLI notice:
+
+```
+zenvik: v1.3.0 is available (you have v1.2.0): https://github.com/chad3814/zenvik/releases/latest
+zenvik: v1.3.0 is available (you have v1.2.0); upgrade with: brew upgrade zenvik
+```
+
+`zenvik doctor`:
+
+```
+✓ zenvik v1.2.0 is the latest release                      (direct)
+✓ zenvik v1.2.0 is the latest on Chocolatey                (managed)
+! zenvik v1.3.0 is available: https://github.com/chad3814/zenvik/releases/latest
+! zenvik v1.3.0 is available on winget: winget upgrade chad3814.Zenvik
+! update check: <detail>                                   (direct)
+! update check on winget: <detail>                         (managed)
+- update check: skipped in development builds
+```
+
+GUI banner: `Zenvik v1.3.0 is available. Upgrade with: brew upgrade --cask zenvik-gui`
+with no button; a direct install keeps `Zenvik v1.3.0 is available.` and the
+Download button. About: after "v1.3.0 is available", a managed install shows
+"· upgrade with: `<command>`" (the command in a `<code>` element) and a
+direct install shows the Download link, as before.
+
+New bound method `UpgradeHint() string` returns the channel's upgrade
+command, or `""` for a direct install. `Deps` gains `Channel update.Channel`,
+set by `defaultDeps` from `DetectSelf(update.GUI)` and used both to build
+the checker and for the banner and About text; tests set it directly.
+
+The CLI's `newUpdateChecker` builds its checker with `DetectSelf(update.CLI)`;
+the notice and doctor read the checker's `Channel` for the wording. The
+checker is created once per command and kept on `updateNotice`.
+
+### Testing
+
+- `Detect`: a table covering every row above for both products, in macOS
+  and Windows path styles (backslashes, mixed case), the Caskroom check with
+  `dirExists` true and false and under both prefixes, a CLI binary found in a
+  GUI package path (direct), an empty path (direct), and that `Managed()`
+  and `Upgrade` agree.
+- Sources: `httptest` fixtures — a winget contents listing with several
+  version directories plus a non-directory entry and a non-version name, a
+  404; a Chocolatey Atom feed with an approved older version and an
+  unapproved newer one (the older is latest), an empty feed, malformed XML.
+  Headers per source. The `v`-less versions parse.
+- Cache: the two channel sources write their own files and never read
+  `update-check.json`; a GitHub file with a `source` from another checker
+  is treated as absent.
+- Real feeds, gated by `ZENVIK_NET_TESTS=1` like `fetch-mkvmerge_test.sh`:
+  the winget listing for `Git/Git` and the Chocolatey feed for `git` each
+  yield a version, pinning the response shapes; skipped otherwise.
+- CLI: the notice and the four doctor lines for a managed channel, using
+  a `Checker.Channel` injected through `newUpdateChecker`.
+- GUI: banner text and absent button for a managed channel; `UpgradeHint`
+  for managed and direct. Frontend: About renders the command for a
+  managed install and the Download link for a direct one.
+
+### Documentation
+
+README's update paragraph names the five channels and their commands;
+`gui/README.md` mentions the banner text; both `CLAUDE.md` files note
+`Detect`/`DetectSelf` and the per-source cache files.
