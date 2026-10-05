@@ -11,6 +11,7 @@ import (
 	"github.com/chad3814/zenvik/internal/config"
 	"github.com/chad3814/zenvik/internal/mux"
 	"github.com/chad3814/zenvik/internal/naming"
+	"github.com/chad3814/zenvik/internal/update"
 )
 
 // loadSettings reads zenvik's config file the way the CLI does, without
@@ -70,6 +71,7 @@ func defaultDeps() (Deps, error) {
 		exe = ""
 	}
 	exe = resolveExecutable(exe)
+	checker := &update.Checker{UserAgent: "zenvik-gui/" + version}
 	return Deps{
 		StatePath:    state,
 		LoadSettings: loadSettings,
@@ -77,8 +79,10 @@ func defaultDeps() (Deps, error) {
 		Ripper: func(open discs.Opener, mkvmerge func() string) queue.Ripper {
 			return queue.LibRipper{Open: open, MkvmergePath: mkvmerge}
 		},
-		Home:       home,
-		GOOS:       goruntime.GOOS,
-		Executable: exe,
+		Home:        home,
+		GOOS:        goruntime.GOOS,
+		Executable:  exe,
+		CheckUpdate: checker.Check,
+		ForceUpdate: checker.Force,
 	}, nil
 }

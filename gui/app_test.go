@@ -14,6 +14,7 @@ import (
 	"github.com/chad3814/zenvik/gui/internal/queue"
 	"github.com/chad3814/zenvik/internal/config"
 	"github.com/chad3814/zenvik/internal/testdisc"
+	"github.com/chad3814/zenvik/internal/update"
 )
 
 type fakeShell struct {
@@ -73,6 +74,10 @@ type testOpts struct {
 	mkvmerge    error
 	template    string
 	ripper      queue.Ripper // default: blockRipper
+
+	noUpdateCheck bool                                                             // config update_check = false
+	checkUpdate   func(ctx context.Context, current string) (update.Result, error) // default: nil (never called)
+	forceUpdate   func(ctx context.Context, current string) (update.Result, error)
 }
 
 func newTestApp(t *testing.T, o testOpts) (*App, *fakeShell, string) {
@@ -90,7 +95,7 @@ func newTestApp(t *testing.T, o testOpts) (*App, *fakeShell, string) {
 			if o.settingsErr != nil {
 				return config.Settings{}, o.settingsErr
 			}
-			return config.Settings{OutputDir: ".", Template: tmpl, MinDuration: config.DefaultMinDuration}, nil
+			return config.Settings{OutputDir: ".", Template: tmpl, MinDuration: config.DefaultMinDuration, UpdateCheck: !o.noUpdateCheck}, nil
 		},
 		FindMkvmerge: func(context.Context, string) (string, error) { return "102.0.0", o.mkvmerge },
 		Ripper: func(discs.Opener, func() string) queue.Ripper {
@@ -99,8 +104,10 @@ func newTestApp(t *testing.T, o testOpts) (*App, *fakeShell, string) {
 			}
 			return blockRipper{release}
 		},
-		Home: home,
-		GOOS: "linux",
+		Home:        home,
+		GOOS:        "linux",
+		CheckUpdate: o.checkUpdate,
+		ForceUpdate: o.forceUpdate,
 	}
 	sh := &fakeShell{confirm: true}
 	a := NewApp(deps)

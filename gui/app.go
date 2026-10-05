@@ -15,6 +15,7 @@ import (
 	"github.com/chad3814/zenvik/gui/internal/errs"
 	"github.com/chad3814/zenvik/gui/internal/queue"
 	"github.com/chad3814/zenvik/internal/config"
+	"github.com/chad3814/zenvik/internal/update"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -31,13 +32,16 @@ type Deps struct {
 	Ripper       func(open discs.Opener, mkvmergePath func() string) queue.Ripper
 	Home         string
 	GOOS         string
+	CheckUpdate  func(ctx context.Context, current string) (update.Result, error) // passive, cached; nil: never
+	ForceUpdate  func(ctx context.Context, current string) (update.Result, error) // About's explicit check
 }
 
 // Banner is a message across the top of the window.
 type Banner struct {
 	ID      string `json:"id"`
 	Message string `json:"message"`
-	Action  string `json:"action,omitempty"` // "recheck": show a Recheck button
+	Action  string `json:"action,omitempty"` // "recheck": a Recheck button; "download": a Download button opening URL
+	URL     string `json:"url,omitempty"`
 }
 
 // App is the object bound to the frontend. Its exported methods are the
@@ -107,6 +111,7 @@ func (a *App) init(ctx context.Context, sh Shell) error {
 		a.setBanner(Banner{ID: "queue", Message: w})
 	}
 	a.recheckMkvmerge()
+	a.startUpdateCheck(ctx)
 	q.Start(ctx)
 	return nil
 }
