@@ -55,7 +55,9 @@ foreach ($id in 'chad3814.Zenvik', 'chad3814.ZenvikGUI') {
   $out = (Run $mk.FullName --version) -join "`n"
   if ($out -notlike 'mkvmerge v*') { throw "$id's mkvmerge.exe printed: $out" }
 }
-foreach ($id in 'chad3814.ZenvikGUI', 'chad3814.Zenvik') {
-  Run winget uninstall --id $id --exact --accept-source-agreements --disable-interactivity
+# Packages installed from a local manifest aren't listed under their winget
+# ID, so uninstall by the same manifest.
+foreach ($p in 'ZenvikGUI', 'Zenvik') {
+  Run winget uninstall --manifest "$root\$p\$ver" --accept-source-agreements --disable-interactivity
 }
 Write-Host 'winget-check: all checks passed'
