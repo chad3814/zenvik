@@ -40,6 +40,7 @@ type Checker struct {
 	CachePath string           // "": DefaultCachePath()
 	Now       func() time.Time // nil: time.Now
 	UserAgent string           // "": "zenvik"
+	Channel   Channel          // where this binary came from; zero: a direct download, asking GitHub
 }
 
 // Result is what a check learned.
@@ -58,6 +59,7 @@ type cacheFile struct {
 	Latest    string    `json:"latest"`
 	URL       string    `json:"url"`
 	Error     string    `json:"error"`
+	Source    string    `json:"source"`
 }
 
 // Check returns the cached result when it is less than 24 hours old,
@@ -85,7 +87,7 @@ func (c *Checker) Force(ctx context.Context, current string) (Result, error) {
 }
 
 func (c *Checker) fetchAndRecord(ctx context.Context, cur Version) (Result, error) {
-	cf := cacheFile{CheckedAt: c.now().UTC()}
+	cf := cacheFile{CheckedAt: c.now().UTC(), Source: c.Channel.sourceKey()}
 	latest, url, err := c.fetch(ctx)
 	switch {
 	case errors.Is(err, context.Canceled) && !errors.Is(context.Cause(ctx), context.DeadlineExceeded):
@@ -116,17 +118,21 @@ func (cf cacheFile) result(cur Version) (Result, error) {
 	return r, nil
 }
 
-// fetch asks the API for the latest release. Its errors are the detail
-// only; callers wrap ErrFetch.
+// fetch asks this channel's source for the latest release. Its errors are
+// the detail only; callers wrap ErrFetch.
 func (c *Checker) fetch(ctx context.Context) (Version, string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(), nil)
-	if err != nil {
-		return Version{}, "", err
+	switch c.Channel.source {
+	case sourceWinget:
+		return c.fetchWinget(ctx)
+	case sourceChocolatey:
+		return c.fetchChocolatey(ctx)
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	req.Header.Set("User-Agent", c.userAgent())
-	resp, err := c.client().Do(req)
+	return c.fetchGitHub(ctx)
+}
+
+// fetchGitHub asks GitHub's releases API for the latest release.
+func (c *Checker) fetchGitHub(ctx context.Context) (Version, string, error) {
+	resp, err := c.get(ctx, githubHeaders)
 	if err != nil {
 		return Version{}, "", err
 	}
@@ -155,9 +161,16 @@ func (c *Checker) client() *http.Client {
 	return &http.Client{Timeout: defaultTimeout}
 }
 
+// url is the endpoint for this channel's source; URL overrides it.
 func (c *Checker) url() string {
 	if c.URL != "" {
 		return c.URL
+	}
+	switch c.Channel.source {
+	case sourceWinget:
+		return wingetContents + wingetDir(c.Channel.pkg)
+	case sourceChocolatey:
+		return chocolateyFeedURL + "FindPackagesById()?id='" + c.Channel.pkg + "'"
 	}
 	return DefaultURL
 }
@@ -180,7 +193,11 @@ func (c *Checker) cachePath() (string, error) {
 	if c.CachePath != "" {
 		return c.CachePath, nil
 	}
-	return DefaultCachePath()
+	dir, err := defaultCacheDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, c.Channel.cacheName()), nil
 }
 
 // readCache returns the cache entry, or false when there is none usable.
@@ -195,6 +212,13 @@ func (c *Checker) readCache() (cacheFile, bool) {
 	}
 	var cf cacheFile
 	if json.Unmarshal(b, &cf) != nil || cf.CheckedAt.IsZero() {
+		return cacheFile{}, false
+	}
+	src := cf.Source
+	if src == "" {
+		src = "github" // written before sources existed
+	}
+	if src != c.Channel.sourceKey() {
 		return cacheFile{}, false
 	}
 	if cf.Error == "" {
@@ -242,17 +266,26 @@ func (c *Checker) writeCache(cf cacheFile) {
 	}
 }
 
-// DefaultCachePath is $XDG_STATE_HOME/zenvik/update-check.json when
-// XDG_STATE_HOME is absolute, else the user cache directory's
-// zenvik/update-check.json (the roots the mount records and the GUI queue
-// already use).
-func DefaultCachePath() (string, error) {
+// defaultCacheDir is $XDG_STATE_HOME/zenvik when XDG_STATE_HOME is
+// absolute, else the user cache directory's zenvik (the roots the mount
+// records and the GUI queue already use).
+func defaultCacheDir() (string, error) {
 	if x := os.Getenv("XDG_STATE_HOME"); filepath.IsAbs(x) {
-		return filepath.Join(x, "zenvik", "update-check.json"), nil
+		return filepath.Join(x, "zenvik"), nil
 	}
 	d, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(d, "zenvik", "update-check.json"), nil
+	return filepath.Join(d, "zenvik"), nil
+}
+
+// DefaultCachePath is the GitHub source's cache file, update-check.json,
+// under defaultCacheDir. Other sources keep their own file beside it.
+func DefaultCachePath() (string, error) {
+	dir, err := defaultCacheDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, Channel{}.cacheName()), nil
 }

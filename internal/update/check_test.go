@@ -73,7 +73,7 @@ func TestCheckFetchesThenUsesCache(t *testing.T) {
 		t.Fatalf("first Check = %+v, %v", r, err)
 	}
 	m := f.readCache(t)
-	if m["latest"] != "v1.3.0" || m["error"] != "" || m["checked_at"] != "2026-10-05T12:00:00Z" {
+	if m["latest"] != "v1.3.0" || m["error"] != "" || m["checked_at"] != "2026-10-05T12:00:00Z" || m["source"] != "github" {
 		t.Errorf("cache = %v", m)
 	}
 	if st, err := os.Stat(f.cache); err == nil && runtime.GOOS != "windows" && st.Mode().Perm() != 0o644 {
