@@ -34,11 +34,20 @@ var noticeWait = 2 * time.Second
 // checkTimeout bounds the background request itself.
 const checkTimeout = 5 * time.Second
 
+// recordGrace is how long print waits, after cancelling a check it stopped
+// waiting for, for the checker to record the failed attempt.
+var recordGrace = 500 * time.Millisecond
+
+// errStoppedWaiting is the cancellation cause print uses; it wraps
+// context.DeadlineExceeded so the checker records the attempt as a failure.
+var errStoppedWaiting = fmt.Errorf("%w: zenvik stopped waiting for the update check", context.DeadlineExceeded)
+
 // updateNotice carries the passive update check from the goroutine the
 // root command's PersistentPreRun starts to run, which prints it after the
 // command has finished.
 type updateNotice struct {
 	started bool
+	cancel  context.CancelCauseFunc
 	result  chan update.Result // one value, Newer false on any failure
 }
 
@@ -52,11 +61,15 @@ func (n *updateNotice) start(cmd *cobra.Command) {
 		return
 	}
 	n.started = true
-	ctx, cancel := context.WithTimeout(cmd.Context(), checkTimeout)
+	tctx, stop := context.WithTimeout(cmd.Context(), checkTimeout)
+	ctx, cancel := context.WithCancelCause(tctx)
+	n.cancel = cancel
 	checker := newUpdateChecker()
+	current := version
 	go func() {
-		defer cancel()
-		r, err := checker.Check(ctx, version)
+		defer stop()
+		defer cancel(nil)
+		r, err := checker.Check(ctx, current)
 		if err != nil {
 			r = update.Result{}
 		}
@@ -103,5 +116,12 @@ func (n *updateNotice) print(w io.Writer) {
 			fmt.Fprintf(w, "zenvik: %s is available (you have %s): %s\n", r.Latest, r.Current, update.LatestPage)
 		}
 	case <-time.After(noticeWait):
+		// Stop the request and let the checker record the attempt, so a
+		// hung network is remembered rather than retried by every command.
+		n.cancel(errStoppedWaiting)
+		select {
+		case <-n.result:
+		case <-time.After(recordGrace):
+		}
 	}
 }

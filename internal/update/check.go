@@ -88,8 +88,10 @@ func (c *Checker) fetchAndRecord(ctx context.Context, cur Version) (Result, erro
 	cf := cacheFile{CheckedAt: c.now().UTC()}
 	latest, url, err := c.fetch(ctx)
 	switch {
-	case errors.Is(err, context.Canceled):
+	case errors.Is(err, context.Canceled) && !errors.Is(context.Cause(ctx), context.DeadlineExceeded):
 		// The caller gave up (Ctrl-C); that says nothing about the network.
+		// A cancellation whose cause wraps DeadlineExceeded is a timeout
+		// and is recorded below.
 		return Result{Current: cur}, fmt.Errorf("%w: %w", ErrFetch, err)
 	case err != nil:
 		cf.Error = err.Error()

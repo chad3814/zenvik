@@ -125,6 +125,9 @@ Behaviour:
   in the same directory, then rename), creating the directory with mode
   0755 and the file with mode 0644. A write failure is ignored: the result
   is still returned, and the next run fetches again.
+- Only a cancellation whose cause is a plain `context.Canceled` (Ctrl-C) is
+  not recorded: it says nothing about the network. A cancellation whose cause
+  wraps `context.DeadlineExceeded` is recorded as a failure like any timeout.
 - A cached failure answers `Check` with the cached error (`ErrFetch` with
   the recorded detail) so callers treat it the same as a live failure.
 
@@ -206,6 +209,11 @@ Rationale for 2 seconds: with a daily cache the wait happens once a day, and
 a fast command such as `info` otherwise exits before the first request
 completes, so a cache would never be written on a machine that only runs
 fast commands.
+
+When the wait expires the CLI cancels the request with a cause wrapping
+`context.DeadlineExceeded` and waits briefly for the attempt to be recorded,
+so a hung network is remembered like any other failure instead of costing
+every later fast command the full wait.
 
 ### `zenvik doctor`
 

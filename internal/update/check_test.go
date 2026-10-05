@@ -268,6 +268,47 @@ func TestCanceledContextIsNotCached(t *testing.T) {
 	}
 }
 
+func TestCancelWithDeadlineCauseIsCached(t *testing.T) {
+	var hits atomic.Int32
+	started := make(chan struct{}, 1)
+	f := newFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		started <- struct{}{}
+		<-r.Context().Done()
+	}))
+	ctx, cancel := context.WithCancelCause(context.Background())
+	go func() { <-started; cancel(fmt.Errorf("%w: gave up", context.DeadlineExceeded)) }()
+	if _, err := f.c.Check(ctx, "v1.2.0"); !errors.Is(err, ErrFetch) {
+		t.Fatalf("Check = %v, want ErrFetch", err)
+	}
+	if m := f.readCache(t); m["error"] == "" {
+		t.Errorf("cache = %v, want the failure recorded", m)
+	}
+	f.now = f.now.Add(time.Hour)
+	if _, err := f.c.Check(context.Background(), "v1.2.0"); !errors.Is(err, ErrFetch) || hits.Load() != 1 {
+		t.Errorf("second Check = %v, requests = %d; want the cached failure and 1 request", err, hits.Load())
+	}
+}
+
+func TestDeadlineExceededIsCached(t *testing.T) {
+	var hits atomic.Int32
+	f := newFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		<-r.Context().Done()
+	}))
+	f.c.Client = &http.Client{Timeout: 50 * time.Millisecond}
+	if _, err := f.c.Check(context.Background(), "v1.2.0"); !errors.Is(err, ErrFetch) {
+		t.Fatalf("Check = %v, want ErrFetch", err)
+	}
+	if m := f.readCache(t); m["error"] == "" {
+		t.Errorf("cache = %v, want the failure recorded", m)
+	}
+	f.now = f.now.Add(time.Hour)
+	if _, err := f.c.Check(context.Background(), "v1.2.0"); !errors.Is(err, ErrFetch) || hits.Load() != 1 {
+		t.Errorf("second Check = %v, requests = %d; want the cached failure and 1 request", err, hits.Load())
+	}
+}
+
 func TestDefaultCachePath(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", dir)

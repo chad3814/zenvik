@@ -28,6 +28,7 @@ func asRelease(t *testing.T) {
 	prev := version
 	version = "v1.2.0"
 	t.Cleanup(func() { version = prev })
+	t.Setenv("ZENVIK_NO_UPDATE_CHECK", "")
 }
 
 func TestUpdateBannerAtLaunch(t *testing.T) {

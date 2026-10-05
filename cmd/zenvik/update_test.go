@@ -119,21 +119,37 @@ func TestUpdateNoticeSkipped(t *testing.T) {
 
 func TestUpdateNoticeDoesNotWaitForASlowServer(t *testing.T) {
 	releaseBuild(t, "v1.3.0")
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		<-r.Context().Done()
+	}))
 	t.Cleanup(srv.Close)
 	cache := filepath.Join(t.TempDir(), "update-check.json")
 	newUpdateChecker = func() *update.Checker {
-		return &update.Checker{URL: srv.URL, CachePath: cache, Client: &http.Client{Timeout: 300 * time.Millisecond}}
+		return &update.Checker{URL: srv.URL, CachePath: cache, Client: srv.Client()}
 	}
 	defer func(d time.Duration) { noticeWait = d }(noticeWait)
 	noticeWait = 50 * time.Millisecond
+	disc := writeDisc(t, testdisc.SampleMovie())
 	start := time.Now()
-	code, _, errOut := runCLI("info", writeDisc(t, testdisc.SampleMovie()))
+	code, _, errOut := runCLI("info", disc)
 	if code != 0 || errOut != "" {
 		t.Errorf("exit %d, stderr %q", code, errOut)
 	}
 	if took := time.Since(start); took > time.Second {
 		t.Errorf("info took %v with a hung update server", took)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("requests after first info = %d, want 1", hits.Load())
+	}
+	// The abandoned attempt was recorded, so the next command does not retry.
+	code, _, errOut = runCLI("info", disc)
+	if code != 0 || errOut != "" {
+		t.Errorf("second info: exit %d, stderr %q", code, errOut)
+	}
+	if hits.Load() != 1 {
+		t.Errorf("requests after second info = %d, want 1 (the timed-out check should be cached)", hits.Load())
 	}
 }
 
