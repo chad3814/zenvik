@@ -43,6 +43,10 @@ check 'cli uploads the Windows zip only as windows-unsigned-cli', cli_up.include
 ws = jobs['windows-sign'] || {}
 check 'windows-sign runs in the release environment', ws['environment'] == 'release', ws['environment'].inspect
 check 'windows-sign needs cli and gui-other', (Array(ws['needs']) & %w[cli gui-other]).size == 2, ws['needs'].inspect
+perm = ws['permissions'] || {}
+check 'windows-sign grants actions: read and contents: read (SignPath reads job details)', perm['actions'] == 'read' && perm['contents'] == 'read', perm.inspect
+ups = steps.call('windows-sign').select { |s| uses.call(s, 'actions/upload-artifact') }
+check 'windows-sign uploads overwrite (a re-run reuses the names)', !ups.empty? && ups.all? { |s| s.dig('with', 'overwrite') == true }, ups.map { |s| s.dig('with', 'name') }.inspect
 check 'windows-sign outputs signed', ws.dig('outputs', 'signed').to_s.include?('steps.mode.outputs.signed'), ws['outputs'].inspect
 sp = steps.call('windows-sign').find { |s| uses.call(s, 'signpath/github-action-submit-signing-request@') }
 check 'the SignPath action is pinned to a commit SHA', !sp.nil? && sp['uses'] =~ /@[0-9a-f]{40}\z/, sp.inspect

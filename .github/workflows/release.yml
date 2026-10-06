@@ -131,6 +131,11 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     timeout-minutes: 300
+    # SignPath's action reads this run's job details and artifact with the
+    # job token.
+    permissions:
+      actions: read
+      contents: read
     outputs:
       signed: ${{ steps.mode.outputs.signed }}
     steps:
@@ -158,6 +163,7 @@ jobs:
         with:
           name: release-windows
           path: unsigned/*.zip
+          overwrite: true
       - if: steps.mode.outputs.mode == 'sign'
         env:
           TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -172,6 +178,7 @@ jobs:
         with:
           name: windows-to-sign
           path: unsigned/*.zip
+          overwrite: true
       - if: steps.mode.outputs.mode == 'sign'
         uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
         with:
@@ -188,6 +195,7 @@ jobs:
         with:
           name: release-windows
           path: signed/*.zip
+          overwrite: true
 
   # Always runs (publish needs it): the Windows binaries must run, and when
   # windows-sign signed them, carry valid SignPath Foundation signatures.
