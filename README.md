@@ -259,3 +259,11 @@ the image mounted or a `.partial` file behind. To remove a leftover mount:
 - Windows: `Dismount-DiskImage -ImagePath <image>`.
 
 Then run `zenvik doctor`, which shows how to remove the mount's record.
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- **What's signed:** `zenvik.exe` and `zenvik-gui.exe` in each final release's Windows downloads, built by this repository's GitHub Actions release workflow from the tagged source. The bundled `mkvmerge.exe` is MKVToolNix's own build, included unchanged and not signed by this project.
+- **Team roles:** Chad Walker ([@chad3814](https://github.com/chad3814)): committer and author, reviewer, approver. Every signing request is approved by hand.
+- **Privacy:** zenvik and the Zenvik app send nothing about you, your files or your discs. Once a day they ask for the latest version number (the request carries the program's version in its User-Agent): from GitHub's API (`api.github.com/repos/chad3814/zenvik/releases/latest`), or, for winget and Chocolatey installs, from that package manager's own listing (winget's manifest folder on GitHub, or Chocolatey's community feed). `update_check = false` in the config file, or the `ZENVIK_NO_UPDATE_CHECK` environment variable, turns this off. Nothing else connects to the network unless you ask it to.

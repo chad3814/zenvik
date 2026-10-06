@@ -27,10 +27,13 @@ jobs:
           done
       - uses: actions/upload-artifact@v4
         with:
-          name: cli
-          path: |
-            dist/*.tar.gz
-            dist/*.zip
+          name: release-cli
+          path: dist/*.tar.gz
+      # The Windows zip goes through windows-sign before publish.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-unsigned-cli
+          path: dist/*.zip
 
   cli-darwin:
     runs-on: macos-latest
@@ -52,7 +55,7 @@ jobs:
         run: scripts/release-build.sh "$GITHUB_REF_NAME" darwin/arm64 darwin/amd64
       - uses: actions/upload-artifact@v4
         with:
-          name: cli-darwin
+          name: release-cli-darwin
           path: dist/*.tar.gz
 
   gui-darwin:
@@ -85,7 +88,7 @@ jobs:
         run: scripts/release-gui.sh "$GITHUB_REF_NAME" "${{ matrix.target }}"
       - uses: actions/upload-artifact@v4
         with:
-          name: gui-darwin-${{ strategy.job-index }}
+          name: release-gui-darwin-${{ strategy.job-index }}
           path: dist/zenvik-gui_*
 
   gui-other:
@@ -93,8 +96,8 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - { os: windows-latest, target: windows/amd64 }
-          - { os: ubuntu-latest, target: linux/amd64 }
+          - { os: windows-latest, target: windows/amd64, artifact: windows-unsigned-gui }
+          - { os: ubuntu-latest, target: linux/amd64, artifact: release-gui-linux }
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -115,16 +118,123 @@ jobs:
       - run: scripts/release-gui.sh "$GITHUB_REF_NAME" "${{ matrix.target }}"
       - uses: actions/upload-artifact@v4
         with:
-          name: gui-other-${{ strategy.job-index }}
+          name: ${{ matrix.artifact }}
           path: dist/zenvik-gui_*
 
+  # Windows code signing (SignPath Foundation): final releases only, once the
+  # repository variable SIGNPATH_ORGANIZATION_ID is set; otherwise the zips
+  # pass through unsigned. Signing waits for a person to approve the request
+  # in SignPath (up to 4 hours). Only this job reads SIGNPATH_API_TOKEN. See
+  # signing/README.md.
+  windows-sign:
+    needs: [cli, gui-other]
+    runs-on: ubuntu-latest
+    environment: release
+    timeout-minutes: 300
+    outputs:
+      signed: ${{ steps.mode.outputs.signed }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - id: mode
+        env:
+          ORG: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+        run: |
+          mode=$(scripts/windows-sign-mode.sh "$GITHUB_REF_NAME" "$ORG")
+          echo "mode=$mode" >>"$GITHUB_OUTPUT"
+          if [[ $mode == sign ]]; then
+            echo "signed=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >>"$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: windows-unsigned-*
+          path: unsigned
+          merge-multiple: true
+      - if: steps.mode.outputs.mode == 'pass'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: unsigned/*.zip
+      - if: steps.mode.outputs.mode == 'sign'
+        env:
+          TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          if [[ -z $TOKEN ]]; then
+            echo "SIGNPATH_ORGANIZATION_ID is set but the release environment has no SIGNPATH_API_TOKEN" >&2
+            exit 1
+          fi
+      - if: steps.mode.outputs.mode == 'sign'
+        id: to-sign
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-to-sign
+          path: unsigned/*.zip
+      - if: steps.mode.outputs.mode == 'sign'
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: zenvik
+          signing-policy-slug: release-signing
+          github-artifact-id: ${{ steps.to-sign.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 14400
+          output-artifact-directory: signed
+      - if: steps.mode.outputs.mode == 'sign'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: signed/*.zip
+
+  # Always runs (publish needs it): the Windows binaries must run, and when
+  # windows-sign signed them, carry valid SignPath Foundation signatures.
+  windows-sign-check:
+    needs: windows-sign
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: release-windows
+          path: ${{ runner.temp }}/win
+      - name: The Windows binaries run, and are signed when signing ran
+        env:
+          SIGNED: ${{ needs.windows-sign.outputs.signed }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = "$env:RUNNER_TEMP\win"
+          Get-ChildItem $root -Filter *.zip | ForEach-Object { Expand-Archive $_.FullName -DestinationPath "$root\x" -Force }
+          $cli = Get-ChildItem "$root\x" -Recurse -Filter zenvik.exe | Select-Object -First 1
+          $gui = Get-ChildItem "$root\x" -Recurse -Filter zenvik-gui.exe | Select-Object -First 1
+          $mk = @(Get-ChildItem "$root\x" -Recurse -Filter mkvmerge.exe)
+          if (-not $cli -or -not $gui -or $mk.Count -ne 2) { throw "missing files: zenvik.exe=$cli zenvik-gui.exe=$gui mkvmerge.exe count=$($mk.Count)" }
+          $out = (& $cli.FullName --version) -join "`n"
+          if ($LASTEXITCODE -ne 0 -or $out -notlike 'zenvik v*') { throw "zenvik --version printed: $out" }
+          if ($env:SIGNED -eq 'true') {
+            foreach ($f in $cli, $gui) {
+              $s = Get-AuthenticodeSignature $f.FullName
+              if ($s.Status -ne 'Valid') { throw "$($f.Name): signature status $($s.Status)" }
+              if ($s.SignerCertificate.Subject -notmatch 'SignPath Foundation') { throw "$($f.Name): signed by $($s.SignerCertificate.Subject)" }
+              Write-Host "$($f.Name): signed by $($s.SignerCertificate.Subject)"
+            }
+          } else {
+            Write-Host 'not signed this release (a pre-release, or SignPath is not configured)'
+          }
+          Write-Host 'windows-sign-check: all checks passed'
+
   publish:
-    needs: [cli, cli-darwin, gui-darwin, gui-other]
+    needs: [cli, cli-darwin, gui-darwin, gui-other, windows-sign, windows-sign-check]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v5
         with:
+          pattern: release-*
           path: dist
           merge-multiple: true
       - run: cd dist && sha256sum ./*.tar.gz ./*.zip ./*.dmg | sed 's| \./| |' > SHA256SUMS && cat SHA256SUMS
