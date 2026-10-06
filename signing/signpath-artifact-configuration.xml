@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SignPath artifact configuration for zenvik (project "zenvik", default
+     configuration). Paste it into SignPath; keep this copy in sync.
+     The outer zip-file is the GitHub artifact windows-sign uploads (the two
+     release zips at its root). mkvmerge.exe is MKVToolNix's own build and is
+     deliberately not listed, so it passes through unsigned. -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <zip-file path="zenvik_*_windows_amd64.zip">
+      <directory path="zenvik_*_windows_amd64">
+        <pe-file path="zenvik.exe">
+          <authenticode-sign />
+        </pe-file>
+      </directory>
+    </zip-file>
+    <zip-file path="zenvik-gui_*_windows_amd64.zip">
+      <directory path="zenvik-gui_*_windows_amd64">
+        <pe-file path="zenvik-gui.exe">
+          <authenticode-sign />
+        </pe-file>
+      </directory>
+    </zip-file>
+  </zip-file>
+</artifact-configuration>
