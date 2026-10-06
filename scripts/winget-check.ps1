@@ -21,8 +21,16 @@ function Run { $cmd = $args[0]; $rest = @($args | Select-Object -Skip 1); & $cmd
 Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
 Install-Module Microsoft.WinGet.Client -Scope AllUsers -Force -AllowClobber
 Import-Module Microsoft.WinGet.Client
-Repair-WinGetPackageManager -Latest -Force
-if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { throw 'winget is not on PATH after Repair-WinGetPackageManager' }
+# Repair-WinGetPackageManager looks winget up on GitHub's API; callers pass
+# GITHUB_TOKEN so the shared runner IP's anonymous rate limit doesn't apply.
+# If the update still fails, carry on with the runner's own winget: validation
+# warnings are tolerated below, and uninstalls go by manifest.
+try {
+  Repair-WinGetPackageManager -Latest -Force
+} catch {
+  Write-Warning "couldn't update winget ($($_.Exception.Message)); using the runner's winget"
+}
+if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { throw 'winget is not on PATH' }
 Run winget --version
 Run winget settings --enable LocalManifestFiles
 $ver = $Version

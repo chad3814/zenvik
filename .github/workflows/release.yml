@@ -452,6 +452,9 @@ jobs:
   winget-check:
     needs: winget-render
     runs-on: windows-latest
+    # It runs third-party code (the WinGet module, winget) with this token.
+    permissions:
+      contents: read
     defaults:
       run:
         shell: pwsh
@@ -464,6 +467,8 @@ jobs:
           name: winget
           path: ${{ runner.temp }}/winget
       - name: Validate, install, check and uninstall both packages
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/winget-check.ps1 -Manifests "$env:RUNNER_TEMP\winget\manifests\c\chad3814" -Version ("$env:GITHUB_REF_NAME".TrimStart('v'))
 
   winget-submit:

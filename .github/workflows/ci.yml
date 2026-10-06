@@ -127,6 +127,9 @@ jobs:
     # Runs the release's winget check on the latest published release's
     # manifests, so a change to it is proven before a tag depends on it.
     runs-on: windows-latest
+    # It runs third-party code (the WinGet module, winget) with this token.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v5
       - name: Render the latest release's winget manifests
@@ -139,4 +142,6 @@ jobs:
           scripts/winget-render.sh "$tag" "$RUNNER_TEMP/winget"
       - name: winget-check.ps1
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/winget-check.ps1 -Manifests "$env:RUNNER_TEMP\winget\manifests\c\chad3814" -Version ("$env:TAG".TrimStart('v'))
