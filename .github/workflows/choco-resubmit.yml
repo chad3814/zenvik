@@ -1,0 +1,76 @@
+# Resubmit an existing release's Chocolatey packages after a moderator sent
+# them back: render both from this branch's scripts/choco-render.sh for the
+# given tag, prove them on Windows with scripts/choco-check.ps1, then push
+# both again with scripts/choco-push.ps1 -Resubmit. Start it from main:
+#
+#   gh workflow run choco-resubmit.yml -f tag=v1.3.0
+#
+# The push reads CHOCO_API_KEY from the release environment, which allows
+# runs from main as well as from v* tags.
+name: choco-resubmit
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag whose packages to resubmit (vX.Y.Z)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - run: scripts/choco-render.sh "${{ inputs.tag }}" choco
+      - uses: actions/upload-artifact@v4
+        with:
+          name: choco
+          path: choco
+
+  check:
+    needs: render
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v5
+        with:
+          name: choco
+          path: ${{ runner.temp }}/choco
+      - name: Pack, install, check and uninstall both packages
+        run: ./scripts/choco-check.ps1 -Source "$env:RUNNER_TEMP\choco" -Version ("${{ inputs.tag }}".TrimStart('v')) -Nupkg "$env:RUNNER_TEMP\nupkg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nupkg
+          path: ${{ runner.temp }}/nupkg/*.nupkg
+
+  push:
+    needs: check
+    runs-on: windows-latest
+    environment: release
+    concurrency: { group: choco-push, cancel-in-progress: false }
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v5
+        with:
+          name: nupkg
+          path: ${{ runner.temp }}/nupkg
+      - name: Resubmit both packages to the Chocolatey community feed
+        env:
+          CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
+        run: ./scripts/choco-push.ps1 -Nupkg "$env:RUNNER_TEMP\nupkg" -Version ("${{ inputs.tag }}".TrimStart('v')) -Resubmit
