@@ -7,24 +7,24 @@ on:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.13.2
 
   test:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-26.04, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - run: go vet ./...
@@ -36,8 +36,8 @@ jobs:
   integration-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - run: brew install mkvtoolnix ffmpeg dvdauthor
@@ -45,10 +45,10 @@ jobs:
       - run: go test -tags integration ./...
 
   integration-linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - run: sudo apt-get update && sudo apt-get install -y mkvtoolnix ffmpeg dvdauthor
@@ -61,18 +61,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [macos-latest, ubuntu-26.04, windows-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: gui/go.mod
           cache-dependency-path: gui/go.sum
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version-file: gui/frontend/.nvmrc
           cache: npm
@@ -110,7 +110,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - run: scripts/fetch-mkvmerge_test.sh
       - run: scripts/make-dmg_test.sh
       - run: scripts/fetch-mkvmerge.sh "${{ matrix.target }}" "$RUNNER_TEMP/mtx"
@@ -131,7 +131,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Render the latest release's winget manifests
         shell: bash
         env:

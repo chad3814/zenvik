@@ -9,10 +9,10 @@ permissions:
 
 jobs:
   cli:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - run: go vet ./...
@@ -25,12 +25,12 @@ jobs:
           for f in mkvmerge.exe MKVTOOLNIX-NOTICE.txt MKVTOOLNIX-COPYING.txt; do
             grep -q "/$f\$" <<<"$list" || { echo "missing $f"; exit 1; }
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-cli
           path: dist/*.tar.gz
       # The Windows zip goes through windows-sign before publish.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-unsigned-cli
           path: dist/*.zip
@@ -39,8 +39,8 @@ jobs:
     runs-on: macos-latest
     environment: release
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - name: Build, sign and notarize the darwin CLI
@@ -53,7 +53,7 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
         run: scripts/release-build.sh "$GITHUB_REF_NAME" darwin/arm64 darwin/amd64
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-cli-darwin
           path: dist/*.tar.gz
@@ -66,12 +66,12 @@ jobs:
     runs-on: macos-latest
     environment: release
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: gui/go.mod
           cache-dependency-path: gui/go.sum
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version-file: gui/frontend/.nvmrc
           cache: npm
@@ -86,7 +86,7 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
         run: scripts/release-gui.sh "$GITHUB_REF_NAME" "${{ matrix.target }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-gui-darwin-${{ strategy.job-index }}
           path: dist/zenvik-gui_*
@@ -97,18 +97,18 @@ jobs:
       matrix:
         include:
           - { os: windows-latest, target: windows/amd64, artifact: windows-unsigned-gui }
-          - { os: ubuntu-latest, target: linux/amd64, artifact: release-gui-linux }
+          - { os: ubuntu-26.04, target: linux/amd64, artifact: release-gui-linux }
     runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: gui/go.mod
           cache-dependency-path: gui/go.sum
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version-file: gui/frontend/.nvmrc
           cache: npm
@@ -116,7 +116,7 @@ jobs:
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
       - run: scripts/release-gui.sh "$GITHUB_REF_NAME" "${{ matrix.target }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: dist/zenvik-gui_*
@@ -128,7 +128,7 @@ jobs:
   # signing/README.md.
   windows-sign:
     needs: [cli, gui-other]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment: release
     timeout-minutes: 300
     # SignPath's action reads this run's job details and artifact with the
@@ -139,7 +139,7 @@ jobs:
     outputs:
       signed: ${{ steps.mode.outputs.signed }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - id: mode
@@ -153,13 +153,13 @@ jobs:
           else
             echo "signed=false" >>"$GITHUB_OUTPUT"
           fi
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           pattern: windows-unsigned-*
           path: unsigned
           merge-multiple: true
       - if: steps.mode.outputs.mode == 'pass'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-windows
           path: unsigned/*.zip
@@ -174,7 +174,7 @@ jobs:
           fi
       - if: steps.mode.outputs.mode == 'sign'
         id: to-sign
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-to-sign
           path: unsigned/*.zip
@@ -191,7 +191,7 @@ jobs:
           wait-for-completion-timeout-in-seconds: 14400
           output-artifact-directory: signed
       - if: steps.mode.outputs.mode == 'sign'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-windows
           path: signed/*.zip
@@ -206,7 +206,7 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: release-windows
           path: ${{ runner.temp }}/win
@@ -237,10 +237,10 @@ jobs:
 
   publish:
     needs: [cli, cli-darwin, gui-darwin, gui-other, windows-sign, windows-sign-check]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v5
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: release-*
           path: dist
@@ -264,11 +264,11 @@ jobs:
   homebrew-render:
     if: ${{ !contains(github.ref_name, '-') }}
     needs: publish
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - run: scripts/homebrew-render.sh "$GITHUB_REF_NAME" homebrew
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: homebrew
           path: homebrew
@@ -280,12 +280,12 @@ jobs:
       matrix:
         include:
           - { os: macos-latest, args: "" }
-          - { os: ubuntu-latest, args: "--formula-only" }
+          - { os: ubuntu-26.04, args: "--formula-only" }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: Homebrew/actions/setup-homebrew@main
       - run: git clone --depth 1 https://github.com/chad3814/homebrew-tap.git "$RUNNER_TEMP/tap"
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: homebrew
           path: ${{ runner.temp }}/rendered
@@ -295,14 +295,14 @@ jobs:
 
   homebrew-push:
     needs: homebrew-check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment: release
     concurrency: { group: homebrew-tap-push, cancel-in-progress: false }
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: homebrew
           path: ${{ runner.temp }}/rendered
@@ -350,13 +350,13 @@ jobs:
   scoop-render:
     if: ${{ !contains(github.ref_name, '-') }}
     needs: publish
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - run: scripts/scoop-render.sh "$GITHUB_REF_NAME" scoop
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: scoop
           path: scoop
@@ -373,7 +373,7 @@ jobs:
           iex "& {$(irm get.scoop.sh)} -RunAsAdmin"
           "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - run: git clone --depth 1 https://github.com/chad3814/scoop-bucket.git "$env:RUNNER_TEMP\bucket"
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: scoop
           path: ${{ runner.temp }}/rendered
@@ -384,14 +384,14 @@ jobs:
 
   scoop-push:
     needs: scoop-check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment: release
     concurrency: { group: scoop-bucket-push, cancel-in-progress: false }
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: scoop
           path: ${{ runner.temp }}/rendered
@@ -438,13 +438,13 @@ jobs:
   winget-render:
     if: ${{ !contains(github.ref_name, '-') }}
     needs: publish
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - run: scripts/winget-render.sh "$GITHUB_REF_NAME" winget
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: winget
           path: winget
@@ -459,10 +459,10 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: winget
           path: ${{ runner.temp }}/winget
@@ -473,14 +473,14 @@ jobs:
 
   winget-submit:
     needs: winget-check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment: release
     concurrency: { group: winget-submit, cancel-in-progress: false }
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: winget
           path: ${{ runner.temp }}/winget
@@ -494,13 +494,13 @@ jobs:
   choco-render:
     if: ${{ !contains(github.ref_name, '-') }}
     needs: publish
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - run: scripts/choco-render.sh "$GITHUB_REF_NAME" choco
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: choco
           path: choco
@@ -512,16 +512,16 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: choco
           path: ${{ runner.temp }}/choco
       - name: Pack, install, check and uninstall both packages
         run: ./scripts/choco-check.ps1 -Source "$env:RUNNER_TEMP\choco" -Version ("$env:GITHUB_REF_NAME".TrimStart('v')) -Nupkg "$env:RUNNER_TEMP\nupkg"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: nupkg
           path: ${{ runner.temp }}/nupkg/*.nupkg
@@ -535,10 +535,10 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: nupkg
           path: ${{ runner.temp }}/nupkg

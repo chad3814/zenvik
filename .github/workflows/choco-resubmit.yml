@@ -22,13 +22,13 @@ permissions:
 
 jobs:
   render:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - run: scripts/choco-render.sh "${{ inputs.tag }}" choco
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: choco
           path: choco
@@ -40,16 +40,16 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: choco
           path: ${{ runner.temp }}/choco
       - name: Pack, install, check and uninstall both packages
         run: ./scripts/choco-check.ps1 -Source "$env:RUNNER_TEMP\choco" -Version ("${{ inputs.tag }}".TrimStart('v')) -Nupkg "$env:RUNNER_TEMP\nupkg"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: nupkg
           path: ${{ runner.temp }}/nupkg/*.nupkg
@@ -63,10 +63,10 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: nupkg
           path: ${{ runner.temp }}/nupkg
