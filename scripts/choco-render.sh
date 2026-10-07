@@ -9,7 +9,9 @@
 # release's SHA256SUMS), and unpacks it; the bundled mkvmerge.exe gets no
 # shim, and the app gets a windowed shim and a Start-menu shortcut. Nothing
 # in <outdir> changes unless both render. Downloads come from
-# ZENVIK_RELEASE_BASE_URL (default the GitHub repo).
+# ZENVIK_RELEASE_BASE_URL (default the GitHub repo). The icon is served by
+# jsDelivr at the tag (the community repository rejects
+# raw.githubusercontent.com), and <copyright> comes from LICENSE.
 set -euo pipefail
 
 if [[ $# -ne 2 ]]; then
@@ -25,7 +27,12 @@ fi
 ver=${tag#v}
 base=${ZENVIK_RELEASE_BASE_URL:-https://github.com/chad3814/zenvik}
 repo=https://github.com/chad3814/zenvik
+here=$(cd "$(dirname "$0")" && pwd)
 die() { echo "choco-render: $*" >&2; exit 1; }
+
+# The nuspec's <copyright> is LICENSE's own line, so the year never goes
+# stale here.
+copyright=$(grep -m1 '^Copyright' "$here/../LICENSE") || die "LICENSE has no Copyright line"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -60,7 +67,8 @@ nuspec() { # nuspec ID TITLE SUMMARY DESCRIPTION FILE
     <authors>Chad Walker</authors>
     <owners>chad3814</owners>
     <projectUrl>@@REPO@@</projectUrl>
-    <iconUrl>https://raw.githubusercontent.com/chad3814/zenvik/main/gui/build/appicon.png</iconUrl>
+    <iconUrl>https://cdn.jsdelivr.net/gh/chad3814/zenvik@@@TAG@@/gui/build/appicon.png</iconUrl>
+    <copyright>@@COPYRIGHT@@</copyright>
     <licenseUrl>@@REPO@@/blob/main/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <projectSourceUrl>@@REPO@@</projectSourceUrl>
@@ -77,7 +85,7 @@ nuspec() { # nuspec ID TITLE SUMMARY DESCRIPTION FILE
   </files>
 </package>
 EOF
-	fill "$5" "ID=$1" "VER=$ver" "TITLE=$2" "REPO=$repo" "TAG=$tag" "SUMMARY=$3" "DESCRIPTION=$4"
+	fill "$5" "ID=$1" "VER=$ver" "TITLE=$2" "REPO=$repo" "TAG=$tag" "COPYRIGHT=$copyright" "SUMMARY=$3" "DESCRIPTION=$4"
 }
 
 install_ps1() { # install_ps1 FILE ZIPBASE HASH

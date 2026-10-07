@@ -41,6 +41,14 @@ contains "CLI version" "$out/zenvik/zenvik.nuspec" "<version>9.9.9</version>"
 contains "packageSourceUrl" "$out/zenvik/zenvik.nuspec" "<packageSourceUrl>https://github.com/chad3814/zenvik/blob/main/scripts/choco-render.sh</packageSourceUrl>"
 contains "authors" "$out/zenvik/zenvik.nuspec" "<authors>Chad Walker</authors>"
 contains "GUI id" "$out/zenvik-gui/zenvik-gui.nuspec" "<id>zenvik-gui</id>"
+# The moderators reject raw.githubusercontent.com icons; jsDelivr serves the
+# repo at the tag, so each release's icon is pinned.
+contains "CLI icon from the jsDelivr CDN at the tag" "$out/zenvik/zenvik.nuspec" "<iconUrl>https://cdn.jsdelivr.net/gh/chad3814/zenvik@v9.9.9/gui/build/appicon.png</iconUrl>"
+contains "GUI icon from the jsDelivr CDN at the tag" "$out/zenvik-gui/zenvik-gui.nuspec" "<iconUrl>https://cdn.jsdelivr.net/gh/chad3814/zenvik@v9.9.9/gui/build/appicon.png</iconUrl>"
+copyright=$(grep -m1 '^Copyright' "$here/../LICENSE")
+contains "CLI copyright is LICENSE's line" "$out/zenvik/zenvik.nuspec" "<copyright>$copyright</copyright>"
+contains "GUI copyright is LICENSE's line" "$out/zenvik-gui/zenvik-gui.nuspec" "<copyright>$copyright</copyright>"
+if grep -rq 'raw.githubusercontent.com' "$out"; then bad "no raw.githubusercontent.com URLs"; else ok "no raw.githubusercontent.com URLs"; fi
 I="$out/zenvik/tools/chocolateyinstall.ps1"
 GI="$out/zenvik-gui/tools/chocolateyinstall.ps1"
 contains "CLI url" "$I" "https://github.com/chad3814/zenvik/releases/download/v9.9.9/zenvik_9.9.9_windows_amd64.zip"
